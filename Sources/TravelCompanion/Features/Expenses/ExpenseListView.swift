@@ -148,6 +148,9 @@ struct ExpenseListView: View {
                 Button("刷新") { Task { await syncEngine.retry() } }.font(.caption.weight(.semibold))
             }
             .font(.caption).foregroundStyle(.orange)
+        case .localOnly:
+            Label("本地模式·登录后可同步", systemImage: "person.crop.circle.badge.questionmark")
+                .font(.caption).foregroundStyle(.secondary)
         case .offline(let message), .failed(let message):
             HStack(alignment: .top) {
                 Label(message, systemImage: "wifi.exclamationmark")

@@ -28,6 +28,10 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Sources/TravelCompanion/Supporting/TravelCompanion.entitlements
         TARGETED_DEVICE_FAMILY: "1"
       configs:
+        Debug:
+          CODE_SIGN_STYLE: Automatic
+          CODE_SIGN_IDENTITY: "Apple Development"
+          DEVELOPMENT_TEAM: 9Z29478796
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: "Apple Distribution"
@@ -50,6 +54,9 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Sources/TravelCompanionShareExtension/TravelCompanionShareExtension.entitlements
         TARGETED_DEVICE_FAMILY: "1"
       configs:
+        Debug:
+          CODE_SIGN_STYLE: Automatic
+          DEVELOPMENT_TEAM: 9Z29478796
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: "Apple Distribution"

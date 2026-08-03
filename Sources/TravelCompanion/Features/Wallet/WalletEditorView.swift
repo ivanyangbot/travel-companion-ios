@@ -108,7 +108,7 @@ struct WalletEditorView: View {
             Label("拍照录入", systemImage: "doc.viewfinder")
                 .frame(maxWidth: .infinity)
         }
-        .disabled(isScanning || syncEngine.apiBaseURLText.isEmpty)
+        .disabled(isScanning || syncEngine.apiBaseURLText.isEmpty || !syncEngine.isUserAuthenticated)
     }
 
     private var canSave: Bool {

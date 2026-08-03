@@ -5,17 +5,123 @@ actor APIClient {
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    /// Reads the current access token from the device keychain on each call so
+    /// a token saved by ``AppleSignInStore`` is picked up without rebuilding
+    /// the client. ``nil`` means "no authenticated user yet" — requests that
+    /// require auth are expected to be skipped by the caller in that case.
+    private let tokenProvider: () -> String?
+    private var activeTripID: Int?
 
-    init(baseURL: URL? = AppConfiguration.apiBaseURL(), session: URLSession = .shared) {
+    init(baseURL: URL? = AppConfiguration.apiBaseURL(), session: URLSession = .shared, keychain: KeychainStore = KeychainStore()) {
         self.baseURL = baseURL
         self.session = session
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
+        // Capture the keychain by value-friendly closure; KeychainStore is a
+        // lightweight struct that reads from the Security framework each call.
+        self.tokenProvider = { (try? keychain.accessToken()) ?? nil }
+        self.activeTripID = nil
     }
 
-    func fetchTrip(afterVersion: Int?) async throws -> SharedTripSnapshot? {
+    /// Convenience initializer for tests or callers that already hold a token.
+    init(baseURL: URL?, session: URLSession, tokenProvider: @escaping () -> String?) {
+        self.baseURL = baseURL
+        self.session = session
+        self.encoder = JSONEncoder()
+        self.encoder.dateEncodingStrategy = .iso8601
+        self.decoder = JSONDecoder()
+        self.decoder.dateDecodingStrategy = .iso8601
+        self.tokenProvider = tokenProvider
+        self.activeTripID = nil
+    }
+
+    /// The current access token, or `nil` when the user is not signed in.
+    var accessToken: String? { tokenProvider() }
+
+    /// Whether the client currently has a bearer token to attach.
+    var isAuthenticated: Bool { tokenProvider() != nil }
+
+    /// Attaches the `Authorization: Bearer <token>` header when a token is
+    /// available. The auth endpoint itself does not need it, but every other
+    /// trip/journal/AI endpoint does once the user is signed in.
+    func setActiveTripID(_ tripID: Int?) {
+        activeTripID = tripID
+    }
+
+    private func authorize(_ request: inout URLRequest, tripID: Int? = nil) {
+        if let token = tokenProvider() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let tripID = tripID ?? activeTripID {
+            request.setValue(String(tripID), forHTTPHeaderField: "X-Trip-ID")
+        }
+    }
+
+    func signInWithApple(identityToken: String, fullName: String?) async throws -> AppleSignInResult {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/auth/apple"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(AppleSignInRequest(identityToken: identityToken, fullName: fullName))
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<AppleSignInResult>.self, from: data).data
+    }
+
+    func fetchTrips() async throws -> [TripSummary] {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/trips"))
+        request.httpMethod = "GET"
+        authorize(&request)
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<[TripSummary]>.self, from: data).data
+    }
+
+    func createTrip(_ requestBody: TripPatchRequest) async throws -> TripSummary {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/trips"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&request)
+        request.httpBody = try encoder.encode(requestBody)
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<TripSummary>.self, from: data).data
+    }
+
+    func createInvite(for tripID: Int, expiresInHours: Int? = nil) async throws -> TripInvite {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/trips/\(tripID)/invites"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&request, tripID: tripID)
+        request.httpBody = try encoder.encode(TripInviteRequest(expiresInHours: expiresInHours))
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<TripInvite>.self, from: data).data
+    }
+
+    func joinTrip(inviteToken: String) async throws -> TripSummary {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/trips/join"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&request)
+        request.httpBody = try encoder.encode(TripJoinRequest(token: inviteToken))
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<TripSummary>.self, from: data).data
+    }
+
+    func fetchTrip(id: Int, afterVersion: Int?) async throws -> SharedTripSnapshot? {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var components = URLComponents(url: baseURL.appending(path: "/v1/trip"), resolvingAgainstBaseURL: false)!
         if let afterVersion {
@@ -23,6 +129,7 @@ actor APIClient {
         }
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
+        authorize(&request, tripID: id)
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         if httpResponse.statusCode == 204 { return nil }
@@ -35,6 +142,7 @@ actor APIClient {
         var request = URLRequest(url: baseURL.appending(path: "/v1/routes/estimate"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&request)
         request.httpBody = try encoder.encode(routeRequest)
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -42,13 +150,14 @@ actor APIClient {
         return try decoder.decode(APIEnvelope<RouteEstimate>.self, from: data).data
     }
 
-    func send(_ operation: PendingOperationPayload) async throws -> APIMeta {
+    func send(_ operation: PendingOperationPayload, tripID: Int) async throws -> APIMeta {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: operation.path))
         request.httpMethod = operation.method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(operation.idempotencyKey.uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
         request.setValue(String(operation.baseVersion), forHTTPHeaderField: "X-Expected-Trip-Version")
+        authorize(&request, tripID: tripID)
         request.httpBody = operation.body
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -61,6 +170,7 @@ actor APIClient {
         var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/itinerary-chat"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&urlRequest)
         urlRequest.httpBody = try encoder.encode(request)
         let (data, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -80,6 +190,7 @@ actor APIClient {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        authorize(&urlRequest)
         urlRequest.httpBody = try encoder.encode(request)
         // Long generations plus per-card server-side place verification can
         // run for minutes; the server streams heartbeats to hold the line.
@@ -183,6 +294,7 @@ actor APIClient {
         var request = URLRequest(url: baseURL.appending(path: "/v1/ai/link-import"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&request)
         request.httpBody = try encoder.encode(linkRequest)
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -197,6 +309,7 @@ actor APIClient {
         var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/memo-assist"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&urlRequest)
         urlRequest.httpBody = try encoder.encode(request)
         let (data, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -211,6 +324,7 @@ actor APIClient {
         var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/wallet-card-scan"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&urlRequest)
         urlRequest.httpBody = try encoder.encode(request)
         let (data, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -225,6 +339,7 @@ actor APIClient {
         var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/expense-drafts"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&urlRequest)
         urlRequest.httpBody = try encoder.encode(request)
         let (data, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -240,6 +355,7 @@ actor APIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        authorize(&request)
         request.httpBody = try encoder.encode(payload)
         request.timeoutInterval = 100
         let finalRequest = request
@@ -291,6 +407,7 @@ actor APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(idempotencyKey.uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
         request.setValue(String(payload.expectedTripVersion), forHTTPHeaderField: "X-Expected-Trip-Version")
+        authorize(&request)
         request.httpBody = try encoder.encode(payload)
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -372,6 +489,7 @@ actor APIClient {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         if let body { request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = body }
+        authorize(&request)
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         try validate(response: httpResponse, data: data)

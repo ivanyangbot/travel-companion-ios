@@ -5,6 +5,24 @@ struct APIEnvelope<Value: Decodable>: Decodable {
     let meta: APIMeta?
 }
 
+struct AppleSignInRequest: Encodable, Sendable {
+    let identityToken: String
+    let fullName: String?
+}
+
+struct AppleSignInResult: Decodable, Sendable {
+    struct User: Decodable, Sendable {
+        let id: Int
+        let displayName: String?
+        let email: String?
+    }
+
+    let accessToken: String
+    let expiresIn: Int
+    let user: User
+    let isNewUser: Bool
+}
+
 struct APIWriteResponse: Decodable {
     let meta: APIMeta
 }
@@ -21,6 +39,41 @@ struct TripPatchRequest: Encodable, Sendable {
     var startDate: String?
     var endDate: String?
     var currency: String?
+}
+
+struct TripInvite: Decodable, Sendable {
+    let id: Int
+    let token: String
+    let revoked: Bool
+    let createdAt: Date
+    let expiresAt: Date?
+}
+
+struct TripInviteRequest: Encodable, Sendable {
+    let expiresInHours: Int?
+}
+
+struct TripJoinRequest: Encodable, Sendable {
+    let token: String
+}
+
+struct TripSummary: Decodable, Sendable, Identifiable, Equatable {
+    let id: Int
+    let destination: String?
+    let startDate: String?
+    let endDate: String?
+    let currency: String?
+    let version: Int
+    let updatedAt: Date
+    let role: String
+    let joinedAt: Date
+
+    var canShare: Bool { role == "owner" }
+
+    var displayName: String {
+        let destination = destination?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (destination?.isEmpty == false ? destination : nil) ?? "未命名旅程"
+    }
 }
 
 struct DayRequest: Encodable, Sendable {

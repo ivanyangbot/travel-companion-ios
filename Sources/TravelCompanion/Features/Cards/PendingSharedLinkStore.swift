@@ -9,16 +9,22 @@ final class PendingSharedLinkStore: ObservableObject {
     static let hostScheme = "travelcompanion"
 
     @Published private(set) var pendingURL: URL?
+    @Published private(set) var pendingInviteToken: String?
 
     init() {
         consumeStoredURL()
     }
 
     func receiveHostURL(_ url: URL) {
-        guard url.scheme?.lowercased() == Self.hostScheme,
-              url.host?.lowercased() == "import",
-              URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.isEmpty != false else { return }
-        consumeStoredURL()
+        guard url.scheme?.lowercased() == Self.hostScheme else { return }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        if url.host?.lowercased() == "import", components?.queryItems?.isEmpty != false {
+            consumeStoredURL()
+        } else if url.host?.lowercased() == "join",
+                  let token = components?.queryItems?.first(where: { $0.name == "token" })?.value,
+                  !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pendingInviteToken = token
+        }
     }
 
     func consumeStoredURL() {
@@ -30,6 +36,10 @@ final class PendingSharedLinkStore: ObservableObject {
 
     func markDelivered() {
         pendingURL = nil
+    }
+
+    func markInviteDelivered() {
+        pendingInviteToken = nil
     }
 
     private func clearStoredURL() {

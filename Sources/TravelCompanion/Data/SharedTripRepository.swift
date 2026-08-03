@@ -9,8 +9,10 @@ final class SharedTripRepository {
         self.modelContext = modelContext
     }
 
-    func cachedTrip() throws -> SharedTripSnapshot? {
-        try modelContext.fetch(FetchDescriptor<SharedTripMirror>()).first?.snapshot()
+    func cachedTrip(id: Int? = nil) throws -> SharedTripSnapshot? {
+        let mirrors = try modelContext.fetch(FetchDescriptor<SharedTripMirror>())
+        let mirror = id.flatMap { requestedID in mirrors.first { $0.tripID == requestedID } } ?? (id == nil ? mirrors.first : nil)
+        return try mirror?.snapshot()
     }
 
     func save(_ snapshot: SharedTripSnapshot) throws {
@@ -23,8 +25,8 @@ final class SharedTripRepository {
     }
 
     @discardableResult
-    func enqueue(method: String, path: String, body: Data, baseVersion: Int, clientEntityID: UUID? = nil) throws -> PendingOperation {
-        let operation = PendingOperation(method: method, path: path, body: body, baseVersion: baseVersion, clientEntityID: clientEntityID)
+    func enqueue(method: String, path: String, tripID: Int, body: Data, baseVersion: Int, clientEntityID: UUID? = nil) throws -> PendingOperation {
+        let operation = PendingOperation(method: method, path: path, tripID: tripID, body: body, baseVersion: baseVersion, clientEntityID: clientEntityID)
         modelContext.insert(operation)
         try modelContext.save()
         return operation

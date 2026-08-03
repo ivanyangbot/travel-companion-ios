@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TripSetupSheet: View {
     let initialTrip: SharedTripSnapshot?
+    let isNewTrip: Bool
     let onSave: (String, Date, Date, String) -> Void
 
     @State private var destination: String
@@ -9,8 +10,9 @@ struct TripSetupSheet: View {
     @State private var endDate: Date
     @State private var currency: String
 
-    init(initialTrip: SharedTripSnapshot? = nil, onSave: @escaping (String, Date, Date, String) -> Void) {
+    init(initialTrip: SharedTripSnapshot? = nil, isNewTrip: Bool = false, onSave: @escaping (String, Date, Date, String) -> Void) {
         self.initialTrip = initialTrip
+        self.isNewTrip = isNewTrip
         self.onSave = onSave
         let today = Date()
         _destination = State(initialValue: initialTrip?.destination ?? "")
@@ -21,9 +23,9 @@ struct TripSetupSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(initialTrip == nil ? "从这里开始规划" : "编辑共享行程")
+            Text(isNewTrip ? "创建新旅程" : (initialTrip == nil ? "从这里开始规划" : "编辑共享行程"))
                 .font(.title2.bold())
-            Text("这就是你们唯一的共享行程。任何拥有 API 地址的人都可以查看和修改它，请勿填写敏感信息。")
+            Text(isNewTrip ? "新旅程会独立保存日程、卡片和支出。请勿填写敏感信息。" : "当前旅程的日程、卡片和支出会同步给已加入的成员，请勿填写敏感信息。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             TextField("目的地，例如：东京", text: $destination)
@@ -35,7 +37,7 @@ struct TripSetupSheet: View {
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
-            Button("保存共享行程") {
+            Button(isNewTrip ? "创建旅程" : "保存旅程") {
                 onSave(destination, startDate, endDate, currency)
             }
             .buttonStyle(.borderedProminent)

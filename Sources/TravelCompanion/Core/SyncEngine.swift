@@ -5,32 +5,98 @@ import Foundation
 final class SyncEngine: ObservableObject {
     enum Status: Equatable {
         case loading, synced, syncing, pending(Int), conflict, offline(String), failed(String)
+        /// The user is not signed in; data is local-only and no network calls
+        /// are attempted. Mutations are still persisted to SwiftData so they
+        /// survive until the user signs in and triggers a replay.
+        case localOnly
     }
 
     @Published private(set) var trip: SharedTripSnapshot?
+    @Published private(set) var trips: [TripSummary] = []
+    @Published private(set) var selectedTripID: Int?
     @Published private(set) var status: Status = .loading
     @Published private(set) var apiBaseURLText: String
+    /// Mirrors the current Apple sign-in state for UI display. The source of
+    /// truth is the keychain token read by ``APIClient``; this is updated via
+    /// ``Notification.Name.appleSignInStateChanged``.
+    @Published private(set) var isUserAuthenticated = false
 
     private let repository: SharedTripRepository
     private var apiClient: APIClient
     private var foregroundPollingTask: Task<Void, Never>?
+    private var authObserver: NSObjectProtocol?
 
     init(repository: SharedTripRepository, apiClient: APIClient? = nil) {
         self.repository = repository
         self.apiClient = apiClient ?? APIClient()
         apiBaseURLText = AppConfiguration.apiBaseURL()?.absoluteString ?? ""
+        // Check the keychain directly at init time so we don't need to await
+        // an actor call inside the synchronous initializer.
+        isUserAuthenticated = (try? KeychainStore().accessToken()) != nil
+    }
+
+    /// Whether the engine should avoid all network traffic. The user may still
+    /// create and edit trips locally; those mutations are queued in SwiftData
+    /// and replayed once authentication is established.
+    private var localOnly: Bool { !isUserAuthenticated }
+
+    /// Starts listening for Apple sign-in state changes. When the user signs
+    /// in, the engine transitions out of ``localOnly`` and replays any queued
+    /// operations. When the user signs out, it returns to local-only mode.
+    func observeAuthChanges() {
+        guard authObserver == nil else { return }
+        authObserver = NotificationCenter.default.addObserver(
+            forName: .appleSignInStateChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let nowAuthed = await self.apiClient.isAuthenticated
+                let becameAuthenticated = nowAuthed && !self.isUserAuthenticated
+                self.isUserAuthenticated = nowAuthed
+                if becameAuthenticated {
+                    // The user just signed in: pull the latest server state and
+                    // replay anything they created while offline.
+                    await self.refresh()
+                    await self.replayPendingOperations()
+                } else if !nowAuthed {
+                    // Signed out: stop polling and revert to local-only.
+                    self.stopForegroundSync()
+                    self.status = .localOnly
+                }
+            }
+        }
     }
 
     func bootstrap() async {
-        do { trip = try repository.cachedTrip() } catch { status = .failed("本机缓存无法读取。") }
+        do { trip = try repository.cachedTrip(id: selectedTripID) } catch { status = .failed("本机缓存无法读取。") }
+        if localOnly {
+            // No token yet: keep the cached trip (or an empty local placeholder)
+            // and surface local-only status. Network calls wait for sign-in.
+            status = .localOnly
+            return
+        }
         await refresh()
         await replayPendingOperations()
     }
 
     func refresh() async {
+        guard !localOnly else { status = .localOnly; return }
         status = .syncing
         do {
-            if let snapshot = try await apiClient.fetchTrip(afterVersion: trip?.version) {
+            let summaries = try await apiClient.fetchTrips()
+            trips = summaries
+            if selectedTripID == nil || !summaries.contains(where: { $0.id == selectedTripID }) {
+                selectedTripID = summaries.first?.id
+            }
+            await apiClient.setActiveTripID(selectedTripID)
+            guard let selectedTripID else {
+                trip = nil
+                status = .synced
+                return
+            }
+            if let snapshot = try await apiClient.fetchTrip(id: selectedTripID, afterVersion: trip?.id == selectedTripID ? trip?.version : nil) {
                 trip = snapshot
                 try repository.save(snapshot)
                 try await queueConfirmedAIDraftCardsIfReady()
@@ -38,6 +104,71 @@ final class SyncEngine: ObservableObject {
             status = .synced
         } catch {
             status = trip == nil ? .failed("无法加载共享行程") : .offline("离线浏览中")
+        }
+    }
+
+    func selectTrip(_ id: Int) async {
+        guard id != selectedTripID else { return }
+        selectedTripID = id
+        await apiClient.setActiveTripID(id)
+        do { trip = try repository.cachedTrip(id: id) } catch { trip = nil }
+        await refresh()
+    }
+
+    func createShareInvite() async -> URL? {
+        guard !localOnly, let selectedTripID else {
+            status = .failed("登录后才能创建共享邀请。")
+            return nil
+        }
+        guard trips.first(where: { $0.id == selectedTripID })?.canShare == true else {
+            status = .failed("只有行程创建者可以创建邀请。")
+            return nil
+        }
+        do {
+            let invite = try await apiClient.createInvite(for: selectedTripID)
+            guard var components = URLComponents(string: "\(PendingSharedLinkStore.hostScheme)://join") else { return nil }
+            components.queryItems = [URLQueryItem(name: "token", value: invite.token)]
+            return components.url
+        } catch {
+            status = .failed("无法创建共享邀请。")
+            return nil
+        }
+    }
+
+    func joinTrip(inviteToken: String) async {
+        guard !localOnly else {
+            status = .localOnly
+            return
+        }
+        do {
+            let joined = try await apiClient.joinTrip(inviteToken: inviteToken)
+            if !trips.contains(where: { $0.id == joined.id }) { trips.insert(joined, at: 0) }
+            selectedTripID = joined.id
+            await apiClient.setActiveTripID(joined.id)
+            trip = nil
+            await refresh()
+        } catch {
+            status = .failed("无法加入共享旅程。请确认邀请仍有效。")
+        }
+    }
+
+    func createTrip(destination: String, startDate: Date, endDate: Date, currency: String) async {
+        guard !localOnly else { status = .localOnly; return }
+        let request = TripPatchRequest(
+            destination: destination.trimmingCharacters(in: .whitespacesAndNewlines),
+            startDate: Self.dayFormatter.string(from: startDate),
+            endDate: Self.dayFormatter.string(from: endDate),
+            currency: currency.uppercased()
+        )
+        do {
+            let created = try await apiClient.createTrip(request)
+            selectedTripID = created.id
+            await apiClient.setActiveTripID(created.id)
+            trips.insert(created, at: 0)
+            trip = nil
+            await refresh()
+        } catch {
+            status = .failed("无法创建旅程。")
         }
     }
 
@@ -66,7 +197,7 @@ final class SyncEngine: ObservableObject {
             current.days.append(TripDaySnapshot(date: stringDate, position: current.days.count))
             trip = current
             try repository.save(current)
-            try repository.enqueue(method: "POST", path: "/v1/days", body: body, baseVersion: current.version)
+            try repository.enqueue(method: "POST", path: "/v1/days", tripID: current.id, body: body, baseVersion: current.version)
             await replayPendingOperations()
         } catch {
             status = .failed("无法保存本地修改。")
@@ -74,6 +205,7 @@ final class SyncEngine: ObservableObject {
     }
 
     func retry() async {
+        guard !localOnly else { status = .localOnly; return }
         await refresh()
         await replayPendingOperations()
     }
@@ -86,6 +218,7 @@ final class SyncEngine: ObservableObject {
     /// cards are sent as read-only context. Nothing is persisted here until the
     /// caller confirms selected cards via `importAIDraft`.
     func sendItineraryChat(messages: [AIItineraryChatRequest.Message], preferences: String?, images: [String]? = nil) async throws -> AIItineraryChatResult {
+        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         guard let trip, let startDate = trip.startDate,
               let start = Self.dayFormatter.date(from: startDate),
               let endDate = trip.endDate, let end = Self.dayFormatter.date(from: endDate) else {
@@ -110,6 +243,7 @@ final class SyncEngine: ObservableObject {
     /// the assistant reply as it is generated. The same trip-config guard and
     /// request shape as the non-streaming call apply.
     func streamItineraryChat(messages: [AIItineraryChatRequest.Message], preferences: String?, images: [String]? = nil) async throws -> AsyncThrowingStream<AIItineraryChatStreamEvent, Error> {
+        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         guard let trip, let startDate = trip.startDate,
               let start = Self.dayFormatter.date(from: startDate),
               let endDate = trip.endDate, let end = Self.dayFormatter.date(from: endDate) else {
@@ -168,18 +302,24 @@ final class SyncEngine: ObservableObject {
     /// draft. Like the itinerary draft, nothing is persisted here: the caller
     /// fills the card editor and saves via the normal card queue.
     func importCardFromLink(url: String) async throws -> LinkImportResult {
-        try await apiClient.importFromLink(LinkImportRequest(url: url))
+        guard !localOnly else { throw SyncEngineError.notAuthenticated }
+        return try await apiClient.importFromLink(LinkImportRequest(url: url))
     }
 
     /// 卡包照片录入：把一张照片交给服务端 AI 识别，返回标签、号码、备注与类型。
     /// 结果不落库、不写共享行程；由卡包编辑器按需填入并加密保存到本机。
     func scanWalletCard(image: String, styleHint: String) async throws -> WalletCardScanResult {
-        try await apiClient.scanWalletCard(WalletCardScanRequest(image: image, styleHint: styleHint))
+        // Wallet card scanning uses the server-side vision model and requires
+        // authentication. The scanned result is never persisted to the shared
+        // trip — the wallet itself remains local-only regardless of auth state.
+        guard !localOnly else { throw SyncEngineError.notAuthenticated }
+        return try await apiClient.scanWalletCard(WalletCardScanRequest(image: image, styleHint: styleHint))
     }
 
     /// 备忘智能助手：把当前共享行程脱敏后交给后端 AI，让其针对「明日」的安排给出
     /// 闹钟、提醒事项和物品建议。不落库、不写共享行程，结果由备忘页按需一键落地。
     func createMemoAssist() async throws -> MemoAssistResult {
+        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         guard let trip else { throw MemoAssistError.tripNotConfigured }
         let itinerary = MemoAssistRequest.Itinerary(
             destination: trip.destination,
@@ -211,7 +351,8 @@ final class SyncEngine: ObservableObject {
 
     /// 扫小票/对话生成一笔实际价支出草案。客户端持有对话历史每轮重放；服务端不落库。
     func createAIExpenseDraft(dayDate: String, messages: [AIExpenseConversationRequest.Message], images: [String]? = nil) async throws -> AIExpenseDraft {
-        try await apiClient.createExpenseDraft(AIExpenseConversationRequest(
+        guard !localOnly else { throw SyncEngineError.notAuthenticated }
+        return try await apiClient.createExpenseDraft(AIExpenseConversationRequest(
             dayDate: dayDate,
             currency: trip?.currency,
             messages: messages,
@@ -223,6 +364,7 @@ final class SyncEngine: ObservableObject {
     /// day is still offline are locally held without the source text, then
     /// converted to ordinary POST /v1/cards operations after that day syncs.
     func importAIDraft(_ draft: AIItineraryDraft) async throws {
+        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         guard let trip, let startDate = trip.startDate,
               let start = Self.dayFormatter.date(from: startDate),
               let endDate = trip.endDate, let end = Self.dayFormatter.date(from: endDate) else {
@@ -247,6 +389,7 @@ final class SyncEngine: ObservableObject {
     }
 
     func startForegroundSync() {
+        guard !localOnly else { return }
         guard foregroundPollingTask == nil else { return }
         foregroundPollingTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -307,7 +450,7 @@ final class SyncEngine: ObservableObject {
             try repository.save(current)
             for changedDay in reordered where changedDay.serverID != nil {
                 let body = try await apiClient.encode(DayRequest(date: changedDay.date, position: changedDay.position))
-                try repository.enqueue(method: "PATCH", path: "/v1/days/\(changedDay.serverID!)", body: body, baseVersion: current.version)
+                try repository.enqueue(method: "PATCH", path: "/v1/days/\(changedDay.serverID!)", tripID: current.id, body: body, baseVersion: current.version)
             }
             await replayPendingOperations()
         } catch {
@@ -345,7 +488,7 @@ final class SyncEngine: ObservableObject {
             current.days[index].cards.append(card)
             trip = current
             try repository.save(current)
-            try repository.enqueue(method: "POST", path: "/v1/cards", body: body, baseVersion: baseVersion)
+            try repository.enqueue(method: "POST", path: "/v1/cards", tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
             status = .failed("无法保存行程卡片。")
@@ -409,7 +552,7 @@ final class SyncEngine: ObservableObject {
             current.expenses.append(expense)
             trip = current
             try repository.save(current)
-            try repository.enqueue(method: "POST", path: "/v1/expenses", body: body, baseVersion: baseVersion, clientEntityID: expense.id)
+            try repository.enqueue(method: "POST", path: "/v1/expenses", tripID: current.id, body: body, baseVersion: baseVersion, clientEntityID: expense.id)
             await replayPendingOperations()
         } catch {
             status = .failed("无法保存支出。")
@@ -453,7 +596,7 @@ final class SyncEngine: ObservableObject {
             for changedCard in cards {
                 guard let serverID = changedCard.serverID else { continue }
                 let body = try await apiClient.encode(CardRequest(position: changedCard.position))
-                try repository.enqueue(method: "PATCH", path: "/v1/cards/\(serverID)", body: body, baseVersion: current.version)
+                try repository.enqueue(method: "PATCH", path: "/v1/cards/\(serverID)", tripID: current.id, body: body, baseVersion: current.version)
             }
             await replayPendingOperations()
         } catch {
@@ -465,15 +608,20 @@ final class SyncEngine: ObservableObject {
         let baseVersion = trip?.version ?? 0
         do {
             let body = try await apiClient.encode(request)
-            var current = trip ?? SharedTripSnapshot(id: 1, destination: nil, startDate: nil, endDate: nil, currency: nil, version: 0, updatedAt: .now, days: [], expenses: [])
+            guard let activeTripID = selectedTripID ?? trip?.id else {
+                status = .failed("请先选择一个旅程。")
+                return
+            }
+            let now = Date()
+            var current = trip ?? SharedTripSnapshot(id: activeTripID, destination: nil, startDate: nil, endDate: nil, currency: nil, version: 0, updatedAt: now, days: [], expenses: [])
             current.destination = request.destination
             current.startDate = request.startDate
             current.endDate = request.endDate
             current.currency = request.currency
-            current.updatedAt = .now
+            current.updatedAt = now
             trip = current
             try repository.save(current)
-            try repository.enqueue(method: "PATCH", path: "/v1/trip", body: body, baseVersion: baseVersion)
+            try repository.enqueue(method: "PATCH", path: "/v1/trip", tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
             status = .failed("无法保存本地修改。")
@@ -481,6 +629,7 @@ final class SyncEngine: ObservableObject {
     }
 
     private func replayPendingOperations() async {
+        guard !localOnly else { return }
         do {
             let operations = try repository.pendingOperations()
             guard !operations.isEmpty else { return }
@@ -488,7 +637,8 @@ final class SyncEngine: ObservableObject {
             status = .pending(operations.count)
             for operation in operations {
                 do {
-                    let meta = try await apiClient.send(operation.payload)
+                    let activeTripID = operation.tripID
+                    let meta = try await apiClient.send(operation.payload, tripID: activeTripID)
                     try repository.remove(operation)
                     try repository.removeConfirmedAIDraftCard(for: operation.clientEntityID)
                     await refresh()
@@ -546,7 +696,7 @@ final class SyncEngine: ObservableObject {
             current.updatedAt = .now
             trip = current
             try repository.save(current)
-            try repository.enqueue(method: method, path: path, body: body, baseVersion: baseVersion)
+            try repository.enqueue(method: method, path: path, tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
             status = .failed("无法保存本地修改。")
@@ -562,7 +712,7 @@ final class SyncEngine: ObservableObject {
             current.updatedAt = .now
             trip = current
             try repository.save(current)
-            try repository.enqueue(method: method, path: path, body: body, baseVersion: baseVersion)
+            try repository.enqueue(method: method, path: path, tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
             status = .failed("无法保存行程卡片。")
@@ -578,7 +728,7 @@ final class SyncEngine: ObservableObject {
             current.updatedAt = .now
             trip = current
             try repository.save(current)
-            try repository.enqueue(method: method, path: path, body: body, baseVersion: baseVersion)
+            try repository.enqueue(method: method, path: path, tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
             status = .failed("无法保存支出。")
@@ -666,7 +816,7 @@ let request = CardRequest(
                 position: request.position ?? 0
             ))
             try repository.enqueue(
-                method: "POST", path: "/v1/cards", body: body,
+                method: "POST", path: "/v1/cards", tripID: current.id, body: body,
                 baseVersion: current.version, clientEntityID: draftCard.localID
             )
             queuedAny = true
@@ -733,6 +883,19 @@ private func resolvedPlace(from placeData: Data?) async -> PlaceRequest? {
 }
 
 private struct EmptyRequest: Encodable, Sendable {}
+
+/// Errors surfaced by ``SyncEngine`` when the user attempts a network-backed
+/// operation while not signed in.
+enum SyncEngineError: LocalizedError {
+    case notAuthenticated
+
+    var errorDescription: String? {
+        switch self {
+        case .notAuthenticated:
+            "请先登录后再使用该功能。未登录时旅行数据仅保存在本机。"
+        }
+    }
+}
 
 enum AIDraftImportError: LocalizedError {
     case tripNotConfigured

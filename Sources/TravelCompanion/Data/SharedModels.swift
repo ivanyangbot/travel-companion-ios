@@ -357,6 +357,7 @@ final class PendingOperation {
     @Attribute(.unique) var idempotencyKey: UUID
     var method: String
     var path: String
+    var tripID: Int
     var body: Data
     var baseVersion: Int
     var createdAt: Date
@@ -367,10 +368,11 @@ final class PendingOperation {
     /// Links an optimistic resource to its queued create operation until it receives a server ID.
     var clientEntityID: UUID?
 
-    init(method: String, path: String, body: Data, baseVersion: Int, idempotencyKey: UUID = UUID(), clientEntityID: UUID? = nil) {
+    init(method: String, path: String, tripID: Int, body: Data, baseVersion: Int, idempotencyKey: UUID = UUID(), clientEntityID: UUID? = nil) {
         self.idempotencyKey = idempotencyKey
         self.method = method
         self.path = path
+        self.tripID = tripID
         self.body = body
         self.baseVersion = baseVersion
         createdAt = .now
@@ -383,6 +385,7 @@ final class PendingOperation {
         PendingOperationPayload(
             method: method,
             path: path,
+            tripID: tripID,
             body: body,
             baseVersion: baseVersion,
             idempotencyKey: idempotencyKey
@@ -429,6 +432,7 @@ createdAt = .now
 struct PendingOperationPayload: Sendable {
     let method: String
     let path: String
+    let tripID: Int
     let body: Data
     let baseVersion: Int
     let idempotencyKey: UUID

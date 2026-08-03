@@ -1,10 +1,13 @@
+import AuthenticationServices
 import SwiftUI
 
 struct ItineraryView: View {
     @ObservedObject var syncEngine: SyncEngine
     @ObservedObject var sharedLinkStore: PendingSharedLinkStore
+    @ObservedObject var appleSignIn: AppleSignInStore
     @State private var activeDaySheet: DaySheet?
     @State private var showsTripEditor = false
+    @State private var showsNewTripEditor = false
     @State private var showsAPISettings = false
     @State private var showsAIItinerary = false
     @State private var dayPendingDeletion: TripDaySnapshot?
@@ -13,6 +16,7 @@ struct ItineraryView: View {
     @State private var aiItinerarySeed: String?
     @State private var cardPendingDeletion: TravelCardSnapshot?
     @State private var expenseEditorDate: Date?
+    @State private var inviteURL: URL?
     @StateObject private var linkHandler = ExternalLinkHandler()
 
     var body: some View {
@@ -21,6 +25,9 @@ struct ItineraryView: View {
                 if let trip = syncEngine.trip {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
+                            if !appleSignIn.isAuthenticated {
+                                signInBanner
+                            }
                             if trip.isConfigured {
                                 tripHeader(trip)
                                 timeline(trip)
@@ -47,6 +54,37 @@ struct ItineraryView: View {
             }
             .navigationTitle("旅程")
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        ForEach(syncEngine.trips) { summary in
+                            Button {
+                                Task { await syncEngine.selectTrip(summary.id) }
+                            } label: {
+                                if summary.id == syncEngine.selectedTripID {
+                                    Label(summary.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(summary.displayName)
+                                }
+                            }
+                        }
+                        Divider()
+                        Button("新建旅程", systemImage: "plus") { showsNewTripEditor = true }
+                    } label: {
+                        Label("切换旅程", systemImage: "point.3.connected.trianglepath.dotted")
+                    }
+                    .disabled(!syncEngine.isUserAuthenticated)
+                    .accessibilityLabel("切换旅程")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if syncEngine.trips.first(where: { $0.id == syncEngine.selectedTripID })?.canShare == true {
+                        Button {
+                            Task { inviteURL = await syncEngine.createShareInvite() }
+                        } label: {
+                            Image(systemName: "person.badge.plus")
+                        }
+                        .accessibilityLabel("邀请共同编辑")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { Task { await syncEngine.retry() } } label: {
                         Image(systemName: "arrow.clockwise")
@@ -84,6 +122,12 @@ struct ItineraryView: View {
                     TripSetupSheet(initialTrip: trip) { destination, startDate, endDate, currency in
                         Task { await syncEngine.saveSetup(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
                     }
+                }
+            }
+            .sheet(isPresented: $showsNewTripEditor) {
+                TripSetupSheet(isNewTrip: true) { destination, startDate, endDate, currency in
+                    showsNewTripEditor = false
+                    Task { await syncEngine.createTrip(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
                 }
             }
             .sheet(isPresented: $showsAPISettings) {
@@ -170,13 +214,80 @@ struct ItineraryView: View {
             .onChange(of: sharedLinkStore.pendingURL) { _, _ in
                 presentSharedLinkIfPossible()
             }
+            .onChange(of: sharedLinkStore.pendingInviteToken) { _, token in
+                guard let token, syncEngine.isUserAuthenticated else { return }
+                sharedLinkStore.markInviteDelivered()
+                Task { await syncEngine.joinTrip(inviteToken: token) }
+            }
+            .sheet(isPresented: Binding(
+                get: { inviteURL != nil },
+                set: { if !$0 { inviteURL = nil } }
+            )) {
+                if let inviteURL {
+                    ShareLink(item: inviteURL, message: Text("邀请你共同编辑我的旅行行程")) {
+                        Label("分享共同编辑邀请", systemImage: "person.badge.plus")
+                            .font(.headline)
+                    }
+                    .padding()
+                    .presentationDetents([.height(140)])
+                }
+            }
             .onChange(of: syncEngine.trip?.version) { _, _ in
                 presentSharedLinkIfPossible()
             }
             .task {
                 presentSharedLinkIfPossible()
+                joinPendingInviteIfPossible()
+            }
+            .onChange(of: syncEngine.isUserAuthenticated) { _, _ in
+                joinPendingInviteIfPossible()
             }
         }
+    }
+
+    private func joinPendingInviteIfPossible() {
+        guard let token = sharedLinkStore.pendingInviteToken, syncEngine.isUserAuthenticated else { return }
+        sharedLinkStore.markInviteDelivered()
+        Task { await syncEngine.joinTrip(inviteToken: token) }
+    }
+
+    /// Compact Apple Sign-In banner shown at the top of the Journey tab when
+    /// the user is not authenticated. It explains the local-only behavior and
+    /// offers the system Sign-In with Apple button. Signing in is non-blocking:
+    /// the tab and all local data remain usable while the sheet is presented.
+    private var signInBanner: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.crop.circle.badge.questionmark")
+                    .font(.title2)
+                    .foregroundStyle(.indigo)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("未登录·本地模式")
+                        .font(.headline)
+                    Text("旅行数据仅保存在本机，不会发送到网络或共享。登录后可同步非敏感行程数据。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            SignInWithAppleButton(.continue,
+                                  onRequest: { request in
+                                      appleSignIn.configure(request)
+                                      Task { await appleSignIn.signIn(apiClient: APIClient()) }
+                                  },
+                                  onCompletion: { appleSignIn.handle(result: $0) })
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 44)
+                .disabled(appleSignIn.isSigningIn)
+            if appleSignIn.isSigningIn { ProgressView("正在登录…") }
+            if let errorMessage = appleSignIn.errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .padding(16)
+        .glassEffect(.regular.tint(.indigo.opacity(0.3)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func tripHeader(_ trip: SharedTripSnapshot) -> some View {
@@ -454,6 +565,7 @@ struct ItineraryView: View {
         case .syncing: return nil
         case .pending(let count): return "待同步 \(count) 项"
         case .conflict: return "可能覆盖"
+        case .localOnly: return appleSignIn.isAuthenticated ? nil : "本地模式·登录后可同步"
         case .offline(let message), .failed(let message): return message
         }
     }
