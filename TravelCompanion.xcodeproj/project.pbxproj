@@ -21,7 +21,6 @@
 		22B8D0176405CFD2D612C92A /* AgentWorkbenchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31021ED5F6FCDAC6E05BE906 /* AgentWorkbenchView.swift */; };
 		2352DBCC56E1620F5C39F1EA /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB83218A06E8F8F9F34CA62 /* NotesView.swift */; };
 		25AC3913D806D65A7324BE88 /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA17FF91696BD112B2C29F4 /* AppConfiguration.swift */; };
-		26D3428B69D0F95C0F940A15 /* AgentIcon.gif in Resources */ = {isa = PBXBuildFile; fileRef = 820C535DF45FB5D1FCE85E5A /* AgentIcon.gif */; };
 		28047E8EF5E0B106BC692162 /* AgentV2SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D05FB265C37B209B9DB4C4C /* AgentV2SessionStore.swift */; };
 		2917A5166A857599388F1F69 /* ReminderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9631F4B29F35CB686EA9442 /* ReminderStore.swift */; };
 		2EE79098752CF59BB7100B47 /* RouteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78BAC71530FADC8EED9D35C0 /* RouteSheet.swift */; };
@@ -61,6 +60,7 @@
 		9CDEED6D6FA9E8DB2A22E5ED /* TravelCompanionShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F908BCA76A82FE0B98955362 /* TravelCompanionShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		9E02493F9FA3FFBA908A6202 /* WalletCardArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 976F92479D074458A64539B8 /* WalletCardArtwork.swift */; };
 		9FD973AC094F885DBE095C44 /* CardDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B69CCD3DE0E2E85F11528FB /* CardDetailView.swift */; };
+		A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */ = {isa = PBXBuildFile; fileRef = 6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */; };
 		A7E2726D7D84B4963E787006 /* APISettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 742BE5579BBD732B3BEA4FDA /* APISettingsView.swift */; };
 		A8364023D2EC1516D5945D50 /* ExpenseSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE7AC844A5A5929E9C18F8D /* ExpenseSummaryView.swift */; };
 		A85A5EA57496C62193E16781 /* ExpensesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239E82715D8B09548A9B6AE2 /* ExpensesTests.swift */; };
@@ -146,6 +146,7 @@
 		5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoListEditor.swift; sourceTree = "<group>"; };
 		6313551B5AD4BD2AA24AE80E /* ExpenseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseModels.swift; sourceTree = "<group>"; };
 		660F4C444ECFE128677DA7F2 /* TravelCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TravelCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = AgentIconSprite.png; sourceTree = "<group>"; };
 		6B026B0199CFA746CE1293EA /* MemoAssistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistSheet.swift; sourceTree = "<group>"; };
 		6F8031EBAF1C17305F75B7FC /* MapLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinkHandler.swift; sourceTree = "<group>"; };
 		72EAFDA83E7A9A0A19462E9B /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
@@ -159,7 +160,6 @@
 		7C998B1C01614DB76665E7C5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7D05FB265C37B209B9DB4C4C /* AgentV2SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2SessionStore.swift; sourceTree = "<group>"; };
 		80DE9C428D21C35C4F57930C /* MemoAssistModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistModels.swift; sourceTree = "<group>"; };
-		820C535DF45FB5D1FCE85E5A /* AgentIcon.gif */ = {isa = PBXFileReference; lastKnownFileType = image.gif; path = AgentIcon.gif; sourceTree = "<group>"; };
 		8A86FDF07921274643C9DA1E /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
 		8CB83218A06E8F8F9F34CA62 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
 		8CD253A87557EF495F2A1BAD /* AgentV2Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2Models.swift; sourceTree = "<group>"; };
@@ -347,7 +347,7 @@
 		8BEE30AA0F8517CAF6A84CDA /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
-				820C535DF45FB5D1FCE85E5A /* AgentIcon.gif */,
+				6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */,
 				7C998B1C01614DB76665E7C5 /* Info.plist */,
 				ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */,
 				520489DF3065E865856241C7 /* TravelCompanion.entitlements */,
@@ -541,7 +541,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				26D3428B69D0F95C0F940A15 /* AgentIcon.gif in Resources */,
+				A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */,
 				F9259F0C412752FC39352154 /* Assets.xcassets in Resources */,
 				460CDC18128838A78852D316 /* PrivacyInfo.xcprivacy in Resources */,
 			);
@@ -737,7 +737,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -840,7 +840,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;

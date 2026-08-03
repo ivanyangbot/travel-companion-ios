@@ -91,7 +91,6 @@ struct TodayView: View {
                 Map(position: $cameraPosition) {
                     mapDecorations(pois: pois)
                 }
-                // Use MapKit's flat, POI-free standard style to keep the route visually primary.
                 .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll, showsTraffic: false))
                 .environment(\.colorScheme, .dark)
                 .ignoresSafeArea(edges: .bottom)
@@ -331,7 +330,7 @@ struct TodayView: View {
     private func fitAll(pois: [TravelCardSnapshot]) {
         guard !pois.isEmpty else { return }
         if pois.count == 1, let coordinate = coordinate(of: pois[0]) {
-            cameraPosition = .region(MKCoordinateRegion(center: coordinate, latitudinalMeters: 1000, longitudinalMeters: 1000))
+            cameraPosition = .region(MKCoordinateRegion(center: coordinate, latitudinalMeters: 1_000, longitudinalMeters: 1_000))
         } else {
             cameraPosition = .automatic
         }

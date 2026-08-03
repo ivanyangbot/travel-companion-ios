@@ -1,7 +1,7 @@
 import AuthenticationServices
 import SwiftUI
 import SwiftData
-import WebKit
+import UIKit
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -104,7 +104,9 @@ struct ContentView: View {
                 .frame(width: 40, height: 40)
                 .frame(width: 60, height: 60)
                 .background(Color(red: 1, green: 110 / 255, blue: 0), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("打开 Agent")
     }
 
@@ -153,12 +155,13 @@ struct ContentView: View {
                         .frame(width: 52, height: 52)
                         .background {
                             if selectedSection == section {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
                                     .fill(.white)
                                     .matchedGeometryEffect(id: "navigation-selection", in: navigationSelection)
                             }
                         }
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel(section.title)
                 .accessibilityAddTraits(selectedSection == section ? .isSelected : [])
             }
@@ -166,15 +169,15 @@ struct ContentView: View {
         .padding(4)
         .frame(width: 172, height: 60)
         .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0.4))
                 }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(.white.opacity(0.6), lineWidth: 1.5)
         }
         .shadow(
@@ -185,38 +188,44 @@ struct ContentView: View {
     }
 }
 
-/// 通过 WebKit 原样解码 GIF，确保透明帧的 disposal 语义正确，避免逐帧渲染产生残影。
-private struct AnimatedAgentIcon: UIViewRepresentable {
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isScrollEnabled = false
-        webView.scrollView.bounces = false
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
-        webView.loadHTMLString(Self.html, baseURL: Bundle.main.resourceURL)
-        return webView
+/// 原生雪碧图动画：没有 WebView，因此不会弹出图片长按菜单，也不会吞掉按钮点击。
+private struct AnimatedAgentIcon: View {
+    private static let frameInterval: TimeInterval = 0.1
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: Self.frameInterval, paused: false)) { context in
+            if !Self.frames.isEmpty {
+                let frameIndex = Int(context.date.timeIntervalSinceReferenceDate / Self.frameInterval) % Self.frames.count
+                Image(uiImage: Self.frames[frameIndex])
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+    private static let frames: [UIImage] = {
+        guard
+            let url = Bundle.main.url(forResource: "AgentIconSprite", withExtension: "png"),
+            let sprite = UIImage(contentsOfFile: url.path),
+            let cgImage = sprite.cgImage
+        else {
+            return []
+        }
 
-    private static let html = """
-    <!doctype html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-      <style>
-        * { box-sizing: border-box; }
-        html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: transparent; }
-        body { display: flex; align-items: center; justify-content: center; }
-        img { width: 100%; height: 100%; object-fit: contain; display: block; filter: brightness(0) invert(1); }
-      </style>
-    </head>
-    <body><img src="AgentIcon.gif" alt=""></body>
-    </html>
-    """
+        let columns = 10
+        let frameCount = 61
+        let frameWidth = cgImage.width / columns
+        let frameHeight = frameWidth
+        return (0 ..< frameCount).compactMap { index in
+            let x = (index % columns) * frameWidth
+            let y = (index / columns) * frameHeight
+            let rect = CGRect(x: x, y: y, width: frameWidth, height: frameHeight)
+            guard let frame = cgImage.cropping(to: rect) else { return nil }
+            return UIImage(cgImage: frame, scale: sprite.scale, orientation: .up)
+        }
+    }()
 }
 
 #Preview {
