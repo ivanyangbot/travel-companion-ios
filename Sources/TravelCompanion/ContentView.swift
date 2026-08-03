@@ -60,7 +60,13 @@ struct ContentView: View {
             }
 
             Tab("手书", systemImage: "book") {
-                NotesView()
+                Group {
+                    if let syncEngine {
+                        NotesView(syncEngine: syncEngine)
+                    } else {
+                        ProgressView("正在准备手书…")
+                    }
+                }
             }
         }
         .tint(.indigo)

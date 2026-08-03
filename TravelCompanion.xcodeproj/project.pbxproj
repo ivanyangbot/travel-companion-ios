@@ -11,7 +11,7 @@
 		0554718E10121E7B104D9B3A /* MemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052363166F7B2BC56DBDB352 /* MemoTests.swift */; };
 		0708992FBBEE91B48EE542ED /* AgentV2StreamParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5842942547DFB60B2B196D /* AgentV2StreamParserTests.swift */; };
 		0A2311E7F6DD352F955656DB /* TodayWeatherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 166A7CE158BD23101732C46C /* TodayWeatherTests.swift */; };
-		0BFA11E2E1A1A11E2E1A1A11 /* AppleSignInStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BFA11E1E1A1A11E2E1A1A11 /* AppleSignInStore.swift */; };
+		0E217A4F17380B945F95119B /* AppleSignInStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419F1199DA05DB1C55ADACA7 /* AppleSignInStore.swift */; };
 		10B70769A5EACA7A2BBDB428 /* AITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D3E600510D1900A40A2985 /* AITests.swift */; };
 		173CE8FC76B8BEC1C6AA5CEC /* AgentV2SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404C61F2E1107308DC348938 /* AgentV2SessionStoreTests.swift */; };
 		177856D24110CCC27193D232 /* MemoAssistModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80DE9C428D21C35C4F57930C /* MemoAssistModels.swift */; };
@@ -115,7 +115,6 @@
 /* Begin PBXFileReference section */
 		052363166F7B2BC56DBDB352 /* MemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoTests.swift; sourceTree = "<group>"; };
 		07EC18374E8F4516FD09F006 /* ExternalLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLinkHandler.swift; sourceTree = "<group>"; };
-		0BFA11E1E1A1A11E2E1A1A11 /* AppleSignInStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignInStore.swift; sourceTree = "<group>"; };
 		0D4FDAB08CAD5BFF0161E7C6 /* SharedTripRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTripRepository.swift; sourceTree = "<group>"; };
 		166A7CE158BD23101732C46C /* TodayWeatherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWeatherTests.swift; sourceTree = "<group>"; };
 		1680BBEB0A853E9295127F80 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
@@ -134,6 +133,7 @@
 		3CCCA5F5474E7099BA0DB8B9 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		404C61F2E1107308DC348938 /* AgentV2SessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2SessionStoreTests.swift; sourceTree = "<group>"; };
 		417B65ABD31631164FAC1432 /* CardPrice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardPrice.swift; sourceTree = "<group>"; };
+		419F1199DA05DB1C55ADACA7 /* AppleSignInStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignInStore.swift; sourceTree = "<group>"; };
 		4304B4EBBAB2A24A773E072D /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		5172A532CF62EC36B6BC9BD9 /* TravelCardsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCardsTests.swift; sourceTree = "<group>"; };
 		520489DF3065E865856241C7 /* TravelCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TravelCompanion.entitlements; sourceTree = "<group>"; };
@@ -142,7 +142,7 @@
 		5E71023CBDA0960AF76B17AE /* CardImageURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardImageURL.swift; sourceTree = "<group>"; };
 		5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoListEditor.swift; sourceTree = "<group>"; };
 		6313551B5AD4BD2AA24AE80E /* ExpenseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseModels.swift; sourceTree = "<group>"; };
-		660F4C444ECFE128677DA7F2 /* TravelCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TravelCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		660F4C444ECFE128677DA7F2 /* TravelCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TravelCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6B026B0199CFA746CE1293EA /* MemoAssistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistSheet.swift; sourceTree = "<group>"; };
 		6F8031EBAF1C17305F75B7FC /* MapLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinkHandler.swift; sourceTree = "<group>"; };
 		72EAFDA83E7A9A0A19462E9B /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
@@ -159,7 +159,7 @@
 		8A86FDF07921274643C9DA1E /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
 		8CB83218A06E8F8F9F34CA62 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
 		8CD253A87557EF495F2A1BAD /* AgentV2Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2Models.swift; sourceTree = "<group>"; };
-		93705EA523BBFC35E34367CD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		93705EA523BBFC35E34367CD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		971BB2C1553DAD49063C4934 /* MapsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapsTests.swift; sourceTree = "<group>"; };
 		9746A2C28B5596C5570E34B3 /* WalletModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletModels.swift; sourceTree = "<group>"; };
 		976F92479D074458A64539B8 /* WalletCardArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCardArtwork.swift; sourceTree = "<group>"; };
@@ -184,7 +184,7 @@
 		E4153572CEB1B068748B76E6 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		E822F89152175BACCA023A3F /* TravelCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCardView.swift; sourceTree = "<group>"; };
 		ECA17FF91696BD112B2C29F4 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
-		ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		ED684774368336D41506574B /* TodayWeather.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWeather.swift; sourceTree = "<group>"; };
 		F42D02E361B74E833454FBE1 /* AppleMapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMapService.swift; sourceTree = "<group>"; };
 		F6487F1A4A5B10200D6F17F0 /* CardLegEstimateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLegEstimateView.swift; sourceTree = "<group>"; };
@@ -319,9 +319,9 @@
 			isa = PBXGroup;
 			children = (
 				4304B4EBBAB2A24A773E072D /* APIClient.swift */,
-				0BFA11E1E1A1A11E2E1A1A11 /* AppleSignInStore.swift */,
 				1680BBEB0A853E9295127F80 /* APIModels.swift */,
 				ECA17FF91696BD112B2C29F4 /* AppConfiguration.swift */,
+				419F1199DA05DB1C55ADACA7 /* AppleSignInStore.swift */,
 				3CCCA5F5474E7099BA0DB8B9 /* KeychainStore.swift */,
 				80DE9C428D21C35C4F57930C /* MemoAssistModels.swift */,
 				9CB3D8B88019BCCC9AE7140D /* SyncEngine.swift */,
@@ -500,6 +500,14 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					BB8137DBDD0AE5BE3A50B908 = {
+						DevelopmentTeam = 9Z29478796;
+					};
+					CD20401B07AEF03102FDE2E8 = {
+						DevelopmentTeam = 9Z29478796;
+					};
+				};
 			};
 			buildConfigurationList = 2D12571D7BF728CDEE1E18FC /* Build configuration list for PBXProject "TravelCompanion" */;
 			developmentRegion = en;
@@ -565,8 +573,8 @@
 				22B8D0176405CFD2D612C92A /* AgentWorkbenchView.swift in Sources */,
 				834363BD092FA8393B0274F8 /* AlarmScheduler.swift in Sources */,
 				25AC3913D806D65A7324BE88 /* AppConfiguration.swift in Sources */,
-				0BFA11E2E1A1A11E2E1A1A11 /* AppleSignInStore.swift in Sources */,
 				D0E1EF0AD5FDC45E7E63724A /* AppleMapService.swift in Sources */,
+				0E217A4F17380B945F95119B /* AppleSignInStore.swift in Sources */,
 				715C5DA05B8B453DCC298E43 /* CameraPicker.swift in Sources */,
 				9FD973AC094F885DBE095C44 /* CardDetailView.swift in Sources */,
 				5E47C12E8A11A30E28D6DBC8 /* CardEditorView.swift in Sources */,
@@ -721,7 +729,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -749,8 +757,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Sources/TravelCompanion/Supporting/TravelCompanion.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
 				DEVELOPMENT_TEAM = 9Z29478796;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/TravelCompanion/Supporting/Info.plist;
@@ -761,7 +769,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.yangzhiyuan.travelcompanion;
 				PRODUCT_NAME = TravelCompanion;
-				PROVISIONING_PROFILE_SPECIFIER = "";
+				PROVISIONING_PROFILE_SPECIFIER = "Indo Main Release SignIn 20260803";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -824,7 +832,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;

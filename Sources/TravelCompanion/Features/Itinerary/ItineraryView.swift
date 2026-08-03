@@ -269,16 +269,36 @@ struct ItineraryView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            SignInWithAppleButton(.continue,
-                                  onRequest: { request in
-                                      appleSignIn.configure(request)
-                                      Task { await appleSignIn.signIn(apiClient: APIClient()) }
-                                  },
-                                  onCompletion: { appleSignIn.handle(result: $0) })
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 44)
-                .disabled(appleSignIn.isSigningIn)
-            if appleSignIn.isSigningIn { ProgressView("正在登录…") }
+            ZStack {
+                // Keep the native button mounted throughout authorization. Removing it
+                // from the hierarchy in `onRequest` can prevent `onCompletion` from
+                // delivering the Apple credential and leave the UI in a loading state.
+                SignInWithAppleButton(.continue,
+                                      onRequest: { request in
+                                          appleSignIn.configure(request)
+                                          Task { await appleSignIn.signIn(apiClient: APIClient()) }
+                                      },
+                                      onCompletion: { appleSignIn.handle(result: $0) })
+                    .signInWithAppleButtonStyle(.black)
+                    .frame(height: 44)
+                    .allowsHitTesting(!appleSignIn.isSigningIn)
+
+                if appleSignIn.isSigningIn {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                        Text("正在登录…")
+                            .font(.body.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(.black, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityLabel("正在登录")
+                    .allowsHitTesting(false)
+                }
+            }
             if let errorMessage = appleSignIn.errorMessage {
                 Text(errorMessage)
                     .font(.footnote)

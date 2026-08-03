@@ -3,6 +3,8 @@ import SwiftUI
 import UIKit
 
 struct NotesView: View {
+    let syncEngine: SyncEngine
+
     @State private var snapshot = JournalSnapshot(groups: [], entries: [])
     @State private var selectedGroupID: Int?
     @State private var editor: JournalEntry?
@@ -41,13 +43,38 @@ struct NotesView: View {
         Button { editor = entry } label: { VStack(alignment: .leading, spacing: 10) { if let first = entry.images.first?.url, let url = URL(string: first) { AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Rectangle().fill(.quaternary) }.frame(height: 180).clipShape(RoundedRectangle(cornerRadius: 14)); if entry.images.count > 1 { Text("\(entry.images.count) 张照片").font(.caption).foregroundStyle(.secondary) } }; Text(entry.title).font(.headline); if let content = entry.content, !content.isEmpty { Text(content).font(.subheadline).foregroundStyle(.secondary).lineLimit(3) }; HStack { if let group = snapshot.groups.first(where: { $0.id == entry.groupId }) { Label(group.name, systemImage: "folder.fill").foregroundStyle(.indigo) }; Spacer(); Text(entry.updatedAt, style: .date) }.font(.caption) } .padding(.vertical, 6) }.buttonStyle(.plain)
     }
 
-    private func reload() async { isLoading = true; defer { isLoading = false }; do { snapshot = try await api.fetchJournal() } catch { errorMessage = error.localizedDescription } }
+    private var canUseCloudJournal: Bool { syncEngine.isUserAuthenticated }
+
+    private func requireSignIn() {
+        errorMessage = "手书同步需要先在“旅程”中登录 Apple 账户。"
+    }
+
+    private func reload() async {
+        guard canUseCloudJournal else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do { snapshot = try await api.fetchJournal() } catch { errorMessage = error.localizedDescription }
+    }
+
     private func save(entry: JournalEntry, request: JournalEntryRequest, attachments: [JournalAttachment]) async {
+        guard canUseCloudJournal else { requireSignIn(); return }
         do { let keys = try await withThrowingTaskGroup(of: String.self) { group in for attachment in attachments { group.addTask { try await api.uploadJournalImage(data: attachment.data, contentType: "image/jpeg") } }; var all = request.imageKeys; for try await key in group { all.append(key) }; return all }; let request = JournalEntryRequest(groupId: request.groupId, title: request.title, content: request.content, imageKeys: keys); _ = entry.id == 0 ? try await api.createJournalEntry(request) : try await api.updateJournalEntry(id: entry.id, request); self.editor = nil; await reload() } catch { errorMessage = error.localizedDescription }
     }
-    private func deleteEntries(at offsets: IndexSet) { for index in offsets { let entry = visibleEntries[index]; Task { do { try await api.deleteJournalEntry(id: entry.id); await reload() } catch { errorMessage = error.localizedDescription } } } }
-    private func saveGroup(_ request: JournalGroupRequest) async { do { _ = try await api.createJournalGroup(request); await reload() } catch { errorMessage = error.localizedDescription } }
-    private func deleteGroup(_ group: JournalGroup) async { do { try await api.deleteJournalGroup(id: group.id); if selectedGroupID == group.id { selectedGroupID = nil }; await reload() } catch { errorMessage = error.localizedDescription } }
+
+    private func deleteEntries(at offsets: IndexSet) {
+        guard canUseCloudJournal else { requireSignIn(); return }
+        for index in offsets { let entry = visibleEntries[index]; Task { do { try await api.deleteJournalEntry(id: entry.id); await reload() } catch { errorMessage = error.localizedDescription } } }
+    }
+
+    private func saveGroup(_ request: JournalGroupRequest) async {
+        guard canUseCloudJournal else { requireSignIn(); return }
+        do { _ = try await api.createJournalGroup(request); await reload() } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func deleteGroup(_ group: JournalGroup) async {
+        guard canUseCloudJournal else { requireSignIn(); return }
+        do { try await api.deleteJournalGroup(id: group.id); if selectedGroupID == group.id { selectedGroupID = nil }; await reload() } catch { errorMessage = error.localizedDescription }
+    }
 }
 
 private struct JournalAttachment: Identifiable { let id = UUID(); let data: Data; let image: UIImage
