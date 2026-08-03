@@ -21,6 +21,7 @@
 		22B8D0176405CFD2D612C92A /* AgentWorkbenchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31021ED5F6FCDAC6E05BE906 /* AgentWorkbenchView.swift */; };
 		2352DBCC56E1620F5C39F1EA /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB83218A06E8F8F9F34CA62 /* NotesView.swift */; };
 		25AC3913D806D65A7324BE88 /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA17FF91696BD112B2C29F4 /* AppConfiguration.swift */; };
+		26D3428B69D0F95C0F940A15 /* AgentIcon.gif in Resources */ = {isa = PBXBuildFile; fileRef = 820C535DF45FB5D1FCE85E5A /* AgentIcon.gif */; };
 		28047E8EF5E0B106BC692162 /* AgentV2SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D05FB265C37B209B9DB4C4C /* AgentV2SessionStore.swift */; };
 		2917A5166A857599388F1F69 /* ReminderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9631F4B29F35CB686EA9442 /* ReminderStore.swift */; };
 		2EE79098752CF59BB7100B47 /* RouteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78BAC71530FADC8EED9D35C0 /* RouteSheet.swift */; };
@@ -70,6 +71,7 @@
 		D0E1EF0AD5FDC45E7E63724A /* AppleMapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F42D02E361B74E833454FBE1 /* AppleMapService.swift */; };
 		D1504380DCD8A82254554413 /* MemoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A762EA2F77A29FFD875DA223 /* MemoSection.swift */; };
 		D18CAD03BDA23AD32F53F9A4 /* AIItinerarySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBD21BBCF210B3C99799519 /* AIItinerarySheet.swift */; };
+		D1C34A8978C74BF45F5D7C2D /* JourneyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */; };
 		E670704D79E281B974DC5128 /* WalletCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD71E8A9B4EB9071A9830E8 /* WalletCrypto.swift */; };
 		E907DF43C051B0DAF088CE60 /* ExpenseEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768B5F4FCDC82CB0A5449464 /* ExpenseEditorView.swift */; };
 		ECD7126443B49BB19C646935 /* TodayWeather.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED684774368336D41506574B /* TodayWeather.swift */; };
@@ -122,6 +124,7 @@
 		18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TravelCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B6DDEF3EF354A696B98AB2B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1BEF8DAF7AA93B2E6831EFED /* WalletCardScanModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCardScanModels.swift; sourceTree = "<group>"; };
+		1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyView.swift; sourceTree = "<group>"; };
 		1E33AD73866889EA77CCC85B /* AIExpenseConversationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIExpenseConversationSheet.swift; sourceTree = "<group>"; };
 		239E82715D8B09548A9B6AE2 /* ExpensesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpensesTests.swift; sourceTree = "<group>"; };
 		297971AD9DCBEA57F1F1D5F7 /* CardLegPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLegPreference.swift; sourceTree = "<group>"; };
@@ -156,6 +159,7 @@
 		7C998B1C01614DB76665E7C5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7D05FB265C37B209B9DB4C4C /* AgentV2SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2SessionStore.swift; sourceTree = "<group>"; };
 		80DE9C428D21C35C4F57930C /* MemoAssistModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistModels.swift; sourceTree = "<group>"; };
+		820C535DF45FB5D1FCE85E5A /* AgentIcon.gif */ = {isa = PBXFileReference; lastKnownFileType = image.gif; path = AgentIcon.gif; sourceTree = "<group>"; };
 		8A86FDF07921274643C9DA1E /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
 		8CB83218A06E8F8F9F34CA62 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
 		8CD253A87557EF495F2A1BAD /* AgentV2Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2Models.swift; sourceTree = "<group>"; };
@@ -218,6 +222,7 @@
 				742BE5579BBD732B3BEA4FDA /* APISettingsView.swift */,
 				DC53B5FAD8D6AFD665BEF072 /* DayEditor.swift */,
 				9B71738D5B59EDD1B741EFD6 /* ItineraryView.swift */,
+				1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */,
 				76C42CC5E8251F33492311AC /* TripSetupSheet.swift */,
 			);
 			path = Itinerary;
@@ -342,6 +347,7 @@
 		8BEE30AA0F8517CAF6A84CDA /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
+				820C535DF45FB5D1FCE85E5A /* AgentIcon.gif */,
 				7C998B1C01614DB76665E7C5 /* Info.plist */,
 				ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */,
 				520489DF3065E865856241C7 /* TravelCompanion.entitlements */,
@@ -535,6 +541,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				26D3428B69D0F95C0F940A15 /* AgentIcon.gif in Resources */,
 				F9259F0C412752FC39352154 /* Assets.xcassets in Resources */,
 				460CDC18128838A78852D316 /* PrivacyInfo.xcprivacy in Resources */,
 			);
@@ -592,6 +599,7 @@
 				554F3057D599DDA39DEDABE6 /* ItineraryChatCardView.swift in Sources */,
 				19F1C33E48AF1767E4D3EF29 /* ItineraryView.swift in Sources */,
 				9068403E3B53DE6E8BA45DFF /* JournalModels.swift in Sources */,
+				D1C34A8978C74BF45F5D7C2D /* JourneyView.swift in Sources */,
 				36F9B0F26C4A95B17D31BEFF /* KeychainStore.swift in Sources */,
 				67677659F4150C50C8F56A73 /* MapLinkHandler.swift in Sources */,
 				177856D24110CCC27193D232 /* MemoAssistModels.swift in Sources */,
@@ -729,7 +737,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 9;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -832,7 +840,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 9;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;

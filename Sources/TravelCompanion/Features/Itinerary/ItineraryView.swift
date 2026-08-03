@@ -5,6 +5,7 @@ struct ItineraryView: View {
     @ObservedObject var syncEngine: SyncEngine
     @ObservedObject var sharedLinkStore: PendingSharedLinkStore
     @ObservedObject var appleSignIn: AppleSignInStore
+    @Binding var section: JourneyView.Section
     @State private var activeDaySheet: DaySheet?
     @State private var showsTripEditor = false
     @State private var showsNewTripEditor = false
@@ -54,6 +55,14 @@ struct ItineraryView: View {
             }
             .navigationTitle("旅程")
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation { section.toggle() }
+                    } label: {
+                        Image(systemName: section.alternateIcon)
+                    }
+                    .accessibilityLabel(section.alternateTitle)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ForEach(syncEngine.trips) { summary in

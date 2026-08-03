@@ -5,6 +5,7 @@ import SwiftUI
 /// “今日”页：全屏地图按时间顺序连线今日 POI，底部 swiper 横滑切换并点击查看详情。
 struct TodayView: View {
     @ObservedObject var syncEngine: SyncEngine
+    @Binding var section: JourneyView.Section
     @Environment(\.modelContext) private var modelContext
     @StateObject private var linkHandler = ExternalLinkHandler()
     @State private var selectedPOIIndex = 0
@@ -40,6 +41,14 @@ struct TodayView: View {
             .navigationTitle(currentNavigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation { section.toggle() }
+                    } label: {
+                        Image(systemName: section.alternateIcon)
+                    }
+                    .accessibilityLabel(section.alternateTitle)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { Task { await syncEngine.retry() } } label: {
                         Image(systemName: "arrow.clockwise")
