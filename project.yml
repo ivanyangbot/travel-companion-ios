@@ -1,0 +1,79 @@
+name: TravelCompanion
+options:
+  bundleIdPrefix: com.yangzhiyuan
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 6
+targets:
+  TravelCompanion:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - Sources/TravelCompanion
+      - Assets.xcassets
+    resources:
+      - Sources/TravelCompanion/Supporting/PrivacyInfo.xcprivacy
+    dependencies:
+      - target: TravelCompanionShareExtension
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yangzhiyuan.travelcompanion
+        PRODUCT_NAME: TravelCompanion
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/TravelCompanion/Supporting/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/TravelCompanion/Supporting/TravelCompanion.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          DEVELOPMENT_TEAM: 9Z29478796
+          PROVISIONING_PROFILE_SPECIFIER: "TravelCompanion App Store WK"
+  TravelCompanionShareExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - Sources/TravelCompanionShareExtension
+    resources:
+      - Sources/TravelCompanionShareExtension/PrivacyInfo.xcprivacy
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yangzhiyuan.travelcompanion.share
+        PRODUCT_NAME: TravelCompanionShareExtension
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/TravelCompanionShareExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/TravelCompanionShareExtension/TravelCompanionShareExtension.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          DEVELOPMENT_TEAM: 9Z29478796
+          PROVISIONING_PROFILE_SPECIFIER: "TravelCompanion Share App Store"
+  TravelCompanionTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - Tests/TravelCompanionTests
+    dependencies:
+      - target: TravelCompanion
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yangzhiyuan.travelcompanion.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  TravelCompanion:
+    build:
+      targets:
+        TravelCompanion: all
+    run:
+      config: Debug
+    test:
+      targets:
+        - TravelCompanionTests

@@ -1,0 +1,470 @@
+import Foundation
+
+actor APIClient {
+    private let baseURL: URL?
+    private let session: URLSession
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+
+    init(baseURL: URL? = AppConfiguration.apiBaseURL(), session: URLSession = .shared) {
+        self.baseURL = baseURL
+        self.session = session
+        self.encoder = JSONEncoder()
+        self.encoder.dateEncodingStrategy = .iso8601
+        self.decoder = JSONDecoder()
+        self.decoder.dateDecodingStrategy = .iso8601
+    }
+
+    func fetchTrip(afterVersion: Int?) async throws -> SharedTripSnapshot? {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var components = URLComponents(url: baseURL.appending(path: "/v1/trip"), resolvingAgainstBaseURL: false)!
+        if let afterVersion {
+            components.queryItems = [URLQueryItem(name: "afterVersion", value: String(afterVersion))]
+        }
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        if httpResponse.statusCode == 204 { return nil }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<SharedTripSnapshot>.self, from: data).data
+    }
+
+    func estimateRoute(_ routeRequest: RouteEstimateRequest) async throws -> RouteEstimate {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/routes/estimate"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(routeRequest)
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<RouteEstimate>.self, from: data).data
+    }
+
+    func send(_ operation: PendingOperationPayload) async throws -> APIMeta {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: operation.path))
+        request.httpMethod = operation.method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(operation.idempotencyKey.uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
+        request.setValue(String(operation.baseVersion), forHTTPHeaderField: "X-Expected-Trip-Version")
+        request.httpBody = operation.body
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIWriteResponse.self, from: data).meta
+    }
+
+    func itineraryChat(_ request: AIItineraryChatRequest) async throws -> AIItineraryChatResult {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/itinerary-chat"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try encoder.encode(request)
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<AIItineraryChatResult>.self, from: data).data
+    }
+
+    /// Streaming variant of ``itineraryChat``. Returns an async stream of SSE
+    /// events (``reply`` deltas then a final ``result``) from
+    /// ``/v1/ai/itinerary-chat/stream``. SSE bytes are read at the byte level
+    /// (not via ``AsyncBytes.lines``, which can buffer a whole chunked response
+    /// until the connection closes on some iOS versions) so reply deltas reach
+    /// the UI as soon as the server emits them.
+    func itineraryChatStream(_ request: AIItineraryChatRequest) async throws -> AsyncThrowingStream<AIItineraryChatStreamEvent, Error> {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/itinerary-chat/stream"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        urlRequest.httpBody = try encoder.encode(request)
+        // Long generations plus per-card server-side place verification can
+        // run for minutes; the server streams heartbeats to hold the line.
+        urlRequest.timeoutInterval = 300
+        let finalRequest = urlRequest
+        let session = self.session
+        return AsyncThrowingStream { continuation in
+            let task = Task { @MainActor in
+                let decoder = JSONDecoder()
+                do {
+                    let (bytes, response) = try await session.bytes(for: finalRequest)
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: URLError(.badServerResponse))
+                        return
+                    }
+                    if !(200 ..< 300).contains(httpResponse.statusCode) {
+                        // Validation/rate-limit errors arrive as a normal JSON
+                        // body, not as SSE. Drain and surface the server's
+                        // error envelope so the user sees its message.
+                        var body = Data()
+                        for try await byte in bytes { body.append(byte) }
+                        continuation.finish(throwing: Self.error(for: httpResponse.statusCode, body: body, decoder: decoder))
+                        return
+                    }
+                    // Parse SSE at the byte level: accumulate until a blank line
+                    // ("\n\n") completes one event, then dispatch it. This avoids
+                    // AsyncBytes.lines buffering an entire streamed response.
+                    var event = ""
+                    var dataBuffer = ""
+                    var line = Data()
+                    for try await byte in bytes {
+                        if Task.isCancelled { break }
+                        if byte == 0x0A {
+                            // "\n" ends a line; a blank line dispatches the event.
+                            let str = String(data: line, encoding: .utf8) ?? ""
+                            line.removeAll(keepingCapacity: true)
+                            if str.hasPrefix("event:") {
+                                event = String(str.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                            } else if str.hasPrefix("data:") {
+                                let fragment = String(str.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                                dataBuffer += fragment
+                            } else if str.hasPrefix(":") {
+                                continue
+                            } else if str.isEmpty {
+                                if !event.isEmpty, let payload = dataBuffer.data(using: .utf8) {
+                                    switch event {
+                                    case "thinking":
+                                        // Legacy events are deliberately ignored: model reasoning
+                                        // must never enter user-visible or persisted state.
+                                        break
+                                    case "reply":
+                                        continuation.yield(.reply(try decoder.decode(String.self, from: payload)))
+                                    case "card":
+                                        let cardPayload = try decoder.decode(AIItineraryStreamCardPayload.self, from: payload)
+                                        continuation.yield(.card(index: cardPayload.index, card: cardPayload.card))
+                                    case "cardx":
+                                        let update = try decoder.decode(AIItineraryStreamCardUpdatePayload.self, from: payload)
+                                        continuation.yield(.cardUpdate(index: update.index, extras: update.fields?.extras ?? AICardExtras(), notes: update.fields?.notes ?? nil))
+                                    case "cardPlace":
+                                        let placePayload = try decoder.decode(AIItineraryStreamCardPlacePayload.self, from: payload)
+                                        continuation.yield(.cardPlace(index: placePayload.index, place: placePayload.place, verified: placePayload.verified))
+                                    case "result":
+                                        let result = try decoder.decode(AIItineraryChatResult.self, from: payload)
+                                        continuation.yield(.result(result))
+                                    case "error":
+                                        let error = try decoder.decode(AIItineraryStreamError.self, from: payload)
+                                        continuation.finish(throwing: error)
+                                        return
+                                    default:
+                                        break
+                                    }
+                                }
+                                event = ""
+                                dataBuffer = ""
+                            }
+                        } else if byte != 0x0D {
+                            line.append(byte)
+                        }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func error(for statusCode: Int, body: Data, decoder: JSONDecoder) -> Error {
+        if var problem = try? decoder.decode(APIErrorEnvelope.self, from: body).error {
+            problem.statusCode = statusCode
+            return problem
+        }
+        return APIResponseError(statusCode: statusCode)
+    }
+
+    func importFromLink(_ linkRequest: LinkImportRequest) async throws -> LinkImportResult {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/ai/link-import"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(linkRequest)
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<LinkImportResult>.self, from: data).data
+    }
+
+    /// 备忘智能助手：把脱敏后的行程快照交给服务端 AI，让其针对「明日」安排
+    /// 给出闹钟、提醒事项和物品建议。和其它 AI 接口一样，原文不在服务端落库。
+    func createMemoAssist(_ request: MemoAssistRequest) async throws -> MemoAssistResult {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/memo-assist"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try encoder.encode(request)
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<MemoAssistResult>.self, from: data).data
+    }
+
+    /// 卡包照片录入：把一张照片交给服务端 AI 视觉模型识别，返回标签、号码、备注和
+    /// 检测到的类型。照片只在本次识别中使用，不在服务端留存，也不写入共享行程。
+    func scanWalletCard(_ request: WalletCardScanRequest) async throws -> WalletCardScanResult {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/wallet-card-scan"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try encoder.encode(request)
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<WalletCardScanResult>.self, from: data).data
+    }
+
+    /// 扫小票/对话生成一笔实际价支出草案。客户端持有对话历史，每轮重放；
+    /// 小票图片以 base64 data URI 附在最后一条用户消息上（视觉模型）。
+    func createExpenseDraft(_ request: AIExpenseConversationRequest) async throws -> AIExpenseDraft {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/expense-drafts"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try encoder.encode(request)
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<AIExpenseDraft>.self, from: data).data
+    }
+
+    /// V2 Agent stream. Reasoning summaries remain ephemeral UI progress;
+    /// durable candidate patches use stable identifiers.
+    func agentV2Stream(_ payload: AgentV2TurnRequest) async throws -> AsyncThrowingStream<AgentV2StreamEvent, Error> {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v2/agent/turns/stream"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.httpBody = try encoder.encode(payload)
+        request.timeoutInterval = 100
+        let finalRequest = request
+        let session = self.session
+        return AsyncThrowingStream { continuation in
+            // Network byte iteration and SSE decoding must not inherit the UI
+            // actor. Long reasoning/card payloads can otherwise monopolize
+            // the main executor and make progressive rendering look frozen.
+            let task = Task.detached(priority: .userInitiated) {
+                do {
+                    let (bytes, response) = try await session.bytes(for: finalRequest)
+                    guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+                    guard (200 ..< 300).contains(response.statusCode) else {
+                        var data = Data()
+                        for try await byte in bytes { data.append(byte) }
+                        throw Self.error(for: response.statusCode, body: data, decoder: JSONDecoder())
+                    }
+                    var parser = AgentV2SSEParser()
+                    for try await byte in bytes {
+                        if Task.isCancelled { break }
+                        guard let decoded = try parser.consume(byte) else { continue }
+                        continuation.yield(decoded)
+                        if case .done = decoded { continuation.finish(); return }
+                    }
+                    if Task.isCancelled {
+                        continuation.finish()
+                    } else {
+                        try parser.finishAtEOF()
+                        continuation.finish()
+                    }
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                        continuation.finish()
+                    } else {
+                        continuation.finish(throwing: error)
+                    }
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    func commitAgentV2(_ payload: AgentV2CommitRequest, idempotencyKey: UUID) async throws -> AgentV2CommitResult {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v2/agent/commits"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(idempotencyKey.uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
+        request.setValue(String(payload.expectedTripVersion), forHTTPHeaderField: "X-Expected-Trip-Version")
+        request.httpBody = try encoder.encode(payload)
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: response, data: data)
+        return try decoder.decode(APIEnvelope<AgentV2CommitResult>.self, from: data).data
+    }
+
+    fileprivate static func agentV2Event(_ name: String, _ data: Data) throws -> AgentV2StreamEvent? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        switch name {
+        case "status": return .status(try decoder.decode(String.self, from: data))
+        case "reasoning_summary": return .reasoningSummary(try decoder.decode(String.self, from: data))
+        case "assistant_delta": return .assistantDelta(try decoder.decode(String.self, from: data))
+        case "card_begin":
+            struct Begin: Decodable { let id: UUID; let index: Int }
+            let begin = try decoder.decode(Begin.self, from: data)
+            return .cardBegin(id: begin.id, index: begin.index)
+        case "card_field_delta":
+            struct Field: Decodable { let id: UUID; let field: String; let value: String }
+            let field = try decoder.decode(Field.self, from: data)
+            return .cardFieldDelta(id: field.id, field: field.field, value: field.value)
+        case "question": return .question(try decoder.decode(String.self, from: data))
+        case "summary": return .summary(try decoder.decode(AgentV2Summary.self, from: data))
+        case "candidate_upsert": return .candidateUpsert(try decoder.decode(AgentV2Candidate.self, from: data))
+        case "candidate_patch":
+            struct Patch: Decodable { let id: UUID; let candidate: AgentV2Candidate }
+            let patch = try decoder.decode(Patch.self, from: data)
+            return .candidatePatch(id: patch.id, candidate: patch.candidate)
+        case "change_set": return .changeSet(try decoder.decode([AgentV2Change].self, from: data))
+        case "done": return .done
+        case "error": throw try decoder.decode(AIItineraryStreamError.self, from: data)
+        default: return nil
+        }
+    }
+
+    func fetchJournal() async throws -> JournalSnapshot {
+        try await journalRequest(path: "/v1/journal", method: "GET", body: nil)
+    }
+
+    func createJournalGroup(_ value: JournalGroupRequest) async throws -> JournalGroup {
+        try await journalRequest(path: "/v1/journal/groups", method: "POST", body: encoder.encode(value))
+    }
+
+    func updateJournalGroup(id: Int, _ value: JournalGroupRequest) async throws -> JournalGroup {
+        try await journalRequest(path: "/v1/journal/groups/\(id)", method: "PATCH", body: encoder.encode(value))
+    }
+
+    func deleteJournalGroup(id: Int) async throws {
+        let _: DeletedJournalItem = try await journalRequest(path: "/v1/journal/groups/\(id)", method: "DELETE", body: nil)
+    }
+
+    func createJournalEntry(_ value: JournalEntryRequest) async throws -> JournalEntry {
+        try await journalRequest(path: "/v1/journal/entries", method: "POST", body: encoder.encode(value))
+    }
+
+    func updateJournalEntry(id: Int, _ value: JournalEntryRequest) async throws -> JournalEntry {
+        try await journalRequest(path: "/v1/journal/entries/\(id)", method: "PATCH", body: encoder.encode(value))
+    }
+
+    func deleteJournalEntry(id: Int) async throws {
+        let _: DeletedJournalItem = try await journalRequest(path: "/v1/journal/entries/\(id)", method: "DELETE", body: nil)
+    }
+
+    func uploadJournalImage(data: Data, contentType: String) async throws -> String {
+        let intent: JournalUploadIntent = try await journalRequest(path: "/v1/journal/upload-intents", method: "POST", body: encoder.encode(JournalUploadIntentRequest(contentType: contentType, sizeBytes: data.count)))
+        guard let url = URL(string: intent.uploadUrl) else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.httpBody = data
+        for (name, value) in intent.headers { request.setValue(value, forHTTPHeaderField: name) }
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200 ..< 300).contains(httpResponse.statusCode) else { throw APIResponseError(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0) }
+        return intent.key
+    }
+
+    private func journalRequest<Value: Decodable>(path: String, method: String, body: Data?) async throws -> Value {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = method
+        if let body { request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = body }
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<Value>.self, from: data).data
+    }
+
+    func encode<Request: Encodable>(_ request: Request) throws -> Data {
+        try encoder.encode(request)
+    }
+
+    private func validate(response: HTTPURLResponse, data: Data) throws {
+        guard (200 ..< 300).contains(response.statusCode) else {
+            if let problem = try? decoder.decode(APIErrorEnvelope.self, from: data) {
+                var problem = problem.error
+                problem.statusCode = response.statusCode
+                throw problem
+            }
+            throw APIResponseError(statusCode: response.statusCode)
+        }
+    }
+
+    private func requiredURL(_ components: URLComponents) throws -> URL {
+        guard let url = components.url else { throw URLError(.badURL) }
+        return url
+    }
+}
+
+/// Stateful byte-level parser for the Agent v2 SSE contract. Kept independent
+/// from URLSession so framing, completion, and truncated-stream behavior can
+/// be verified with deterministic fixtures.
+struct AgentV2SSEParser: Sendable {
+    private var eventName = ""
+    private var eventData = ""
+    private var line = Data()
+    private(set) var receivedDone = false
+
+    mutating func consume(_ byte: UInt8) throws -> AgentV2StreamEvent? {
+        guard byte == 0x0A else {
+            if byte != 0x0D { line.append(byte) }
+            return nil
+        }
+
+        let value = String(data: line, encoding: .utf8) ?? ""
+        line.removeAll(keepingCapacity: true)
+        if value.hasPrefix("event:") {
+            eventName = String(value.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+            return nil
+        }
+        if value.hasPrefix("data:") {
+            eventData += String(value.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            return nil
+        }
+        if value.hasPrefix(":") || !value.isEmpty { return nil }
+
+        defer {
+            eventName = ""
+            eventData = ""
+        }
+        guard !eventName.isEmpty, let payload = eventData.data(using: .utf8),
+              let decoded = try APIClient.agentV2Event(eventName, payload)
+        else { return nil }
+        if case .done = decoded { receivedDone = true }
+        return decoded
+    }
+
+    func finishAtEOF() throws {
+        guard receivedDone else { throw AgentV2IncompleteStreamError() }
+    }
+}
+
+struct AgentV2IncompleteStreamError: LocalizedError, Equatable, Sendable {
+    var errorDescription: String? {
+        "连接中断，未收到完整结果，请重试。上一轮草稿已保留。"
+    }
+}
+
+enum APIConfigurationError: LocalizedError {
+    case missingBaseURL
+
+    var errorDescription: String? { "请先在行程页设置中填写共享 API 地址。" }
+}
+
+/// Non-2xx response whose body is not the `{error:{...}}` envelope (e.g. a
+/// reverse-proxy 404/502 HTML page, or a route the deployed backend lacks).
+/// Surfacing the status code is far more actionable than a bare -1011.
+struct APIResponseError: LocalizedError {
+    let statusCode: Int
+
+    var errorDescription: String? {
+        switch statusCode {
+        case 404: return "服务器未找到该接口（404），请将后端更新至最新版本。"
+        case 500...599: return "服务器暂时不可用（\(statusCode)），请稍后重试。"
+        default: return "服务器返回了无法识别的响应（\(statusCode)）。"
+        }
+    }
+}

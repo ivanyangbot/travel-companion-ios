@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleDisplayName</key>
+    <string>yunnn</string>
+    <key>TravelCompanionAPIBaseURL</key>
+    <string>https://indo.nuanxinban.com</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>NSRemindersUsageDescription</key>
+    <string>用于根据行程一键创建提醒事项，让你在系统提醒事项 App 中收到明日待办。</string>
+    <key>NSCameraUsageDescription</key>
+    <string>用于拍摄银行卡、门票等卡面，由 AI 识别后录入卡包；照片仅用于本次识别，不会留存。</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.yangzhiyuan.travelcompanion.import</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>travelcompanion</string></array>
+        </dict>
+    </array>
+    <key>UILaunchScreen</key>
+    <dict/>
+</dict>
+</plist>
