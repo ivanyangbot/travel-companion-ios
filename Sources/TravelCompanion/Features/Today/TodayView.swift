@@ -9,7 +9,8 @@ struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     @StateObject private var linkHandler = ExternalLinkHandler()
     @State private var selectedPOIIndex = 0
-    @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var cameraFocus: CLLocationCoordinate2D?
+    @State private var cameraRequestID = 0
     @State private var detailCard: TravelCardSnapshot?
     @State private var hasCenteredOnPOIs = false
     /// 相对于排序后 days 的当前选中索引；nil 表示跟随“今日”基准。
@@ -17,67 +18,47 @@ struct TodayView: View {
     @State private var weatherEntries: [TodayWeatherEntry] = []
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let trip = syncEngine.trip, trip.isConfigured {
-                    let sorted = sortedDays(in: trip)
-                    if sorted.isEmpty {
-                        ContentUnavailableView(
-                            "还没有行程日期",
-                            systemImage: "calendar.badge.exclamationmark",
-                            description: Text("在「旅程」中添加日期与卡片后，这里会显示今日地图。")
-                        )
-                    } else {
-                        let baseIndex = baseDayIndex(in: sorted)
-                        let currentIndex = clampedDayIndex(sorted: sorted, baseIndex: baseIndex)
-                        mapContent(trip, days: sorted, currentIndex: currentIndex, baseIndex: baseIndex)
-                    }
-                } else if case .failed(let message) = syncEngine.status {
-                    ContentUnavailableView("无法加载共享行程", systemImage: "wifi.exclamationmark", description: Text(message))
+        Group {
+            if let trip = syncEngine.trip, trip.isConfigured {
+                let sorted = sortedDays(in: trip)
+                if sorted.isEmpty {
+                    ContentUnavailableView(
+                        "还没有行程日期",
+                        systemImage: "calendar.badge.exclamationmark",
+                        description: Text("在「旅程」中添加日期与卡片后，这里会显示今日地图。")
+                    )
                 } else {
-                    ProgressView("正在打开共享行程…")
+                    let baseIndex = baseDayIndex(in: sorted)
+                    let currentIndex = clampedDayIndex(sorted: sorted, baseIndex: baseIndex)
+                    mapContent(days: sorted, currentIndex: currentIndex, baseIndex: baseIndex)
                 }
+            } else if case .failed(let message) = syncEngine.status {
+                ContentUnavailableView("无法加载共享行程", systemImage: "wifi.exclamationmark", description: Text(message))
+            } else {
+                ProgressView("正在打开共享行程…")
             }
-            .navigationTitle(currentNavigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        withAnimation { section.toggle() }
-                    } label: {
-                        Image(systemName: section.alternateIcon)
-                    }
-                    .accessibilityLabel(section.alternateTitle)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await syncEngine.retry() } } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .accessibilityLabel("重新同步")
-                }
-            }
-            .sheet(item: $detailCard) { card in
-                TodayCardDetailSheet(card: card, linkHandler: linkHandler)
-            }
-            .sheet(isPresented: Binding(
-                get: { linkHandler.browserURL != nil },
-                set: { if !$0 { linkHandler.browserURL = nil } }
-            )) {
-                if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
-            }
-            .alert("无法打开链接", isPresented: Binding(
-                get: { linkHandler.alertMessage != nil },
-                set: { if !$0 { linkHandler.alertMessage = nil } }
-            )) {
-                Button("好", role: .cancel) { linkHandler.alertMessage = nil }
-            } message: {
-                Text(linkHandler.alertMessage ?? "")
-            }
+        }
+        .sheet(item: $detailCard) { card in
+            TodayCardDetailSheet(card: card, linkHandler: linkHandler)
+        }
+        .sheet(isPresented: Binding(
+            get: { linkHandler.browserURL != nil },
+            set: { if !$0 { linkHandler.browserURL = nil } }
+        )) {
+            if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
+        }
+        .alert("无法打开链接", isPresented: Binding(
+            get: { linkHandler.alertMessage != nil },
+            set: { if !$0 { linkHandler.alertMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { linkHandler.alertMessage = nil }
+        } message: {
+            Text(linkHandler.alertMessage ?? "")
         }
     }
 
     @ViewBuilder
-    private func mapContent(_ trip: SharedTripSnapshot, days: [TripDaySnapshot], currentIndex: Int, baseIndex: Int) -> some View {
+    private func mapContent(days: [TripDaySnapshot], currentIndex: Int, baseIndex: Int) -> some View {
         let day = days[currentIndex]
         let pois = poiCards(in: day)
         ZStack {
@@ -88,39 +69,114 @@ struct TodayView: View {
                     description: Text("在「旅程」中为该日的卡片补上坐标后，这里会显示地图路径。")
                 )
             } else {
-                Map(position: $cameraPosition) {
-                    mapDecorations(pois: pois)
-                }
-                .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll, showsTraffic: false))
-                .environment(\.colorScheme, .dark)
-                .ignoresSafeArea(edges: .bottom)
+                TodayMapCanvas(
+                    points: mapPoints(pois: pois),
+                    selectedIndex: clampedIndex(pois: pois),
+                    cameraFocus: cameraFocus,
+                    cameraRequestID: cameraRequestID
+                )
+                .ignoresSafeArea()
             }
 
-            VStack(spacing: 8) {
-                daySwitcher(days: days, currentIndex: currentIndex, baseIndex: baseIndex)
-                    .padding(.top, 8)
-                if !weatherEntries.isEmpty {
-                    TodayWeatherRow(entries: weatherEntries)
-                        .transition(.opacity)
-                }
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [
+                        .black.opacity(0.74),
+                        .black.opacity(0.42),
+                        .black.opacity(0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 220)
                 Spacer()
-                if !pois.isEmpty {
-                    poiSwiper(pois: pois)
-                        .padding(.bottom, 24)
-                }
             }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
+            VStack {
+                mapHeader(for: day, currentIndex: currentIndex, baseIndex: baseIndex)
+                Spacer()
+            }
+            .padding(.top, 2)
         }
         .task(id: "\(day.id)-\(poisKey(pois))") {
             hasCenteredOnPOIs = false
             fitAll(pois: pois)
             hasCenteredOnPOIs = true
         }
-        .task(id: "weather-\(day.id)-\(poisKey(pois))") {
-            await loadWeather(day: day, pois: pois)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 40)
+                .onEnded { value in
+                    let horizontalDistance = value.translation.width
+                    let verticalDistance = value.translation.height
+                    guard abs(horizontalDistance) > abs(verticalDistance) * 1.25 else { return }
+
+                    if horizontalDistance < -50 {
+                        selectDay(days: days, index: currentIndex + 1)
+                    } else if horizontalDistance > 50 {
+                        selectDay(days: days, index: currentIndex - 1)
+                    }
+                }
+        )
+    }
+
+    private func mapHeader(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> some View {
+        ZStack {
+            Text(mapHeaderTitle(for: day, currentIndex: currentIndex, baseIndex: baseIndex))
+                .font(.custom("PingFangTC-Semibold", size: 24))
+                .tracking(0.024)
+                .frame(height: 36)
+                .foregroundStyle(.white)
+
+            HStack {
+                Spacer()
+                Button {
+                    withAnimation { section.toggle() }
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(section.alternateTitle)
+            }
         }
-        .onChange(of: selectedPOIIndex) { _, newIndex in
-            guard hasCenteredOnPOIs else { return }
-            focus(pois: pois, index: newIndex)
+        .padding(.horizontal, 36)
+        .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
+    }
+
+    private func mapHeaderTitle(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> String {
+        let dateText: String
+        if let date = Self.dayFormatter.date(from: day.date) {
+            let components = Self.utcCalendar.dateComponents([.month, .day], from: date)
+            if let month = components.month, let dayNumber = components.day {
+                dateText = "\(chineseNumber(month))月\(chineseNumber(dayNumber))"
+            } else {
+                dateText = day.date
+            }
+        } else {
+            dateText = day.date
+        }
+        return currentIndex == baseIndex ? "今日 \(dateText)" : dateText
+    }
+
+    private func chineseNumber(_ value: Int) -> String {
+        let digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+        switch value {
+        case 0...9:
+            return digits[value]
+        case 10:
+            return "十"
+        case 11...19:
+            return "十\(digits[value % 10])"
+        case 20...31:
+            let tens = digits[value / 10]
+            let ones = value % 10
+            return ones == 0 ? "\(tens)十" : "\(tens)十\(digits[ones])"
+        default:
+            return String(value)
         }
     }
 
@@ -232,38 +288,6 @@ struct TodayView: View {
         .padding(.horizontal, 16)
     }
 
-    @MapContentBuilder
-    private func mapDecorations(pois: [TravelCardSnapshot]) -> some MapContent {
-        ForEach(Array(pois.enumerated()), id: \.element.id) { index, card in
-            if let coordinate = coordinate(of: card) {
-                Annotation(card.title, coordinate: coordinate) {
-                    poiMarker(for: index, isSelected: index == clampedIndex(pois: pois))
-                }
-            }
-        }
-        if pois.count > 1 {
-            let coordinates = pois.compactMap { coordinate(of: $0) }
-            MapPolyline(coordinates: coordinates)
-                .stroke(.orange, lineWidth: 4)
-        }
-    }
-
-    @ViewBuilder
-    private func poiMarker(for index: Int, isSelected: Bool) -> some View {
-        ZStack {
-            Circle()
-                .fill(isSelected ? Color.indigo : Color.white)
-                .frame(width: 34, height: 34)
-            Text("\(index + 1)")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(isSelected ? Color.white : Color.indigo)
-        }
-        .overlay(Circle().stroke(Color.white, lineWidth: 2))
-        .shadow(color: .black.opacity(0.25), radius: 2)
-        .scaleEffect(isSelected ? 1.15 : 1)
-        .animation(.easeInOut(duration: 0.2), value: isSelected)
-    }
-
     private func sortedDays(in trip: SharedTripSnapshot) -> [TripDaySnapshot] {
         trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
     }
@@ -314,6 +338,18 @@ struct TodayView: View {
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
+    private func mapPoints(pois: [TravelCardSnapshot]) -> [TodayMapPoint] {
+        pois.compactMap { card in
+            guard let coordinate = coordinate(of: card) else { return nil }
+            return TodayMapPoint(
+                id: card.id,
+                title: card.place?.name ?? card.title,
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude
+            )
+        }
+    }
+
     private func clampedIndex(pois: [TravelCardSnapshot]) -> Int {
         min(max(0, selectedPOIIndex), max(0, pois.count - 1))
     }
@@ -330,16 +366,18 @@ struct TodayView: View {
     private func fitAll(pois: [TravelCardSnapshot]) {
         guard !pois.isEmpty else { return }
         if pois.count == 1, let coordinate = coordinate(of: pois[0]) {
-            cameraPosition = .region(MKCoordinateRegion(center: coordinate, latitudinalMeters: 1_000, longitudinalMeters: 1_000))
+            cameraFocus = coordinate
         } else {
-            cameraPosition = .automatic
+            cameraFocus = nil
         }
+        cameraRequestID &+= 1
     }
 
     private func focus(pois: [TravelCardSnapshot], index: Int) {
         guard pois.indices.contains(index), let coordinate = coordinate(of: pois[index]) else { return }
         withAnimation(.easeInOut(duration: 0.4)) {
-            cameraPosition = .region(MKCoordinateRegion(center: coordinate, latitudinalMeters: 800, longitudinalMeters: 800))
+            cameraFocus = coordinate
+            cameraRequestID &+= 1
         }
     }
 
@@ -358,6 +396,12 @@ struct TodayView: View {
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "M月d日 EEE"
         return formatter
+    }()
+
+    private static var utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
     }()
 }
 

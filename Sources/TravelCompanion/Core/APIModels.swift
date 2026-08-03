@@ -150,6 +150,26 @@ struct RouteEstimate: Codable, Sendable, Equatable {
     let source: String
 }
 
+struct RouteDirectionsRequest: Encodable, Sendable {
+    let origin: RoutePoint
+    let destination: RoutePoint
+    let mode: RouteMode
+}
+
+struct RouteCoordinate: Codable, Sendable, Equatable {
+    let latitude: Double
+    let longitude: Double
+}
+
+struct RouteDirections: Codable, Sendable, Equatable {
+    let distanceMeters: Int
+    let durationSeconds: Int
+    let coordinates: [RouteCoordinate]
+    let mode: RouteMode
+    let updatedAt: Date
+    let source: String
+}
+
 struct CardRequest: Encodable, Sendable {
     var dayId: Int?
     var kind: TravelCardSnapshot.Kind?

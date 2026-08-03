@@ -150,6 +150,19 @@ actor APIClient {
         return try decoder.decode(APIEnvelope<RouteEstimate>.self, from: data).data
     }
 
+    func routeDirections(_ routeRequest: RouteDirectionsRequest) async throws -> RouteDirections {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/routes/directions"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&request)
+        request.httpBody = try encoder.encode(routeRequest)
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<RouteDirections>.self, from: data).data
+    }
+
     func send(_ operation: PendingOperationPayload, tripID: Int) async throws -> APIMeta {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: operation.path))

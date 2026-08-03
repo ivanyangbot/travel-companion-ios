@@ -72,6 +72,7 @@
 		D1504380DCD8A82254554413 /* MemoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A762EA2F77A29FFD875DA223 /* MemoSection.swift */; };
 		D18CAD03BDA23AD32F53F9A4 /* AIItinerarySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBD21BBCF210B3C99799519 /* AIItinerarySheet.swift */; };
 		D1C34A8978C74BF45F5D7C2D /* JourneyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */; };
+		DA870007AF58DAF77B192DCD /* NeonTodayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5337983395B60705321FDC /* NeonTodayMap.swift */; };
 		E670704D79E281B974DC5128 /* WalletCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD71E8A9B4EB9071A9830E8 /* WalletCrypto.swift */; };
 		E907DF43C051B0DAF088CE60 /* ExpenseEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768B5F4FCDC82CB0A5449464 /* ExpenseEditorView.swift */; };
 		ECD7126443B49BB19C646935 /* TodayWeather.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED684774368336D41506574B /* TodayWeather.swift */; };
@@ -173,6 +174,7 @@
 		9FB2711532E17CBD08B29873 /* ExpenseListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseListView.swift; sourceTree = "<group>"; };
 		A762EA2F77A29FFD875DA223 /* MemoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoSection.swift; sourceTree = "<group>"; };
 		AAB30A60EBABC73ACC172EF1 /* RouteCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteCache.swift; sourceTree = "<group>"; };
+		AB5337983395B60705321FDC /* NeonTodayMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeonTodayMap.swift; sourceTree = "<group>"; };
 		ACA45728502C29E3F4C3B71A /* WalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTests.swift; sourceTree = "<group>"; };
 		ADD71E8A9B4EB9071A9830E8 /* WalletCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCrypto.swift; sourceTree = "<group>"; };
 		AFBD21BBCF210B3C99799519 /* AIItinerarySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIItinerarySheet.swift; sourceTree = "<group>"; };
@@ -413,6 +415,7 @@
 		F54B2CE2378BD64A7B5428D2 /* Today */ = {
 			isa = PBXGroup;
 			children = (
+				AB5337983395B60705321FDC /* NeonTodayMap.swift */,
 				72EAFDA83E7A9A0A19462E9B /* TodayView.swift */,
 				ED684774368336D41506574B /* TodayWeather.swift */,
 			);
@@ -607,6 +610,7 @@
 				01CF842454052FCA56C9E53F /* MemoListEditor.swift in Sources */,
 				1DE33419FCE05386856BAAE8 /* MemoModels.swift in Sources */,
 				D1504380DCD8A82254554413 /* MemoSection.swift in Sources */,
+				DA870007AF58DAF77B192DCD /* NeonTodayMap.swift in Sources */,
 				2352DBCC56E1620F5C39F1EA /* NotesView.swift in Sources */,
 				7F66A8BEFA8F151CF1397890 /* PendingSharedLinkStore.swift in Sources */,
 				ED5B127795A18F06919FE7A1 /* PlaceSearchView.swift in Sources */,

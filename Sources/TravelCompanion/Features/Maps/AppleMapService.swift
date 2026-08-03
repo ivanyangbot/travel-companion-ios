@@ -110,7 +110,10 @@ enum AppleMapService {
     }
 
     static func mapItem(for point: RoutePoint, name: String? = nil) -> MKMapItem {
-        let item = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)))
+        let item = MKMapItem(
+            location: CLLocation(latitude: point.latitude, longitude: point.longitude),
+            address: nil
+        )
         item.name = name
         return item
     }
