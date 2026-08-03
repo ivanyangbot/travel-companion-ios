@@ -1,0 +1,4 @@
+interface:
+  display_name: "Indo TestFlight Upload"
+  short_description: "Build and upload Indo iOS releases to TestFlight"
+  default_prompt: "Use $testflight-upload to package the latest Indo code, increment its build number, upload it to TestFlight, and add it to Internal Testers."

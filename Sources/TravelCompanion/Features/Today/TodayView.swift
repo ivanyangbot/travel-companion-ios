@@ -82,6 +82,9 @@ struct TodayView: View {
                 Map(position: $cameraPosition) {
                     mapDecorations(pois: pois)
                 }
+                // Use MapKit's flat, POI-free standard style to keep the route visually primary.
+                .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll, showsTraffic: false))
+                .environment(\.colorScheme, .dark)
                 .ignoresSafeArea(edges: .bottom)
             }
 
@@ -233,7 +236,7 @@ struct TodayView: View {
         if pois.count > 1 {
             let coordinates = pois.compactMap { coordinate(of: $0) }
             MapPolyline(coordinates: coordinates)
-                .stroke(.indigo, lineWidth: 4)
+                .stroke(.orange, lineWidth: 4)
         }
     }
 
