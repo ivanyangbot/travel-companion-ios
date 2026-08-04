@@ -121,6 +121,38 @@ final class TravelCardsTests: XCTestCase {
     }
 
     @MainActor
+    func testSignedOutBootstrapHidesAccountBackedTripsFromEditableLocalMode() async throws {
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SharedTripRepository(modelContext: ModelContext(container))
+        try repository.save(SharedTripSnapshot(
+            id: 42,
+            destination: "云端行程",
+            startDate: "2026-10-01",
+            endDate: "2026-10-02",
+            currency: "CNY",
+            version: 7,
+            updatedAt: .now,
+            days: []
+        ))
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: APIClient(baseURL: nil),
+            authenticatedOverride: false
+        )
+
+        await engine.bootstrap()
+
+        XCTAssertEqual(engine.status, .localOnly)
+        XCTAssertNotNil(engine.trip)
+        XCTAssertTrue(try XCTUnwrap(engine.trip?.id) < 0)
+        XCTAssertTrue(engine.trips.allSatisfy { $0.id < 0 })
+        XCTAssertTrue(try repository.cachedTrips().contains { $0.id == 42 })
+    }
+
+    @MainActor
     func testFirstLoginImportsLocalSharedDataAndLeavesWalletOnDevice() async throws {
         FirstLoginMigrationURLProtocol.reset()
         let sessionConfiguration = URLSessionConfiguration.ephemeral
@@ -166,7 +198,7 @@ final class TravelCardsTests: XCTestCase {
             cardID: 20
         )
         let localTrip = SharedTripSnapshot(
-            id: 1,
+            id: -1,
             destination: "杭州",
             startDate: "2026-10-01",
             endDate: "2026-10-02",
@@ -177,7 +209,7 @@ final class TravelCardsTests: XCTestCase {
             expenses: [expense]
         )
         try repository.save(localTrip)
-        try repository.enqueue(method: "PATCH", path: "/v1/trip", tripID: 1, body: Data("{}".utf8), baseVersion: 7)
+        try repository.enqueue(method: "PATCH", path: "/v1/trip", tripID: -1, body: Data("{}".utf8), baseVersion: 7)
 
         let wallet = LocalWalletItem(label: "只留本地", encryptedSecret: Data("wallet-ciphertext".utf8))
         context.insert(wallet)
@@ -207,11 +239,104 @@ final class TravelCardsTests: XCTestCase {
                 "GET /v1/trips", "POST /v1/trips", "GET /v1/trip",
                 "POST /v1/days", "GET /v1/trip", "POST /v1/cards",
                 "GET /v1/trip", "POST /v1/expenses", "GET /v1/trip",
-                "GET /v1/trips",
+                "GET /v1/trips", "GET /v1/trip",
             ]
         )
         let outboundBodies = FirstLoginMigrationURLProtocol.requests.compactMap(\.httpBody)
         XCTAssertFalse(outboundBodies.contains { String(decoding: $0, as: UTF8.self).contains("wallet-ciphertext") })
+    }
+
+    @MainActor
+    func testFirstLoginDoesNotMigratePositiveIDAccountCacheOrLegacyPendingState() async throws {
+        FirstLoginMigrationURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FirstLoginMigrationURLProtocol.self]
+        let client = APIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test")),
+            session: URLSession(configuration: configuration),
+            tokenProvider: { "test-token" }
+        )
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SharedTripRepository(modelContext: ModelContext(container))
+        let positiveAccountCache = SharedTripSnapshot(
+            id: 99,
+            destination: "其他账号的缓存",
+            startDate: "2026-11-01",
+            endDate: "2026-11-02",
+            currency: "CNY",
+            version: 4,
+            updatedAt: .now,
+            days: []
+        )
+        try repository.save(positiveAccountCache)
+        let suiteName = "PositiveAccountCacheTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let migrationStore = LocalTripMigrationStore(defaults: defaults)
+        try migrationStore.save(PendingLocalTripMigration(source: positiveAccountCache))
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: client,
+            localMigrationStore: migrationStore,
+            authenticatedOverride: true
+        )
+
+        await engine.bootstrap()
+
+        XCTAssertEqual(FirstLoginMigrationURLProtocol.requests.map { "\($0.httpMethod ?? "") \($0.url?.path ?? "")" }, ["GET /v1/trips"])
+        XCTAssertNil(engine.trip)
+        XCTAssertTrue(try repository.cachedTrips().contains { $0.id == 99 })
+        XCTAssertFalse(migrationStore.hasPendingMigration)
+    }
+
+    @MainActor
+    func testInvalidLegacyPendingCannotKeepMigrationBatchActiveForExistingAccount() async throws {
+        FirstLoginMigrationURLProtocol.reset()
+        FirstLoginMigrationURLProtocol.tripVersion = 3
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FirstLoginMigrationURLProtocol.self]
+        let client = APIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test")),
+            session: URLSession(configuration: configuration),
+            tokenProvider: { "test-token" }
+        )
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SharedTripRepository(modelContext: ModelContext(container))
+        let localTrip = SharedTripSnapshot(
+            id: -1, destination: "本地旅程", startDate: "2026-12-01", endDate: "2026-12-02",
+            currency: "CNY", version: 0, updatedAt: .now, days: []
+        )
+        try repository.save(localTrip)
+        let legacyAccountCache = SharedTripSnapshot(
+            id: 99, destination: "旧账号缓存", startDate: "2026-11-01", endDate: "2026-11-02",
+            currency: "CNY", version: 4, updatedAt: .now, days: []
+        )
+        let suiteName = "LegacyMigrationBatchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let migrationStore = LocalTripMigrationStore(defaults: defaults)
+        try migrationStore.save(PendingLocalTripMigration(source: legacyAccountCache))
+        migrationStore.beginInitialImportBatch()
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: client,
+            localMigrationStore: migrationStore,
+            authenticatedOverride: true
+        )
+
+        await engine.bootstrap()
+
+        XCTAssertFalse(FirstLoginMigrationURLProtocol.requests.contains { $0.httpMethod == "POST" })
+        XCTAssertEqual(engine.trip?.id, 42)
+        XCTAssertTrue(try repository.cachedTrips().contains { $0.id == -1 })
+        XCTAssertFalse(migrationStore.hasPendingMigration)
+        XCTAssertFalse(migrationStore.isInitialImportBatchActive)
     }
 }
 
@@ -237,7 +362,7 @@ private final class FirstLoginMigrationURLProtocol: URLProtocol {
         switch (method, path) {
         case ("GET", "/v1/trips"):
             statusCode = 200
-            body = Data((Self.tripVersion == 0 ? "{\"data\":[]}" : Self.tripSummaryEnvelope).utf8)
+            body = Data((Self.tripVersion == 0 ? "{\"data\":[]}" : Self.tripSummaryListEnvelope).utf8)
         case ("POST", "/v1/trips"):
             statusCode = 200
             body = Data(Self.tripSummaryEnvelope.utf8)
@@ -279,6 +404,10 @@ private final class FirstLoginMigrationURLProtocol: URLProtocol {
 
     private static let tripSummaryEnvelope = """
     {"data":{"id":42,"destination":"杭州","startDate":"2026-10-01","endDate":"2026-10-02","currency":"CNY","version":3,"updatedAt":"2026-10-01T00:00:00Z","role":"owner","joinedAt":"2026-10-01T00:00:00Z"}}
+    """
+
+    private static let tripSummaryListEnvelope = """
+    {"data":[{"id":42,"destination":"杭州","startDate":"2026-10-01","endDate":"2026-10-02","currency":"CNY","version":3,"updatedAt":"2026-10-01T00:00:00Z","role":"owner","joinedAt":"2026-10-01T00:00:00Z"}]}
     """
 
     private static func metaEnvelope(version: Int) -> String {

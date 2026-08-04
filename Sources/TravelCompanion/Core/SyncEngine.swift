@@ -6,8 +6,8 @@ final class SyncEngine: ObservableObject {
     enum Status: Equatable {
         case loading, synced, syncing, pending(Int), conflict, offline(String), failed(String)
         /// The user is not signed in; data is local-only and no network calls
-        /// are attempted. Mutations are still persisted to SwiftData so they
-        /// survive until the user signs in and triggers a replay.
+        /// are attempted. Mutations are persisted to a separate local workspace
+        /// so account-backed cached trips cannot be edited after sign-out.
         case localOnly
     }
 
@@ -43,8 +43,7 @@ final class SyncEngine: ObservableObject {
     }
 
     /// Whether the engine should avoid all network traffic. The user may still
-    /// create and edit trips locally; those mutations are queued in SwiftData
-    /// and replayed once authentication is established.
+    /// create and edit trips in the isolated local workspace.
     private var localOnly: Bool { !isUserAuthenticated }
 
     /// Starts listening for Apple sign-in state changes. When the user signs
@@ -67,10 +66,12 @@ final class SyncEngine: ObservableObject {
                     // replay anything they created while offline.
                     await self.refresh()
                     await self.replayPendingOperations()
+                    self.startForegroundSync()
                 } else if !nowAuthed {
-                    // Signed out: stop polling and revert to local-only.
+                    // Signed out: stop polling and isolate account-backed cache
+                    // from the editable, signed-out local workspace.
                     self.stopForegroundSync()
-                    self.status = .localOnly
+                    self.activateLocalOnlyTrips()
                 }
             }
         }
@@ -79,27 +80,11 @@ final class SyncEngine: ObservableObject {
     func bootstrap() async {
         do {
             let cached = try repository.cachedTrips()
-            trip = selectedTripID.flatMap { id in cached.first { $0.id == id } } ?? cached.first
-            selectedTripID = trip?.id
             if localOnly {
-                if cached.isEmpty {
-                    let placeholder = SharedTripSnapshot(
-                        id: try repository.nextLocalTripID(),
-                        destination: nil,
-                        startDate: nil,
-                        endDate: nil,
-                        currency: nil,
-                        version: 0,
-                        updatedAt: .now,
-                        days: []
-                    )
-                    try repository.save(placeholder)
-                    trip = placeholder
-                    selectedTripID = placeholder.id
-                    trips = [Self.localSummary(for: placeholder)]
-                } else {
-                    trips = cached.map(Self.localSummary(for:))
-                }
+                try activateLocalOnlyTrips(from: cached)
+            } else {
+                trip = selectedTripID.flatMap { id in cached.first { $0.id == id } } ?? cached.first
+                selectedTripID = trip?.id
             }
         } catch {
             status = .failed("本机缓存无法读取。")
@@ -122,14 +107,21 @@ final class SyncEngine: ObservableObject {
             var summaries = try await apiClient.fetchTrips()
             let accountStartedEmpty = summaries.isEmpty
             if let pendingMigration = try localMigrationStore.pendingMigration() {
-                localMigrationStore.beginInitialImportBatch()
-                try await importLocalTrip(
-                    pendingMigration,
-                    serverTrips: summaries,
-                    allowsExistingTrips: localMigrationStore.isInitialImportBatchActive
-                )
-                localMigrationStore.completeCurrentMigration()
-                summaries = try await apiClient.fetchTrips()
+                if pendingMigration.source.id < 0 {
+                    localMigrationStore.beginInitialImportBatch()
+                    try await importLocalTrip(
+                        pendingMigration,
+                        serverTrips: summaries,
+                        allowsExistingTrips: localMigrationStore.isInitialImportBatchActive
+                    )
+                    localMigrationStore.completeCurrentMigration()
+                    summaries = try await apiClient.fetchTrips()
+                } else {
+                    // Discard legacy migration state created from an
+                    // account-backed cache entry. Replaying it under a
+                    // different account would copy data across accounts.
+                    localMigrationStore.discardInvalidMigrationState()
+                }
             }
             if !localMigrationStore.didFinishInitialImport {
                 if accountStartedEmpty {
@@ -137,7 +129,7 @@ final class SyncEngine: ObservableObject {
                 }
                 if localMigrationStore.isInitialImportBatchActive {
                     while let localTrip = try repository.cachedTrips().first(where: { cached in
-                        !summaries.contains(where: { $0.id == cached.id })
+                        cached.id < 0 && !summaries.contains(where: { $0.id == cached.id })
                     }) {
                         let migration = PendingLocalTripMigration(source: localTrip)
                         try localMigrationStore.save(migration)
@@ -376,16 +368,23 @@ final class SyncEngine: ObservableObject {
         }
     }
 
-    func joinTrip(inviteToken: String) async {
+    func joinTrip(inviteToken: String) async -> Bool {
+        guard !localOnly else { return false }
         do {
             let joined = try await apiClient.joinTrip(inviteToken: inviteToken)
+            // The request may have completed after the user signed out. The
+            // server already accepted the invite, but account-backed state must
+            // not leak back into the isolated local workspace.
+            guard !localOnly else { return true }
             if !trips.contains(where: { $0.id == joined.id }) { trips.insert(joined, at: 0) }
             selectedTripID = joined.id
             await apiClient.setActiveTripID(joined.id)
             trip = nil
             await refresh()
+            return true
         } catch {
             status = .failed("无法加入共享旅程。请确认邀请仍有效。")
+            return false
         }
     }
 
@@ -495,6 +494,40 @@ final class SyncEngine: ObservableObject {
             role: "owner",
             joinedAt: snapshot.updatedAt
         )
+    }
+
+    private func activateLocalOnlyTrips() {
+        do {
+            try activateLocalOnlyTrips(from: repository.cachedTrips())
+            status = .localOnly
+        } catch {
+            trip = nil
+            trips = []
+            selectedTripID = nil
+            status = .failed("本机缓存无法读取。")
+        }
+    }
+
+    private func activateLocalOnlyTrips(from cached: [SharedTripSnapshot]) throws {
+        var localTrips = cached.filter { $0.id < 0 }
+        if localTrips.isEmpty {
+            let placeholder = SharedTripSnapshot(
+                id: try repository.nextLocalTripID(),
+                destination: nil,
+                startDate: nil,
+                endDate: nil,
+                currency: nil,
+                version: 0,
+                updatedAt: .now,
+                days: []
+            )
+            try repository.save(placeholder)
+            localTrips = [placeholder]
+        }
+        let selectedLocal = selectedTripID.flatMap { id in localTrips.first { $0.id == id } } ?? localTrips.first
+        trip = selectedLocal
+        selectedTripID = selectedLocal?.id
+        trips = localTrips.map(Self.localSummary(for:))
     }
 
     private func updateLocalSummary(for snapshot: SharedTripSnapshot) {
@@ -1393,6 +1426,11 @@ final class LocalTripMigrationStore {
 
     func completeCurrentMigration() {
         defaults.removeObject(forKey: Self.pendingKey)
+    }
+
+    func discardInvalidMigrationState() {
+        defaults.removeObject(forKey: Self.pendingKey)
+        defaults.removeObject(forKey: Self.batchKey)
     }
 
     func markInitialImportFinished() {

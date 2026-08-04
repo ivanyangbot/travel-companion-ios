@@ -60,14 +60,18 @@ final class AppleSignInStore: ObservableObject {
         }
     }
 
-    func signOut() {
+    @discardableResult
+    func signOut() -> Bool {
+        errorMessage = nil
         do {
             try keychain.deleteAccessToken()
             displayName = nil
             isAuthenticated = false
             NotificationCenter.default.post(name: .appleSignInStateChanged, object: nil)
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 

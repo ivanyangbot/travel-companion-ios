@@ -18,6 +18,8 @@ struct ItineraryView: View {
     @State private var cardPendingDeletion: TravelCardSnapshot?
     @State private var expenseEditorDate: Date?
     @State private var inviteURL: URL?
+    @State private var inviteBeingJoined: String?
+    @State private var signOutErrorMessage: String?
     @StateObject private var linkHandler = ExternalLinkHandler()
 
     var body: some View {
@@ -36,10 +38,22 @@ struct ItineraryView: View {
                 Text("日期内含有行程卡片时，服务器会拒绝删除。")
             }
             .alert("退出登录？", isPresented: $showsSignOutConfirmation) {
-                Button("退出登录", role: .destructive) { appleSignIn.signOut() }
+                Button("退出登录", role: .destructive) {
+                    if !appleSignIn.signOut() {
+                        signOutErrorMessage = appleSignIn.errorMessage ?? "请稍后重试。"
+                    }
+                }
                 Button("取消", role: .cancel) {}
             } message: {
                 Text("退出后将停止云端同步，仍可继续使用本地模式。")
+            }
+            .alert("无法退出登录", isPresented: Binding(
+                get: { signOutErrorMessage != nil },
+                set: { if !$0 { signOutErrorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { signOutErrorMessage = nil }
+            } message: {
+                Text(signOutErrorMessage ?? "")
             }
             .alert("删除行程卡片？", isPresented: Binding(
                 get: { cardPendingDeletion != nil },
@@ -65,9 +79,8 @@ struct ItineraryView: View {
                 presentSharedLinkIfPossible()
             }
             .onChange(of: sharedLinkStore.pendingInviteToken) { _, token in
-                guard let token, syncEngine.isUserAuthenticated else { return }
-                sharedLinkStore.markInviteDelivered()
-                Task { await syncEngine.joinTrip(inviteToken: token) }
+                guard token != nil else { return }
+                joinPendingInviteIfPossible()
             }
             .sheet(isPresented: Binding(
                 get: { inviteURL != nil },
@@ -295,9 +308,18 @@ struct ItineraryView: View {
     }
 
     private func joinPendingInviteIfPossible() {
-        guard let token = sharedLinkStore.pendingInviteToken, syncEngine.isUserAuthenticated else { return }
-        sharedLinkStore.markInviteDelivered()
-        Task { await syncEngine.joinTrip(inviteToken: token) }
+        guard let token = sharedLinkStore.pendingInviteToken,
+              syncEngine.isUserAuthenticated,
+              inviteBeingJoined != token else { return }
+        inviteBeingJoined = token
+        Task {
+            let joined = await syncEngine.joinTrip(inviteToken: token)
+            guard inviteBeingJoined == token else { return }
+            inviteBeingJoined = nil
+            if joined, sharedLinkStore.pendingInviteToken == token {
+                sharedLinkStore.markInviteDelivered()
+            }
+        }
     }
 
     /// Compact Apple Sign-In banner shown at the top of the Journey tab when
