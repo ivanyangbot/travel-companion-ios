@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 struct NotesView: View {
-    let syncEngine: SyncEngine
+    @ObservedObject var syncEngine: SyncEngine
 
     @State private var snapshot = JournalSnapshot(groups: [], entries: [])
     @State private var selectedGroupID: Int?
@@ -11,6 +11,7 @@ struct NotesView: View {
     @State private var showsGroupEditor = false
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @StateObject private var localStore = LocalJournalStore()
     private let api = APIClient()
 
     private var visibleEntries: [JournalEntry] {
@@ -31,6 +32,7 @@ struct NotesView: View {
             }
             .task { await reload() }
             .refreshable { await reload() }
+            .onChange(of: syncEngine.isUserAuthenticated) { _, _ in Task { await reload() } }
             .sheet(item: $editor) { entry in JournalEditor(entry: entry.id == 0 ? nil : entry, groups: snapshot.groups, defaultGroupID: entry.groupId) { request, attachments in await save(entry: entry, request: request, attachments: attachments) } }
             .sheet(isPresented: $showsGroupEditor) { JournalGroupsEditor(groups: snapshot.groups) { await saveGroup($0) } onDelete: { group in await deleteGroup(group) } }
             .alert("操作未完成", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) { Button("好", role: .cancel) {} } message: { Text(errorMessage ?? "") }
@@ -40,45 +42,258 @@ struct NotesView: View {
     private var selectedGroupTitle: String { snapshot.groups.first(where: { $0.id == selectedGroupID })?.name ?? "全部" }
 
     private func journalCard(_ entry: JournalEntry) -> some View {
-        Button { editor = entry } label: { VStack(alignment: .leading, spacing: 10) { if let first = entry.images.first?.url, let url = URL(string: first) { AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Rectangle().fill(.quaternary) }.frame(height: 180).clipShape(RoundedRectangle(cornerRadius: 14)); if entry.images.count > 1 { Text("\(entry.images.count) 张照片").font(.caption).foregroundStyle(.secondary) } }; Text(entry.title).font(.headline); if let content = entry.content, !content.isEmpty { Text(content).font(.subheadline).foregroundStyle(.secondary).lineLimit(3) }; HStack { if let group = snapshot.groups.first(where: { $0.id == entry.groupId }) { Label(group.name, systemImage: "folder.fill").foregroundStyle(.indigo) }; Spacer(); Text(entry.updatedAt, style: .date) }.font(.caption) } .padding(.vertical, 6) }.buttonStyle(.plain)
+        Button { editor = entry } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                if let first = entry.images.first, let urlString = first.url, let url = URL(string: urlString) {
+                    journalImage(url)
+                        .frame(height: 180)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    if entry.images.count > 1 {
+                        Text("\(entry.images.count) 张照片").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text(entry.title).font(.headline)
+                if let content = entry.content, !content.isEmpty {
+                    Text(content).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+                }
+                HStack {
+                    if let group = snapshot.groups.first(where: { $0.id == entry.groupId }) {
+                        Label(group.name, systemImage: "folder.fill").foregroundStyle(.indigo)
+                    }
+                    Spacer()
+                    Text(entry.updatedAt, style: .date)
+                }
+                .font(.caption)
+            }
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
     }
 
-    private var canUseCloudJournal: Bool { syncEngine.isUserAuthenticated }
-
-    private func requireSignIn() {
-        errorMessage = "手书同步需要先在“旅程”中登录 Apple 账户。"
+    @ViewBuilder
+    private func journalImage(_ url: URL) -> some View {
+        if url.isFileURL, let image = UIImage(contentsOfFile: url.path) {
+            Image(uiImage: image).resizable().scaledToFill()
+        } else {
+            AsyncImage(url: url) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Rectangle().fill(.quaternary)
+            }
+        }
     }
 
     private func reload() async {
-        guard canUseCloudJournal else { return }
+        guard syncEngine.isUserAuthenticated else {
+            snapshot = localStore.snapshot
+            return
+        }
         isLoading = true
         defer { isLoading = false }
-        do { snapshot = try await api.fetchJournal() } catch { errorMessage = error.localizedDescription }
+        do {
+            if !localStore.snapshot.entries.isEmpty || !localStore.snapshot.groups.isEmpty {
+                try await migrateLocalJournal()
+            }
+            snapshot = try await api.fetchJournal()
+        } catch { errorMessage = error.localizedDescription }
     }
 
     private func save(entry: JournalEntry, request: JournalEntryRequest, attachments: [JournalAttachment]) async {
-        guard canUseCloudJournal else { requireSignIn(); return }
+        guard syncEngine.isUserAuthenticated else {
+            do {
+                try localStore.save(entryID: entry.id == 0 ? nil : entry.id, request: request, attachments: attachments)
+                snapshot = localStore.snapshot
+                self.editor = nil
+            } catch { errorMessage = error.localizedDescription }
+            return
+        }
         do { let keys = try await withThrowingTaskGroup(of: String.self) { group in for attachment in attachments { group.addTask { try await api.uploadJournalImage(data: attachment.data, contentType: "image/jpeg") } }; var all = request.imageKeys; for try await key in group { all.append(key) }; return all }; let request = JournalEntryRequest(groupId: request.groupId, title: request.title, content: request.content, imageKeys: keys); _ = entry.id == 0 ? try await api.createJournalEntry(request) : try await api.updateJournalEntry(id: entry.id, request); self.editor = nil; await reload() } catch { errorMessage = error.localizedDescription }
     }
 
     private func deleteEntries(at offsets: IndexSet) {
-        guard canUseCloudJournal else { requireSignIn(); return }
+        guard syncEngine.isUserAuthenticated else {
+            do {
+                try localStore.deleteEntries(offsets.map { visibleEntries[$0].id })
+                snapshot = localStore.snapshot
+            } catch { errorMessage = error.localizedDescription }
+            return
+        }
         for index in offsets { let entry = visibleEntries[index]; Task { do { try await api.deleteJournalEntry(id: entry.id); await reload() } catch { errorMessage = error.localizedDescription } } }
     }
 
     private func saveGroup(_ request: JournalGroupRequest) async {
-        guard canUseCloudJournal else { requireSignIn(); return }
+        guard syncEngine.isUserAuthenticated else {
+            do {
+                try localStore.createGroup(request)
+                snapshot = localStore.snapshot
+            } catch { errorMessage = error.localizedDescription }
+            return
+        }
         do { _ = try await api.createJournalGroup(request); await reload() } catch { errorMessage = error.localizedDescription }
     }
 
     private func deleteGroup(_ group: JournalGroup) async {
-        guard canUseCloudJournal else { requireSignIn(); return }
+        guard syncEngine.isUserAuthenticated else {
+            do {
+                try localStore.deleteGroup(group.id)
+                if selectedGroupID == group.id { selectedGroupID = nil }
+                snapshot = localStore.snapshot
+            } catch { errorMessage = error.localizedDescription }
+            return
+        }
         do { try await api.deleteJournalGroup(id: group.id); if selectedGroupID == group.id { selectedGroupID = nil }; await reload() } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func migrateLocalJournal() async throws {
+        let local = localStore.snapshot
+        var groupIDs: [Int: Int] = [:]
+        for group in local.groups.sorted(by: { $0.position < $1.position }) {
+            let created = try await api.createJournalGroup(
+                JournalGroupRequest(name: group.name, color: group.color, position: group.position)
+            )
+            groupIDs[group.id] = created.id
+        }
+        for entry in local.entries.sorted(by: { $0.createdAt < $1.createdAt }) {
+            var keys: [String] = []
+            for image in entry.images {
+                guard let data = localStore.imageData(for: image) else { continue }
+                keys.append(try await api.uploadJournalImage(data: data, contentType: "image/jpeg"))
+            }
+            _ = try await api.createJournalEntry(
+                JournalEntryRequest(
+                    groupId: entry.groupId.flatMap { groupIDs[$0] },
+                    title: entry.title,
+                    content: entry.content,
+                    imageKeys: keys
+                )
+            )
+        }
+        try localStore.clear()
     }
 }
 
 private struct JournalAttachment: Identifiable { let id = UUID(); let data: Data; let image: UIImage
     init?(_ image: UIImage) { let maxDimension: CGFloat = 1600; let scale = min(maxDimension / max(image.size.width, image.size.height), 1); let size = CGSize(width: image.size.width * scale, height: image.size.height * scale); let rendered = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }; guard let data = rendered.jpegData(compressionQuality: 0.78), data.count <= 12 * 1024 * 1024 else { return nil }; self.image = rendered; self.data = data }
+}
+
+@MainActor
+private final class LocalJournalStore: ObservableObject {
+    @Published private(set) var snapshot: JournalSnapshot
+
+    private let defaults: UserDefaults
+    private let storageKey = "localJournal.snapshot.v1"
+    private let imagesDirectory: URL
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        imagesDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("TravelCompanion/LocalJournalImages", isDirectory: true)
+        if let data = defaults.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode(JournalSnapshot.self, from: data) {
+            snapshot = decoded
+        } else {
+            snapshot = JournalSnapshot(groups: [], entries: [])
+        }
+    }
+
+    func save(entryID: Int?, request: JournalEntryRequest, attachments: [JournalAttachment]) throws {
+        try FileManager.default.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
+        var entries = snapshot.entries
+        let existingIndex = entryID.flatMap { id in entries.firstIndex(where: { $0.id == id }) }
+        let existing = existingIndex.map { entries[$0] }
+        let retainedImages = existing?.images.filter { request.imageKeys.contains($0.key) } ?? []
+        let newImages = try attachments.map { attachment -> JournalImage in
+            let key = UUID().uuidString.lowercased() + ".jpg"
+            let url = imagesDirectory.appendingPathComponent(key)
+            try attachment.data.write(to: url, options: .atomic)
+            return JournalImage(key: key, url: url.absoluteString)
+        }
+        let now = Date()
+        let entry = JournalEntry(
+            id: existing?.id ?? nextID(in: entries.map(\.id)),
+            groupId: request.groupId,
+            title: request.title,
+            content: request.content,
+            images: retainedImages + newImages,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now
+        )
+        if let existingIndex {
+            entries[existingIndex] = entry
+        } else {
+            entries.insert(entry, at: 0)
+        }
+        snapshot = JournalSnapshot(groups: snapshot.groups, entries: entries)
+        try persist()
+    }
+
+    func createGroup(_ request: JournalGroupRequest) throws {
+        var groups = snapshot.groups
+        groups.append(JournalGroup(
+            id: nextID(in: groups.map(\.id)),
+            name: request.name,
+            color: request.color,
+            position: request.position,
+            updatedAt: .now
+        ))
+        snapshot = JournalSnapshot(groups: groups, entries: snapshot.entries)
+        try persist()
+    }
+
+    func deleteGroup(_ id: Int) throws {
+        let groups = snapshot.groups.filter { $0.id != id }
+        let entries = snapshot.entries.map { entry in
+            guard entry.groupId == id else { return entry }
+            return JournalEntry(
+                id: entry.id,
+                groupId: nil,
+                title: entry.title,
+                content: entry.content,
+                images: entry.images,
+                createdAt: entry.createdAt,
+                updatedAt: .now
+            )
+        }
+        snapshot = JournalSnapshot(groups: groups, entries: entries)
+        try persist()
+    }
+
+    func deleteEntries(_ ids: [Int]) throws {
+        let idSet = Set(ids)
+        for entry in snapshot.entries where idSet.contains(entry.id) {
+            for image in entry.images {
+                if let url = image.url.flatMap(URL.init(string:)), url.isFileURL {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+        }
+        snapshot = JournalSnapshot(
+            groups: snapshot.groups,
+            entries: snapshot.entries.filter { !idSet.contains($0.id) }
+        )
+        try persist()
+    }
+
+    func imageData(for image: JournalImage) -> Data? {
+        guard let url = image.url.flatMap(URL.init(string:)), url.isFileURL else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    func clear() throws {
+        snapshot = JournalSnapshot(groups: [], entries: [])
+        defaults.removeObject(forKey: storageKey)
+        if FileManager.default.fileExists(atPath: imagesDirectory.path) {
+            try FileManager.default.removeItem(at: imagesDirectory)
+        }
+    }
+
+    private func persist() throws {
+        defaults.set(try JSONEncoder().encode(snapshot), forKey: storageKey)
+    }
+
+    private func nextID(in values: [Int]) -> Int {
+        min(-1, (values.filter { $0 < 0 }.min() ?? 0) - 1)
+    }
 }
 
 private struct JournalEditor: View {

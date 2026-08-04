@@ -77,10 +77,37 @@ final class SyncEngine: ObservableObject {
     }
 
     func bootstrap() async {
-        do { trip = try repository.cachedTrip(id: selectedTripID) } catch { status = .failed("本机缓存无法读取。") }
+        do {
+            let cached = try repository.cachedTrips()
+            trip = selectedTripID.flatMap { id in cached.first { $0.id == id } } ?? cached.first
+            selectedTripID = trip?.id
+            if localOnly {
+                if cached.isEmpty {
+                    let placeholder = SharedTripSnapshot(
+                        id: try repository.nextLocalTripID(),
+                        destination: nil,
+                        startDate: nil,
+                        endDate: nil,
+                        currency: nil,
+                        version: 0,
+                        updatedAt: .now,
+                        days: []
+                    )
+                    try repository.save(placeholder)
+                    trip = placeholder
+                    selectedTripID = placeholder.id
+                    trips = [Self.localSummary(for: placeholder)]
+                } else {
+                    trips = cached.map(Self.localSummary(for:))
+                }
+            }
+        } catch {
+            status = .failed("本机缓存无法读取。")
+            return
+        }
         if localOnly {
-            // No token yet: keep the cached trip (or an empty local placeholder)
-            // and surface local-only status. Network calls wait for sign-in.
+            // No token yet: the complete product remains available against the
+            // local snapshots. Authentication only turns on cloud sync.
             status = .localOnly
             return
         }
@@ -93,15 +120,32 @@ final class SyncEngine: ObservableObject {
         status = .syncing
         do {
             var summaries = try await apiClient.fetchTrips()
+            let accountStartedEmpty = summaries.isEmpty
             if let pendingMigration = try localMigrationStore.pendingMigration() {
-                try await importLocalTrip(pendingMigration, serverTrips: summaries)
+                localMigrationStore.beginInitialImportBatch()
+                try await importLocalTrip(
+                    pendingMigration,
+                    serverTrips: summaries,
+                    allowsExistingTrips: localMigrationStore.isInitialImportBatchActive
+                )
+                localMigrationStore.completeCurrentMigration()
                 summaries = try await apiClient.fetchTrips()
-            } else if !localMigrationStore.didFinishInitialImport {
-                if summaries.isEmpty, let localTrip = trip {
-                    let migration = PendingLocalTripMigration(source: localTrip)
-                    try localMigrationStore.save(migration)
-                    try await importLocalTrip(migration, serverTrips: summaries)
-                    summaries = try await apiClient.fetchTrips()
+            }
+            if !localMigrationStore.didFinishInitialImport {
+                if accountStartedEmpty {
+                    localMigrationStore.beginInitialImportBatch()
+                }
+                if localMigrationStore.isInitialImportBatchActive {
+                    while let localTrip = try repository.cachedTrips().first(where: { cached in
+                        !summaries.contains(where: { $0.id == cached.id })
+                    }) {
+                        let migration = PendingLocalTripMigration(source: localTrip)
+                        try localMigrationStore.save(migration)
+                        try await importLocalTrip(migration, serverTrips: summaries, allowsExistingTrips: true)
+                        localMigrationStore.completeCurrentMigration()
+                        summaries = try await apiClient.fetchTrips()
+                    }
+                    localMigrationStore.markInitialImportFinished()
                 } else {
                     // Either there is no local shared trip to claim, or this
                     // account already owns cloud trips. Never merge an
@@ -140,7 +184,11 @@ final class SyncEngine: ObservableObject {
     /// migration is persisted before the first request and is content-aware,
     /// so an interrupted import resumes without duplicating days, cards or
     /// expenses. LocalWalletItem is deliberately outside this data path.
-    private func importLocalTrip(_ storedMigration: PendingLocalTripMigration, serverTrips: [TripSummary]) async throws {
+    private func importLocalTrip(
+        _ storedMigration: PendingLocalTripMigration,
+        serverTrips: [TripSummary],
+        allowsExistingTrips: Bool = false
+    ) async throws {
         var migration = storedMigration
         let targetTripID: Int
         if let existingTarget = migration.targetTripID {
@@ -149,7 +197,7 @@ final class SyncEngine: ObservableObject {
             }
             targetTripID = existingTarget
         } else {
-            guard serverTrips.isEmpty else { throw LocalTripMigrationError.accountMismatch }
+            guard serverTrips.isEmpty || allowsExistingTrips else { throw LocalTripMigrationError.accountMismatch }
             let source = migration.source
             let created = try await apiClient.createTrip(
                 TripPatchRequest(
@@ -184,7 +232,6 @@ final class SyncEngine: ObservableObject {
         trip = remote
         try repository.save(remote)
         try await queueConfirmedAIDraftCardsIfReady()
-        localMigrationStore.markInitialImportFinished()
     }
 
     private func importLocalDays(_ localDays: [TripDaySnapshot], into initialRemote: SharedTripSnapshot) async throws -> SharedTripSnapshot {
@@ -302,12 +349,16 @@ final class SyncEngine: ObservableObject {
         selectedTripID = id
         await apiClient.setActiveTripID(id)
         do { trip = try repository.cachedTrip(id: id) } catch { trip = nil }
+        if localOnly {
+            status = .localOnly
+            return
+        }
         await refresh()
     }
 
     func createShareInvite() async -> URL? {
-        guard !localOnly, let selectedTripID else {
-            status = .failed("登录后才能创建共享邀请。")
+        guard let selectedTripID else {
+            status = .failed("请先创建一个旅程。")
             return nil
         }
         guard trips.first(where: { $0.id == selectedTripID })?.canShare == true else {
@@ -326,10 +377,6 @@ final class SyncEngine: ObservableObject {
     }
 
     func joinTrip(inviteToken: String) async {
-        guard !localOnly else {
-            status = .localOnly
-            return
-        }
         do {
             let joined = try await apiClient.joinTrip(inviteToken: inviteToken)
             if !trips.contains(where: { $0.id == joined.id }) { trips.insert(joined, at: 0) }
@@ -343,13 +390,35 @@ final class SyncEngine: ObservableObject {
     }
 
     func createTrip(destination: String, startDate: Date, endDate: Date, currency: String) async {
-        guard !localOnly else { status = .localOnly; return }
         let request = TripPatchRequest(
             destination: destination.trimmingCharacters(in: .whitespacesAndNewlines),
             startDate: Self.dayFormatter.string(from: startDate),
             endDate: Self.dayFormatter.string(from: endDate),
             currency: currency.uppercased()
         )
+        if localOnly {
+            do {
+                let snapshot = SharedTripSnapshot(
+                    id: try repository.nextLocalTripID(),
+                    destination: request.destination,
+                    startDate: request.startDate,
+                    endDate: request.endDate,
+                    currency: request.currency,
+                    version: 0,
+                    updatedAt: .now,
+                    days: []
+                )
+                try repository.save(snapshot)
+                trip = snapshot
+                selectedTripID = snapshot.id
+                await apiClient.setActiveTripID(snapshot.id)
+                updateLocalSummary(for: snapshot)
+                status = .localOnly
+            } catch {
+                status = .failed("无法创建本地旅程。")
+            }
+            return
+        }
         do {
             let created = try await apiClient.createTrip(request)
             selectedTripID = created.id
@@ -374,6 +443,15 @@ final class SyncEngine: ObservableObject {
             endDate: formatter.string(from: endDate),
             currency: currency.uppercased()
         )
+        if localOnly, var current = trip {
+            current.destination = request.destination
+            current.startDate = request.startDate
+            current.endDate = request.endDate
+            current.currency = request.currency
+            current.updatedAt = .now
+            do { try saveLocalSnapshot(current) } catch { status = .failed("无法保存本地修改。") }
+            return
+        }
         await enqueueTripPatch(request)
     }
 
@@ -383,8 +461,13 @@ final class SyncEngine: ObservableObject {
         guard !current.days.contains(where: { $0.date == stringDate }) else { return }
         let request = DayRequest(date: stringDate, position: current.days.count)
         do {
-            let body = try await apiClient.encode(request)
             current.days.append(TripDaySnapshot(date: stringDate, position: current.days.count))
+            current.updatedAt = .now
+            if localOnly {
+                try saveLocalSnapshot(current)
+                return
+            }
+            let body = try await apiClient.encode(request)
             trip = current
             try repository.save(current)
             try repository.enqueue(method: "POST", path: "/v1/days", tripID: current.id, body: body, baseVersion: current.version)
@@ -400,6 +483,36 @@ final class SyncEngine: ObservableObject {
         await replayPendingOperations()
     }
 
+    private static func localSummary(for snapshot: SharedTripSnapshot) -> TripSummary {
+        TripSummary(
+            id: snapshot.id,
+            destination: snapshot.destination,
+            startDate: snapshot.startDate,
+            endDate: snapshot.endDate,
+            currency: snapshot.currency,
+            version: snapshot.version,
+            updatedAt: snapshot.updatedAt,
+            role: "owner",
+            joinedAt: snapshot.updatedAt
+        )
+    }
+
+    private func updateLocalSummary(for snapshot: SharedTripSnapshot) {
+        let summary = Self.localSummary(for: snapshot)
+        if let index = trips.firstIndex(where: { $0.id == snapshot.id }) {
+            trips[index] = summary
+        } else {
+            trips.insert(summary, at: 0)
+        }
+    }
+
+    private func saveLocalSnapshot(_ snapshot: SharedTripSnapshot) throws {
+        trip = snapshot
+        try repository.save(snapshot)
+        updateLocalSummary(for: snapshot)
+        status = .localOnly
+    }
+
     /// Creates a temporary draft only. The caller keeps the original text in
     /// the sheet state; neither the input nor the response is saved here.
     /// Runs one stateless turn of the conversational itinerary chat. The caller
@@ -408,7 +521,6 @@ final class SyncEngine: ObservableObject {
     /// cards are sent as read-only context. Nothing is persisted here until the
     /// caller confirms selected cards via `importAIDraft`.
     func sendItineraryChat(messages: [AIItineraryChatRequest.Message], preferences: String?, images: [String]? = nil) async throws -> AIItineraryChatResult {
-        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         guard let trip, let startDate = trip.startDate,
               let start = Self.dayFormatter.date(from: startDate),
               let endDate = trip.endDate, let end = Self.dayFormatter.date(from: endDate) else {
@@ -433,7 +545,6 @@ final class SyncEngine: ObservableObject {
     /// the assistant reply as it is generated. The same trip-config guard and
     /// request shape as the non-streaming call apply.
     func streamItineraryChat(messages: [AIItineraryChatRequest.Message], preferences: String?, images: [String]? = nil) async throws -> AsyncThrowingStream<AIItineraryChatStreamEvent, Error> {
-        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         guard let trip, let startDate = trip.startDate,
               let start = Self.dayFormatter.date(from: startDate),
               let endDate = trip.endDate, let end = Self.dayFormatter.date(from: endDate) else {
@@ -492,24 +603,20 @@ final class SyncEngine: ObservableObject {
     /// draft. Like the itinerary draft, nothing is persisted here: the caller
     /// fills the card editor and saves via the normal card queue.
     func importCardFromLink(url: String) async throws -> LinkImportResult {
-        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         return try await apiClient.importFromLink(LinkImportRequest(url: url))
     }
 
     /// 卡包照片录入：把一张照片交给服务端 AI 识别，返回标签、号码、备注与类型。
     /// 结果不落库、不写共享行程；由卡包编辑器按需填入并加密保存到本机。
     func scanWalletCard(image: String, styleHint: String) async throws -> WalletCardScanResult {
-        // Wallet card scanning uses the server-side vision model and requires
-        // authentication. The scanned result is never persisted to the shared
-        // trip — the wallet itself remains local-only regardless of auth state.
-        guard !localOnly else { throw SyncEngineError.notAuthenticated }
+        // The scanned result is never persisted to the shared trip — the
+        // wallet itself remains local-only regardless of auth state.
         return try await apiClient.scanWalletCard(WalletCardScanRequest(image: image, styleHint: styleHint))
     }
 
     /// 备忘智能助手：把当前共享行程脱敏后交给后端 AI，让其针对「明日」的安排给出
     /// 闹钟、提醒事项和物品建议。不落库、不写共享行程，结果由备忘页按需一键落地。
     func createMemoAssist() async throws -> MemoAssistResult {
-        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         guard let trip else { throw MemoAssistError.tripNotConfigured }
         let itinerary = MemoAssistRequest.Itinerary(
             destination: trip.destination,
@@ -541,7 +648,6 @@ final class SyncEngine: ObservableObject {
 
     /// 扫小票/对话生成一笔实际价支出草案。客户端持有对话历史每轮重放；服务端不落库。
     func createAIExpenseDraft(dayDate: String, messages: [AIExpenseConversationRequest.Message], images: [String]? = nil) async throws -> AIExpenseDraft {
-        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         return try await apiClient.createExpenseDraft(AIExpenseConversationRequest(
             dayDate: dayDate,
             currency: trip?.currency,
@@ -554,7 +660,6 @@ final class SyncEngine: ObservableObject {
     /// day is still offline are locally held without the source text, then
     /// converted to ordinary POST /v1/cards operations after that day syncs.
     func importAIDraft(_ draft: AIItineraryDraft) async throws {
-        guard !localOnly else { throw SyncEngineError.notAuthenticated }
         guard let trip, let startDate = trip.startDate,
               let start = Self.dayFormatter.date(from: startDate),
               let endDate = trip.endDate, let end = Self.dayFormatter.date(from: endDate) else {
@@ -606,9 +711,19 @@ final class SyncEngine: ObservableObject {
     }
 
     func updateDay(_ day: TripDaySnapshot, date: Date) async {
-        guard let dayID = day.serverID, let current = trip else { return }
+        guard let current = trip else { return }
         let newDate = Self.dayFormatter.string(from: date)
         guard newDate != day.date, !current.days.contains(where: { $0.date == newDate }) else { return }
+        if localOnly {
+            var updated = current
+            guard let index = updated.days.firstIndex(where: { $0.id == day.id }) else { return }
+            updated.days[index].date = newDate
+            updated.days[index].updatedAt = .now
+            updated.updatedAt = .now
+            do { try saveLocalSnapshot(updated) } catch { status = .failed("无法保存本地修改。") }
+            return
+        }
+        guard let dayID = day.serverID else { return }
         let request = DayRequest(date: newDate, position: day.position)
         await queueDayMutation(method: "PATCH", path: "/v1/days/\(dayID)", request: request) { snapshot in
             guard let index = snapshot.days.firstIndex(where: { $0.id == day.id }) else { return }
@@ -618,6 +733,13 @@ final class SyncEngine: ObservableObject {
     }
 
     func deleteDay(_ day: TripDaySnapshot) async {
+        if localOnly, var current = trip {
+            current.days.removeAll { $0.id == day.id }
+            for index in current.days.indices { current.days[index].position = index }
+            current.updatedAt = .now
+            do { try saveLocalSnapshot(current) } catch { status = .failed("无法保存本地修改。") }
+            return
+        }
         guard let dayID = day.serverID else { return }
         await queueDayMutation(method: "DELETE", path: "/v1/days/\(dayID)", request: EmptyRequest()) { snapshot in
             snapshot.days.removeAll { $0.id == day.id }
@@ -625,11 +747,14 @@ final class SyncEngine: ObservableObject {
     }
 
     func moveDay(_ day: TripDaySnapshot, direction: Int) async {
-        guard var current = trip, day.serverID != nil else { return }
+        guard var current = trip, localOnly || day.serverID != nil else { return }
         let sorted = current.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
         guard let oldIndex = sorted.firstIndex(where: { $0.id == day.id }) else { return }
         let newIndex = oldIndex + direction
-        guard sorted.indices.contains(newIndex), sorted[oldIndex].serverID != nil, sorted[newIndex].serverID != nil else { return }
+        guard sorted.indices.contains(newIndex) else { return }
+        if !localOnly {
+            guard sorted[oldIndex].serverID != nil, sorted[newIndex].serverID != nil else { return }
+        }
 
         var reordered = sorted
         reordered.swapAt(oldIndex, newIndex)
@@ -637,6 +762,10 @@ final class SyncEngine: ObservableObject {
         current.days = reordered
         trip = current
         do {
+            if localOnly {
+                try saveLocalSnapshot(current)
+                return
+            }
             try repository.save(current)
             for changedDay in reordered where changedDay.serverID != nil {
                 let body = try await apiClient.encode(DayRequest(date: changedDay.date, position: changedDay.position))
@@ -649,10 +778,12 @@ final class SyncEngine: ObservableObject {
     }
 
     func addCard(to day: TripDaySnapshot, request: CardRequest) async {
-        guard var current = trip, let dayID = day.serverID else { return }
+        guard var current = trip,
+              let index = current.days.firstIndex(where: { $0.id == day.id }) else { return }
+        guard localOnly || day.serverID != nil else { return }
+        let dayID = day.serverID ?? Self.takeLocalResourceID()
         let baseVersion = current.version
         do {
-            let body = try await apiClient.encode(request)
             let card = TravelCardSnapshot(
                 dayID: dayID,
                 kind: request.kind ?? .activity,
@@ -674,8 +805,13 @@ final class SyncEngine: ObservableObject {
                 notes: request.notes,
                 position: request.position ?? (current.days.first(where: { $0.id == day.id })?.cards.count ?? 0)
             )
-            guard let index = current.days.firstIndex(where: { $0.id == day.id }) else { return }
             current.days[index].cards.append(card)
+            current.updatedAt = .now
+            if localOnly {
+                try saveLocalSnapshot(current)
+                return
+            }
+            let body = try await apiClient.encode(request)
             trip = current
             try repository.save(current)
             try repository.enqueue(method: "POST", path: "/v1/cards", tripID: current.id, body: body, baseVersion: baseVersion)
@@ -686,40 +822,27 @@ final class SyncEngine: ObservableObject {
     }
 
     func updateCard(_ card: TravelCardSnapshot, request: CardRequest) async {
+        if localOnly, var current = trip {
+            Self.apply(request, to: card, in: &current)
+            current.updatedAt = .now
+            do { try saveLocalSnapshot(current) } catch { status = .failed("无法保存行程卡片。") }
+            return
+        }
         guard let cardID = card.serverID else { return }
         await queueCardMutation(method: "PATCH", path: "/v1/cards/\(cardID)", request: request) { snapshot in
-            guard let dayIndex = snapshot.days.firstIndex(where: { $0.cards.contains(where: { $0.id == card.id }) }),
-                  let cardIndex = snapshot.days[dayIndex].cards.firstIndex(where: { $0.id == card.id }) else { return }
-            var updated = snapshot.days[dayIndex].cards[cardIndex]
-            if let kind = request.kind { updated.kind = kind }
-            if let title = request.title { updated.title = title }
-            if let startAt = Self.parseTimestamp(request.startAt) { updated.startAt = startAt }
-            if let endAt = Self.parseTimestamp(request.endAt) { updated.endAt = endAt }
-            if request.fieldsToClear.contains("endAt") { updated.endAt = nil }
-            if request.fieldsToClear.contains("place") {
-                updated.place = nil
-            } else if let place = request.place {
-                updated.place = Self.optimisticPlace(from: place)
-            }
-            updated.bookingCode = request.bookingCode ?? (request.fieldsToClear.contains("bookingCode") ? nil : updated.bookingCode)
-            updated.url = request.url ?? (request.fieldsToClear.contains("url") ? nil : updated.url)
-            updated.description = request.description ?? (request.fieldsToClear.contains("description") ? nil : updated.description)
-            updated.fromAirport = request.fromAirport ?? (request.fieldsToClear.contains("fromAirport") ? nil : updated.fromAirport)
-            updated.toAirport = request.toAirport ?? (request.fieldsToClear.contains("toAirport") ? nil : updated.toAirport)
-            updated.priceMinor = request.priceMinor ?? (request.fieldsToClear.contains("priceMinor") ? nil : updated.priceMinor)
-            updated.actualPriceMinor = request.actualPriceMinor ?? (request.fieldsToClear.contains("actualPriceMinor") ? nil : updated.actualPriceMinor)
-            updated.ticketPriceMinor = request.ticketPriceMinor ?? (request.fieldsToClear.contains("ticketPriceMinor") ? nil : updated.ticketPriceMinor)
-            updated.stayDurationMinutes = request.stayDurationMinutes ?? (request.fieldsToClear.contains("stayDurationMinutes") ? nil : updated.stayDurationMinutes)
-            updated.tips = request.tips ?? (request.fieldsToClear.contains("tips") ? nil : updated.tips)
-            updated.images = request.images ?? (request.fieldsToClear.contains("images") ? nil : updated.images)
-            updated.notes = request.notes ?? (request.fieldsToClear.contains("notes") ? nil : updated.notes)
-            if let position = request.position { updated.position = position }
-            updated.updatedAt = .now
-            snapshot.days[dayIndex].cards[cardIndex] = updated
+            Self.apply(request, to: card, in: &snapshot)
         }
     }
 
     func deleteCard(_ card: TravelCardSnapshot) async {
+        if localOnly, var current = trip {
+            for index in current.days.indices {
+                current.days[index].cards.removeAll { $0.id == card.id }
+            }
+            current.updatedAt = .now
+            do { try saveLocalSnapshot(current) } catch { status = .failed("无法保存行程卡片。") }
+            return
+        }
         guard let cardID = card.serverID else { return }
         await queueCardMutation(method: "DELETE", path: "/v1/cards/\(cardID)", request: EmptyRequest()) { snapshot in
             for index in snapshot.days.indices {
@@ -771,17 +894,24 @@ final class SyncEngine: ObservableObject {
     }
 
     func moveCard(_ card: TravelCardSnapshot, in day: TripDaySnapshot, direction: Int) async {
-        guard var current = trip, card.serverID != nil,
+        guard var current = trip, localOnly || card.serverID != nil,
               let dayIndex = current.days.firstIndex(where: { $0.id == day.id }) else { return }
         var cards = current.days[dayIndex].cards.sorted(by: Self.cardTimeOrder)
         guard let oldIndex = cards.firstIndex(where: { $0.id == card.id }) else { return }
         let newIndex = oldIndex + direction
-        guard cards.indices.contains(newIndex), cards[oldIndex].serverID != nil, cards[newIndex].serverID != nil else { return }
+        guard cards.indices.contains(newIndex) else { return }
+        if !localOnly {
+            guard cards[oldIndex].serverID != nil, cards[newIndex].serverID != nil else { return }
+        }
         cards.swapAt(oldIndex, newIndex)
         for index in cards.indices { cards[index].position = index }
         current.days[dayIndex].cards = cards
         trip = current
         do {
+            if localOnly {
+                try saveLocalSnapshot(current)
+                return
+            }
             try repository.save(current)
             for changedCard in cards {
                 guard let serverID = changedCard.serverID else { continue }
@@ -956,7 +1086,8 @@ final class SyncEngine: ObservableObject {
             trip = current
             try repository.save(current)
             try repository.remove(operation)
-            status = (try repository.pendingOperations()).isEmpty ? .synced : .pending(try repository.pendingOperations().count)
+            let remaining = try repository.pendingOperations().count
+            status = localOnly ? .localOnly : (remaining == 0 ? .synced : .pending(remaining))
         } catch {
             status = .failed("无法取消离线支出。")
         }
@@ -967,21 +1098,52 @@ final class SyncEngine: ObservableObject {
         return ISO8601DateFormatter().date(from: value)
     }
 
+    private static func apply(_ request: CardRequest, to card: TravelCardSnapshot, in snapshot: inout SharedTripSnapshot) {
+        guard let dayIndex = snapshot.days.firstIndex(where: { $0.cards.contains(where: { $0.id == card.id }) }),
+              let cardIndex = snapshot.days[dayIndex].cards.firstIndex(where: { $0.id == card.id }) else { return }
+        var updated = snapshot.days[dayIndex].cards[cardIndex]
+        if let kind = request.kind { updated.kind = kind }
+        if let title = request.title { updated.title = title }
+        if let startAt = parseTimestamp(request.startAt) { updated.startAt = startAt }
+        if let endAt = parseTimestamp(request.endAt) { updated.endAt = endAt }
+        if request.fieldsToClear.contains("endAt") { updated.endAt = nil }
+        if request.fieldsToClear.contains("place") {
+            updated.place = nil
+        } else if let place = request.place {
+            updated.place = optimisticPlace(from: place)
+        }
+        updated.bookingCode = request.bookingCode ?? (request.fieldsToClear.contains("bookingCode") ? nil : updated.bookingCode)
+        updated.url = request.url ?? (request.fieldsToClear.contains("url") ? nil : updated.url)
+        updated.description = request.description ?? (request.fieldsToClear.contains("description") ? nil : updated.description)
+        updated.fromAirport = request.fromAirport ?? (request.fieldsToClear.contains("fromAirport") ? nil : updated.fromAirport)
+        updated.toAirport = request.toAirport ?? (request.fieldsToClear.contains("toAirport") ? nil : updated.toAirport)
+        updated.priceMinor = request.priceMinor ?? (request.fieldsToClear.contains("priceMinor") ? nil : updated.priceMinor)
+        updated.actualPriceMinor = request.actualPriceMinor ?? (request.fieldsToClear.contains("actualPriceMinor") ? nil : updated.actualPriceMinor)
+        updated.ticketPriceMinor = request.ticketPriceMinor ?? (request.fieldsToClear.contains("ticketPriceMinor") ? nil : updated.ticketPriceMinor)
+        updated.stayDurationMinutes = request.stayDurationMinutes ?? (request.fieldsToClear.contains("stayDurationMinutes") ? nil : updated.stayDurationMinutes)
+        updated.tips = request.tips ?? (request.fieldsToClear.contains("tips") ? nil : updated.tips)
+        updated.images = request.images ?? (request.fieldsToClear.contains("images") ? nil : updated.images)
+        updated.notes = request.notes ?? (request.fieldsToClear.contains("notes") ? nil : updated.notes)
+        if let position = request.position { updated.position = position }
+        updated.updatedAt = .now
+        snapshot.days[dayIndex].cards[cardIndex] = updated
+    }
+
     private func queueConfirmedAIDraftCardsIfReady() async throws {
         guard var current = trip else { return }
         let queued = try repository.confirmedAIDraftCards()
         var queuedAny = false
         for draftCard in queued {
             guard let dayIndex = current.days.firstIndex(where: { $0.date == draftCard.date }),
-                  let serverDayID = current.days[dayIndex].serverID,
                   let kind = TravelCardSnapshot.Kind(rawValue: draftCard.kind) else { continue }
             guard try repository.pendingOperation(for: draftCard.localID) == nil else { continue }
             let time = (draftCard.time?.isEmpty == false ? draftCard.time! : "09:00")
             let startAt = "\(draftCard.date)T\(time):00Z"
-let place = await resolvedPlace(from: draftCard.placeData)
-let extras = draftCard.extraData.flatMap { try? JSONDecoder().decode(AICardExtras.self, from: $0) }
-let request = CardRequest(
-                dayId: serverDayID,
+            let place = await resolvedPlace(from: draftCard.placeData)
+            let extras = draftCard.extraData.flatMap { try? JSONDecoder().decode(AICardExtras.self, from: $0) }
+            let resourceDayID = current.days[dayIndex].serverID ?? Self.takeLocalResourceID()
+            let request = CardRequest(
+                dayId: current.days[dayIndex].serverID,
                 kind: kind,
                 title: draftCard.title,
                 startAt: startAt,
@@ -995,16 +1157,28 @@ let request = CardRequest(
                 notes: draftCard.notes,
                 position: current.days[dayIndex].cards.count
             )
-            let body = try await apiClient.encode(request)
             current.days[dayIndex].cards.append(TravelCardSnapshot(
-                dayID: serverDayID,
+                dayID: resourceDayID,
                 kind: kind,
                 title: draftCard.title,
                 startAt: Self.parseTimestamp(startAt) ?? .now,
                 place: Self.optimisticPlace(from: request.place),
+                bookingCode: request.bookingCode,
+                url: request.url,
+                description: request.description,
+                fromAirport: request.fromAirport,
+                toAirport: request.toAirport,
+                priceMinor: request.priceMinor,
                 notes: draftCard.notes,
                 position: request.position ?? 0
             ))
+            if localOnly {
+                try repository.removeConfirmedAIDraftCard(draftCard)
+                queuedAny = true
+                continue
+            }
+            guard current.days[dayIndex].serverID != nil else { continue }
+            let body = try await apiClient.encode(request)
             try repository.enqueue(
                 method: "POST", path: "/v1/cards", tripID: current.id, body: body,
                 baseVersion: current.version, clientEntityID: draftCard.localID
@@ -1012,12 +1186,23 @@ let request = CardRequest(
             queuedAny = true
         }
         if queuedAny {
-            trip = current
-            try repository.save(current)
+            current.updatedAt = .now
+            if localOnly {
+                try saveLocalSnapshot(current)
+            } else {
+                trip = current
+                try repository.save(current)
+            }
         }
     }
 
+    private static var nextLocalResourceID = -1
     private static var nextOptimisticPlaceID = -1
+
+    private static func takeLocalResourceID() -> Int {
+        defer { nextLocalResourceID -= 1 }
+        return nextLocalResourceID
+    }
 
     private static func optimisticPlace(from request: PlaceRequest?) -> PlaceSnapshot? {
         guard let request else { return nil }
@@ -1158,19 +1343,6 @@ private func resolvedPlace(from placeData: Data?) async -> PlaceRequest? {
 
 private struct EmptyRequest: Encodable, Sendable {}
 
-/// Errors surfaced by ``SyncEngine`` when the user attempts a network-backed
-/// operation while not signed in.
-enum SyncEngineError: LocalizedError {
-    case notAuthenticated
-
-    var errorDescription: String? {
-        switch self {
-        case .notAuthenticated:
-            "请先登录后再使用该功能。未登录时旅行数据仅保存在本机。"
-        }
-    }
-}
-
 struct PendingLocalTripMigration: Codable {
     let source: SharedTripSnapshot
     var targetTripID: Int?
@@ -1187,6 +1359,7 @@ struct PendingLocalTripMigration: Codable {
 final class LocalTripMigrationStore {
     private static let pendingKey = "localTripMigration.pending.v1"
     private static let finishedKey = "localTripMigration.finished.v1"
+    private static let batchKey = "localTripMigration.batch.v1"
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -1201,6 +1374,10 @@ final class LocalTripMigrationStore {
         defaults.data(forKey: Self.pendingKey) != nil
     }
 
+    var isInitialImportBatchActive: Bool {
+        defaults.bool(forKey: Self.batchKey)
+    }
+
     func pendingMigration() throws -> PendingLocalTripMigration? {
         guard let data = defaults.data(forKey: Self.pendingKey) else { return nil }
         return try JSONDecoder.sharedTrip.decode(PendingLocalTripMigration.self, from: data)
@@ -1210,9 +1387,18 @@ final class LocalTripMigrationStore {
         defaults.set(try JSONEncoder.sharedTrip.encode(migration), forKey: Self.pendingKey)
     }
 
+    func beginInitialImportBatch() {
+        defaults.set(true, forKey: Self.batchKey)
+    }
+
+    func completeCurrentMigration() {
+        defaults.removeObject(forKey: Self.pendingKey)
+    }
+
     func markInitialImportFinished() {
         defaults.set(true, forKey: Self.finishedKey)
         defaults.removeObject(forKey: Self.pendingKey)
+        defaults.removeObject(forKey: Self.batchKey)
     }
 }
 

@@ -139,7 +139,11 @@ final class AITests: XCTestCase {
         let day = TripDaySnapshot(serverID: 17, date: "2026-10-01", position: 0)
         let snapshot = SharedTripSnapshot(id: 1, destination: "东京", startDate: "2026-10-01", endDate: "2026-10-02", currency: "CNY", version: 3, updatedAt: .now, days: [day])
         try repository.save(snapshot)
-        let engine = SyncEngine(repository: repository, apiClient: APIClient(baseURL: nil))
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: APIClient(baseURL: nil),
+            authenticatedOverride: true
+        )
         await engine.bootstrap()
         let draft = AIItineraryDraft(days: [.init(date: "2026-10-01", cards: [
             .init(kind: .activity, title: "故宫", date: "2026-10-01", time: "09:00", place: AIChatPlace(name: "故宫", address: "北京", latitude: 39.916, longitude: 116.397, placeId: "ChIJg", cityCode: nil), notes: nil),

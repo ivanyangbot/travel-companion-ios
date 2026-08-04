@@ -1,6 +1,6 @@
 import Foundation
 
-struct JournalSnapshot: Decodable, Sendable {
+struct JournalSnapshot: Codable, Sendable {
     let groups: [JournalGroup]
     let entries: [JournalEntry]
 }

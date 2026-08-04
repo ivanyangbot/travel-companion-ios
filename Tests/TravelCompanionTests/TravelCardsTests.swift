@@ -71,6 +71,56 @@ final class TravelCardsTests: XCTestCase {
     }
 
     @MainActor
+    func testSignedOutUserCanCreateAndFullyEditLocalTrips() async throws {
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SharedTripRepository(modelContext: ModelContext(container))
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: APIClient(baseURL: nil),
+            authenticatedOverride: false
+        )
+
+        await engine.bootstrap()
+        XCTAssertEqual(engine.status, .localOnly)
+        XCTAssertNotNil(engine.trip)
+        XCTAssertEqual(engine.trips.count, 1)
+
+        let start = try XCTUnwrap(Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 1)))
+        let end = try XCTUnwrap(Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 3)))
+        await engine.saveSetup(destination: "杭州", startDate: start, endDate: end, currency: "CNY")
+        XCTAssertEqual(engine.trip?.destination, "杭州")
+
+        await engine.addDay(start)
+        let day = try XCTUnwrap(engine.trip?.days.first)
+        XCTAssertNil(day.serverID)
+
+        await engine.addCard(
+            to: day,
+            request: CardRequest(kind: .activity, title: "西湖", startAt: "2026-10-01T09:00:00Z", notes: "本地")
+        )
+        var card = try XCTUnwrap(engine.trip?.days.first?.cards.first)
+        XCTAssertNil(card.serverID)
+        XCTAssertEqual(card.title, "西湖")
+
+        await engine.updateCard(card, request: CardRequest(title: "西湖漫步", notes: "已编辑"))
+        card = try XCTUnwrap(engine.trip?.days.first?.cards.first)
+        XCTAssertEqual(card.title, "西湖漫步")
+
+        await engine.deleteCard(card)
+        XCTAssertTrue(engine.trip?.days.first?.cards.isEmpty == true)
+        await engine.deleteDay(try XCTUnwrap(engine.trip?.days.first))
+        XCTAssertTrue(engine.trip?.days.isEmpty == true)
+
+        await engine.createTrip(destination: "上海", startDate: start, endDate: end, currency: "CNY")
+        XCTAssertEqual(engine.trips.count, 2)
+        XCTAssertEqual(engine.trip?.destination, "上海")
+        XCTAssertTrue(try repository.pendingOperations().isEmpty)
+    }
+
+    @MainActor
     func testFirstLoginImportsLocalSharedDataAndLeavesWalletOnDevice() async throws {
         FirstLoginMigrationURLProtocol.reset()
         let sessionConfiguration = URLSessionConfiguration.ephemeral

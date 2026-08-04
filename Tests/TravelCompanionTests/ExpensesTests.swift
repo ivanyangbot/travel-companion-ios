@@ -98,7 +98,11 @@ final class ExpensesTests: XCTestCase {
         let snapshot = SharedTripSnapshot(id: 1, destination: "东京", startDate: "2026-10-01", endDate: "2026-10-02", currency: "CNY", version: 3, updatedAt: .now, days: [], expenses: [expense])
         try repository.save(snapshot)
         try repository.enqueue(method: "POST", path: "/v1/expenses", tripID: 1, body: Data("{}".utf8), baseVersion: 3, clientEntityID: expense.id)
-        let engine = SyncEngine(repository: repository, apiClient: APIClient(baseURL: nil))
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: APIClient(baseURL: nil),
+            authenticatedOverride: true
+        )
         await engine.bootstrap()
         let beforeUpdate = try XCTUnwrap(repository.pendingOperation(for: expense.id))
         XCTAssertEqual(beforeUpdate.method, "POST")

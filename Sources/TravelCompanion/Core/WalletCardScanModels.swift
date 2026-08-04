@@ -47,7 +47,7 @@ enum WalletCardScanError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .visionUnavailable: "尚未配置 AI 视觉服务，无法识别照片。请在行程页的连接设置中配置。"
+        case .visionUnavailable: "AI 视觉服务当前不可用，暂时无法识别照片。"
         }
     }
 }

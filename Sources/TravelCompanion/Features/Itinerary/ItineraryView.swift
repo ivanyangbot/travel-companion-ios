@@ -9,7 +9,7 @@ struct ItineraryView: View {
     @State private var activeDaySheet: DaySheet?
     @State private var showsTripEditor = false
     @State private var showsNewTripEditor = false
-    @State private var showsAPISettings = false
+    @State private var showsSignOutConfirmation = false
     @State private var showsAIItinerary = false
     @State private var dayPendingDeletion: TripDaySnapshot?
     @State private var activeCardEditor: CardEditorTarget?
@@ -22,142 +22,7 @@ struct ItineraryView: View {
 
     var body: some View {
         NavigationStack {
-            itineraryContent
-            .navigationTitle("旅程")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        withAnimation { section.toggle() }
-                    } label: {
-                        Image(systemName: section.alternateIcon)
-                    }
-                    .accessibilityLabel(section.alternateTitle)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        ForEach(syncEngine.trips) { summary in
-                            Button {
-                                Task { await syncEngine.selectTrip(summary.id) }
-                            } label: {
-                                if summary.id == syncEngine.selectedTripID {
-                                    Label(summary.displayName, systemImage: "checkmark")
-                                } else {
-                                    Text(summary.displayName)
-                                }
-                            }
-                        }
-                        Divider()
-                        Button("新建旅程", systemImage: "plus") { showsNewTripEditor = true }
-                    } label: {
-                        Label("切换旅程", systemImage: "point.3.connected.trianglepath.dotted")
-                    }
-                    .disabled(!syncEngine.isUserAuthenticated)
-                    .accessibilityLabel("切换旅程")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if syncEngine.trips.first(where: { $0.id == syncEngine.selectedTripID })?.canShare == true {
-                        Button {
-                            Task { inviteURL = await syncEngine.createShareInvite() }
-                        } label: {
-                            Image(systemName: "person.badge.plus")
-                        }
-                        .accessibilityLabel("邀请共同编辑")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await syncEngine.retry() } } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .accessibilityLabel("重新同步")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showsAPISettings = true } label: { Image(systemName: "gear") }
-                        .accessibilityLabel("连接设置")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        aiItinerarySeed = nil
-                        showsAIItinerary = true
-                    } label: { Image(systemName: "sparkles") }
-                        .disabled(syncEngine.trip?.isConfigured != true)
-                        .accessibilityLabel("AI 填入行程")
-                }
-            }
-            .safeAreaInset(edge: .bottom) { syncStatus }
-            .sheet(item: $activeDaySheet) { sheet in
-                let editingDay = sheet.day
-                DayEditor(existingDay: editingDay, existingDates: Set(syncEngine.trip?.days.map(\.date) ?? [])) { date in
-                    Task {
-                        if let editingDay {
-                            await syncEngine.updateDay(editingDay, date: date)
-                        } else {
-                            await syncEngine.addDay(date)
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $showsTripEditor) {
-                if let trip = syncEngine.trip {
-                    TripSetupSheet(initialTrip: trip) { destination, startDate, endDate, currency in
-                        Task { await syncEngine.saveSetup(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
-                    }
-                }
-            }
-            .sheet(isPresented: $showsNewTripEditor) {
-                TripSetupSheet(isNewTrip: true) { destination, startDate, endDate, currency in
-                    showsNewTripEditor = false
-                    Task { await syncEngine.createTrip(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
-                }
-            }
-            .sheet(isPresented: $showsAPISettings) {
-                APISettingsView(initialURL: syncEngine.apiBaseURLText) { url in
-                    let validationMessage = syncEngine.updateAPIBaseURL(url)
-                    if validationMessage == nil {
-                        Task { await syncEngine.retry() }
-                    }
-                    return validationMessage
-                }
-            }
-            .sheet(isPresented: $showsAIItinerary, onDismiss: { aiItinerarySeed = nil }) {
-                AgentWorkbenchView(syncEngine: syncEngine)
-            }
-            .sheet(item: $detailCard) { card in
-                CardDetailView(card: card, currency: syncEngine.trip?.currency)
-                    .presentationDragIndicator(.visible)
-            }
-            .sheet(item: $activeCardEditor) { target in
-                CardEditorView(
-                    day: target.day,
-                    existingCard: target.card,
-                    currency: syncEngine.trip?.currency,
-                    initialURL: target.initialURL,
-                    onImportLink: { url in try await syncEngine.importCardFromLink(url: url) }
-                ) { request in
-                    Task {
-                        if let card = target.card {
-                            await syncEngine.updateCard(card, request: request)
-                        } else {
-                            await syncEngine.addCard(to: target.day, request: request)
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: Binding(
-                get: { expenseEditorDate != nil },
-                set: { if !$0 { expenseEditorDate = nil } }
-            )) {
-                if let trip = syncEngine.trip, let date = expenseEditorDate {
-                    ExpenseEditorView(trip: trip, initialDate: date) { request in
-                        Task { await syncEngine.addExpense(request) }
-                    }
-                }
-            }
-            .sheet(isPresented: Binding(
-                get: { linkHandler.browserURL != nil },
-                set: { if !$0 { linkHandler.browserURL = nil } }
-            )) {
-                if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
-            }
+            alertContent
             .alert("删除日期？", isPresented: Binding(
                 get: { dayPendingDeletion != nil },
                 set: { if !$0 { dayPendingDeletion = nil } }
@@ -169,6 +34,12 @@ struct ItineraryView: View {
                 Button("取消", role: .cancel) { dayPendingDeletion = nil }
             } message: { _ in
                 Text("日期内含有行程卡片时，服务器会拒绝删除。")
+            }
+            .alert("退出登录？", isPresented: $showsSignOutConfirmation) {
+                Button("退出登录", role: .destructive) { appleSignIn.signOut() }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("退出后将停止云端同步，仍可继续使用本地模式。")
             }
             .alert("删除行程卡片？", isPresented: Binding(
                 get: { cardPendingDeletion != nil },
@@ -218,8 +89,150 @@ struct ItineraryView: View {
                 presentSharedLinkIfPossible()
                 joinPendingInviteIfPossible()
             }
-            .onChange(of: syncEngine.isUserAuthenticated) { _, _ in
+            .onChange(of: syncEngine.isUserAuthenticated) { _, isAuthenticated in
+                guard isAuthenticated else { return }
                 joinPendingInviteIfPossible()
+            }
+        }
+    }
+
+    private var alertContent: some View {
+        itineraryContent
+            .navigationTitle("旅程")
+            .toolbar { itineraryToolbar }
+            .safeAreaInset(edge: .bottom) { syncStatus }
+            .sheet(item: $activeDaySheet) { sheet in
+                let editingDay = sheet.day
+                DayEditor(existingDay: editingDay, existingDates: Set(syncEngine.trip?.days.map(\.date) ?? [])) { date in
+                    Task {
+                        if let editingDay {
+                            await syncEngine.updateDay(editingDay, date: date)
+                        } else {
+                            await syncEngine.addDay(date)
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $showsTripEditor) {
+                if let trip = syncEngine.trip {
+                    TripSetupSheet(initialTrip: trip) { destination, startDate, endDate, currency in
+                        Task { await syncEngine.saveSetup(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
+                    }
+                }
+            }
+            .sheet(isPresented: $showsNewTripEditor) {
+                TripSetupSheet(isNewTrip: true) { destination, startDate, endDate, currency in
+                    showsNewTripEditor = false
+                    Task { await syncEngine.createTrip(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
+                }
+            }
+            .sheet(isPresented: $showsAIItinerary, onDismiss: { aiItinerarySeed = nil }) {
+                AgentWorkbenchView(syncEngine: syncEngine)
+            }
+            .sheet(item: $detailCard) { card in
+                CardDetailView(card: card, currency: syncEngine.trip?.currency)
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(item: $activeCardEditor) { target in
+                CardEditorView(
+                    day: target.day,
+                    existingCard: target.card,
+                    currency: syncEngine.trip?.currency,
+                    initialURL: target.initialURL,
+                    onImportLink: { url in try await syncEngine.importCardFromLink(url: url) }
+                ) { request in
+                    Task {
+                        if let card = target.card {
+                            await syncEngine.updateCard(card, request: request)
+                        } else {
+                            await syncEngine.addCard(to: target.day, request: request)
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { expenseEditorDate != nil },
+                set: { if !$0 { expenseEditorDate = nil } }
+            )) {
+                if let trip = syncEngine.trip, let date = expenseEditorDate {
+                    ExpenseEditorView(trip: trip, initialDate: date) { request in
+                        Task { await syncEngine.addExpense(request) }
+                    }
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { linkHandler.browserURL != nil },
+                set: { if !$0 { linkHandler.browserURL = nil } }
+            )) {
+                if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
+            }
+    }
+
+    @ToolbarContentBuilder
+    private var itineraryToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                withAnimation { section.toggle() }
+            } label: {
+                Image(systemName: section.alternateIcon)
+            }
+            .accessibilityLabel(section.alternateTitle)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                ForEach(syncEngine.trips) { summary in
+                    Button {
+                        Task { await syncEngine.selectTrip(summary.id) }
+                    } label: {
+                        if summary.id == syncEngine.selectedTripID {
+                            Label(summary.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(summary.displayName)
+                        }
+                    }
+                }
+                Divider()
+                Button("新建旅程", systemImage: "plus") { showsNewTripEditor = true }
+            } label: {
+                Label("切换旅程", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            .accessibilityLabel("切换旅程")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            if syncEngine.trips.first(where: { $0.id == syncEngine.selectedTripID })?.canShare == true {
+                Button {
+                    Task { inviteURL = await syncEngine.createShareInvite() }
+                } label: {
+                    Image(systemName: "person.badge.plus")
+                }
+                .accessibilityLabel("邀请共同编辑")
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { Task { await syncEngine.retry() } } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .accessibilityLabel("重新同步")
+        }
+        signOutToolbarItem
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                aiItinerarySeed = nil
+                showsAIItinerary = true
+            } label: { Image(systemName: "sparkles") }
+                .disabled(syncEngine.trip?.isConfigured != true)
+                .accessibilityLabel("AI 填入行程")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var signOutToolbarItem: some ToolbarContent {
+        if appleSignIn.isAuthenticated {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showsSignOutConfirmation = true } label: {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                }
+                .accessibilityLabel("退出登录")
             }
         }
     }
@@ -266,10 +279,15 @@ struct ItineraryView: View {
                 }
                 .padding()
             }
-        } else if case .localOnly = syncEngine.status, !appleSignIn.isAuthenticated {
+        } else if case .localOnly = syncEngine.status {
             ScrollView {
-                signInBanner
-                    .padding()
+                VStack(spacing: 16) {
+                    signInBanner
+                    TripSetupSheet(isNewTrip: true) { destination, startDate, endDate, currency in
+                        Task { await syncEngine.createTrip(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
+                    }
+                }
+                .padding()
             }
         } else {
             ProgressView("正在打开共享行程…")
@@ -295,7 +313,7 @@ struct ItineraryView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("未登录·本地模式")
                         .font(.headline)
-                    Text("旅行数据仅保存在本机，不会发送到网络或共享。登录后可同步非敏感行程数据。")
+                    Text("全部功能均可使用，旅行内容会先保存在本机；登录后再开启云端同步。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -380,8 +398,11 @@ struct ItineraryView: View {
                             Spacer()
                             Button(role: .destructive) { dayPendingDeletion = day } label: { Image(systemName: "trash") }
                                 .buttonStyle(.glass)
-                                .disabled(day.serverID == nil)
+                                .disabled(day.serverID == nil && syncEngine.isUserAuthenticated)
                                 .accessibilityLabel("删除日期")
+                            Button { activeCardEditor = .create(day) } label: { Image(systemName: "plus") }
+                                .buttonStyle(.glass)
+                                .accessibilityLabel("添加行程卡片")
                         }
                         Text("行程卡片").font(.subheadline.weight(.semibold))
                         let cards = day.cards.sorted(by: Self.cardTimeOrder)
@@ -403,8 +424,8 @@ struct ItineraryView: View {
                                     timelineTime(for: card)
                                     TravelCardView(
                                         card: card,
-                                        canMoveUp: cardIndex > 0 && card.serverID != nil,
-                                        canMoveDown: cardIndex < cards.count - 1 && card.serverID != nil,
+                                        canMoveUp: cardIndex > 0 && (card.serverID != nil || !syncEngine.isUserAuthenticated),
+                                        canMoveDown: cardIndex < cards.count - 1 && (card.serverID != nil || !syncEngine.isUserAuthenticated),
                                         routeCards: routeCandidates(for: card, in: day, days: days),
                                         currency: trip.currency,
                                         showsTime: false,
@@ -616,7 +637,7 @@ struct ItineraryView: View {
         case .syncing: return nil
         case .pending(let count): return "待同步 \(count) 项"
         case .conflict: return "可能覆盖"
-        case .localOnly: return appleSignIn.isAuthenticated ? nil : "本地模式·登录后可同步"
+        case .localOnly: return appleSignIn.isAuthenticated ? nil : "本地模式·全部功能可用"
         case .offline(let message), .failed(let message): return message
         }
     }

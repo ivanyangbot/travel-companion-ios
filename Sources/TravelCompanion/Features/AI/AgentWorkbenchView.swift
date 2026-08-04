@@ -446,6 +446,7 @@ struct AgentWorkbenchView: View {
 
     private func send() {
         guard let request = makeRequest() else { error = "请先完成旅行设置。"; return }
+        guard let tripID = syncEngine.trip?.id else { error = "无法确定当前旅行，请刷新后重试。"; return }
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: message, createdAt: .now)
         store.beginTurn()
         store.append(userMessage)
@@ -458,7 +459,7 @@ struct AgentWorkbenchView: View {
         isComposerFocused = false
         generationTask = Task {
             do {
-                let stream = try await client.agentV2Stream(request)
+                let stream = try await client.agentV2Stream(request, tripID: tripID)
                 for try await event in stream {
                     switch event {
                     case .status(let text): status = text
@@ -534,6 +535,7 @@ struct AgentWorkbenchView: View {
                         selectedCandidateIds: snapshot.selected.map(\.id),
                         draft: snapshot.draft
                     ),
+                    tripID: trip.id,
                     idempotencyKey: UUID()
                 )
                 store.clearCommittedDraft()

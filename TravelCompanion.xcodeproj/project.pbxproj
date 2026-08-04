@@ -63,7 +63,6 @@
 		9E02493F9FA3FFBA908A6202 /* WalletCardArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 976F92479D074458A64539B8 /* WalletCardArtwork.swift */; };
 		9FD973AC094F885DBE095C44 /* CardDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B69CCD3DE0E2E85F11528FB /* CardDetailView.swift */; };
 		A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */ = {isa = PBXBuildFile; fileRef = 6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */; };
-		A7E2726D7D84B4963E787006 /* APISettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 742BE5579BBD732B3BEA4FDA /* APISettingsView.swift */; };
 		A8364023D2EC1516D5945D50 /* ExpenseSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE7AC844A5A5929E9C18F8D /* ExpenseSummaryView.swift */; };
 		A85A5EA57496C62193E16781 /* ExpensesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239E82715D8B09548A9B6AE2 /* ExpensesTests.swift */; };
 		A92FD3B481DD54A4B24F93B3 /* TripSetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C42CC5E8251F33492311AC /* TripSetupSheet.swift */; };
@@ -155,7 +154,6 @@
 		6B026B0199CFA746CE1293EA /* MemoAssistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistSheet.swift; sourceTree = "<group>"; };
 		6F8031EBAF1C17305F75B7FC /* MapLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinkHandler.swift; sourceTree = "<group>"; };
 		72EAFDA83E7A9A0A19462E9B /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
-		742BE5579BBD732B3BEA4FDA /* APISettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APISettingsView.swift; sourceTree = "<group>"; };
 		761B9EBCB409C232EF34AFD9 /* MemoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoModels.swift; sourceTree = "<group>"; };
 		768B5F4FCDC82CB0A5449464 /* ExpenseEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseEditorView.swift; sourceTree = "<group>"; };
 		76C42CC5E8251F33492311AC /* TripSetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripSetupSheet.swift; sourceTree = "<group>"; };
@@ -237,7 +235,6 @@
 		16BA33E1E6E8BD98BD259A2A /* Itinerary */ = {
 			isa = PBXGroup;
 			children = (
-				742BE5579BBD732B3BEA4FDA /* APISettingsView.swift */,
 				DC53B5FAD8D6AFD665BEF072 /* DayEditor.swift */,
 				9B71738D5B59EDD1B741EFD6 /* ItineraryView.swift */,
 				1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */,
@@ -601,7 +598,6 @@
 				D18CAD03BDA23AD32F53F9A4 /* AIItinerarySheet.swift in Sources */,
 				698C0569AAFAAA8B9145E381 /* APIClient.swift in Sources */,
 				4C73D9470C399114DC003184 /* APIModels.swift in Sources */,
-				A7E2726D7D84B4963E787006 /* APISettingsView.swift in Sources */,
 				6EBFD847463118596CE4581E /* AgentV2Models.swift in Sources */,
 				28047E8EF5E0B106BC692162 /* AgentV2SessionStore.swift in Sources */,
 				22B8D0176405CFD2D612C92A /* AgentWorkbenchView.swift in Sources */,

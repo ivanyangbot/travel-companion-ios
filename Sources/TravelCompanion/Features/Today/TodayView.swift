@@ -48,8 +48,8 @@ struct TodayView: View {
                 )
             } else if case .localOnly = syncEngine.status {
                 journeySetupPrompt(
-                    title: "登录后开始规划",
-                    description: "前往旅程页登录，然后创建并同步你的第一段旅程。"
+                    title: "还没有旅程",
+                    description: "前往旅程页创建第一段本地旅程，即可开始规划。"
                 )
             } else {
                 ProgressView("正在打开共享行程…")

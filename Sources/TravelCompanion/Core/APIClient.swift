@@ -365,13 +365,13 @@ actor APIClient {
 
     /// V2 Agent stream. Reasoning summaries remain ephemeral UI progress;
     /// durable candidate patches use stable identifiers.
-    func agentV2Stream(_ payload: AgentV2TurnRequest) async throws -> AsyncThrowingStream<AgentV2StreamEvent, Error> {
+    func agentV2Stream(_ payload: AgentV2TurnRequest, tripID: Int) async throws -> AsyncThrowingStream<AgentV2StreamEvent, Error> {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: "/v2/agent/turns/stream"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        authorize(&request)
+        authorize(&request, tripID: tripID)
         request.httpBody = try encoder.encode(payload)
         request.timeoutInterval = 100
         let finalRequest = request
@@ -416,14 +416,14 @@ actor APIClient {
         }
     }
 
-    func commitAgentV2(_ payload: AgentV2CommitRequest, idempotencyKey: UUID) async throws -> AgentV2CommitResult {
+    func commitAgentV2(_ payload: AgentV2CommitRequest, tripID: Int, idempotencyKey: UUID) async throws -> AgentV2CommitResult {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: "/v2/agent/commits"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(idempotencyKey.uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
         request.setValue(String(payload.expectedTripVersion), forHTTPHeaderField: "X-Expected-Trip-Version")
-        authorize(&request)
+        authorize(&request, tripID: tripID)
         request.httpBody = try encoder.encode(payload)
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -585,7 +585,7 @@ struct AgentV2IncompleteStreamError: LocalizedError, Equatable, Sendable {
 enum APIConfigurationError: LocalizedError {
     case missingBaseURL
 
-    var errorDescription: String? { "请先在行程页设置中填写共享 API 地址。" }
+    var errorDescription: String? { "服务配置缺失，请稍后重试或联系开发者。" }
 }
 
 /// Non-2xx response whose body is not the `{error:{...}}` envelope (e.g. a
