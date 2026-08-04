@@ -65,7 +65,7 @@ final class ExpensesTests: XCTestCase {
         let container = try ModelContainer(for: SharedTripMirror.self, PendingOperation.self, configurations: configuration)
         let repository = SharedTripRepository(modelContext: ModelContext(container))
         let localExpenseID = UUID()
-        try repository.enqueue(method: "POST", path: "/v1/expenses", body: Data("old".utf8), baseVersion: 3, clientEntityID: localExpenseID)
+        try repository.enqueue(method: "POST", path: "/v1/expenses", tripID: 1, body: Data("old".utf8), baseVersion: 3, clientEntityID: localExpenseID)
 
         let pending = try XCTUnwrap(repository.pendingOperation(for: localExpenseID))
         try repository.replaceBody(pending, with: Data("edited".utf8))
@@ -97,7 +97,7 @@ final class ExpensesTests: XCTestCase {
         let expense = ExpenseSnapshot(amountMinor: 100, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01")
         let snapshot = SharedTripSnapshot(id: 1, destination: "东京", startDate: "2026-10-01", endDate: "2026-10-02", currency: "CNY", version: 3, updatedAt: .now, days: [], expenses: [expense])
         try repository.save(snapshot)
-        try repository.enqueue(method: "POST", path: "/v1/expenses", body: Data("{}".utf8), baseVersion: 3, clientEntityID: expense.id)
+        try repository.enqueue(method: "POST", path: "/v1/expenses", tripID: 1, body: Data("{}".utf8), baseVersion: 3, clientEntityID: expense.id)
         let engine = SyncEngine(repository: repository, apiClient: APIClient(baseURL: nil))
         await engine.bootstrap()
         let beforeUpdate = try XCTUnwrap(repository.pendingOperation(for: expense.id))

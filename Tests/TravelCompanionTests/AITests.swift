@@ -194,11 +194,11 @@ final class AITests: XCTestCase {
         configuration.protocolClasses = [APIClientProtocolStub.self]
         let client = APIClient(baseURL: try XCTUnwrap(URL(string: "https://api.example.test")), session: URLSession(configuration: configuration))
         let operation = PendingOperationPayload(
-            method: "POST", path: "/v1/cards", body: Data("{}".utf8), baseVersion: 7, idempotencyKey: UUID()
+            method: "POST", path: "/v1/cards", tripID: 1, body: Data("{}".utf8), baseVersion: 7, idempotencyKey: UUID()
         )
 
-        _ = try await client.send(operation)
-        _ = try await client.send(operation)
+        _ = try await client.send(operation, tripID: 1)
+        _ = try await client.send(operation, tripID: 1)
 
         XCTAssertEqual(APIClientProtocolStub.requests.count, 2)
         XCTAssertEqual(APIClientProtocolStub.requests.map { $0.value(forHTTPHeaderField: "Idempotency-Key") }, [operation.idempotencyKey.uuidString.lowercased(), operation.idempotencyKey.uuidString.lowercased()])
@@ -215,7 +215,7 @@ final class AITests: XCTestCase {
         let repository = SharedTripRepository(modelContext: ModelContext(container))
         let card = AIItineraryDraft.Card(kind: .activity, title: "故宫", date: "2026-10-01", time: "09:00", place: nil, notes: nil)
         try repository.queueConfirmedAIDraftCards([card])
-        let operation = try repository.enqueue(method: "POST", path: "/v1/cards", body: Data("{}".utf8), baseVersion: 1, clientEntityID: card.id)
+        let operation = try repository.enqueue(method: "POST", path: "/v1/cards", tripID: 1, body: Data("{}".utf8), baseVersion: 1, clientEntityID: card.id)
 
         try repository.markTerminal(operation, message: "日期已被删除")
 

@@ -19,21 +19,38 @@ struct TodayView: View {
 
     var body: some View {
         Group {
-            if let trip = syncEngine.trip, trip.isConfigured {
-                let sorted = sortedDays(in: trip)
-                if sorted.isEmpty {
-                    ContentUnavailableView(
-                        "还没有行程日期",
-                        systemImage: "calendar.badge.exclamationmark",
-                        description: Text("在「旅程」中添加日期与卡片后，这里会显示今日地图。")
-                    )
+            if let trip = syncEngine.trip {
+                if trip.isConfigured {
+                    let sorted = sortedDays(in: trip)
+                    if sorted.isEmpty {
+                        ContentUnavailableView(
+                            "还没有行程日期",
+                            systemImage: "calendar.badge.exclamationmark",
+                            description: Text("在「旅程」中添加日期与卡片后，这里会显示今日地图。")
+                        )
+                    } else {
+                        let baseIndex = baseDayIndex(in: sorted)
+                        let currentIndex = clampedDayIndex(sorted: sorted, baseIndex: baseIndex)
+                        mapContent(days: sorted, currentIndex: currentIndex, baseIndex: baseIndex)
+                    }
                 } else {
-                    let baseIndex = baseDayIndex(in: sorted)
-                    let currentIndex = clampedDayIndex(sorted: sorted, baseIndex: baseIndex)
-                    mapContent(days: sorted, currentIndex: currentIndex, baseIndex: baseIndex)
+                    journeySetupPrompt(
+                        title: "先完成行程设置",
+                        description: "填写目的地、日期和币种后，这里会显示今日地图。"
+                    )
                 }
             } else if case .failed(let message) = syncEngine.status {
                 ContentUnavailableView("无法加载共享行程", systemImage: "wifi.exclamationmark", description: Text(message))
+            } else if case .synced = syncEngine.status {
+                journeySetupPrompt(
+                    title: "还没有旅程",
+                    description: "创建第一段旅程后，就可以开始安排行程和查看今日地图。"
+                )
+            } else if case .localOnly = syncEngine.status {
+                journeySetupPrompt(
+                    title: "登录后开始规划",
+                    description: "前往旅程页登录，然后创建并同步你的第一段旅程。"
+                )
             } else {
                 ProgressView("正在打开共享行程…")
             }
@@ -57,6 +74,19 @@ struct TodayView: View {
         }
     }
 
+    private func journeySetupPrompt(title: String, description: String) -> some View {
+        ContentUnavailableView {
+            Label(title, systemImage: "map")
+        } description: {
+            Text(description)
+        } actions: {
+            Button("前往旅程") {
+                withAnimation { section = .itinerary }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
     @ViewBuilder
     private func mapContent(days: [TripDaySnapshot], currentIndex: Int, baseIndex: Int) -> some View {
         let day = days[currentIndex]
@@ -69,7 +99,7 @@ struct TodayView: View {
                     description: Text("在「旅程」中为该日的卡片补上坐标后，这里会显示地图路径。")
                 )
             } else {
-                TodayMapCanvas(
+                MapLibreTodayMapCanvas(
                     points: mapPoints(pois: pois),
                     selectedIndex: clampedIndex(pois: pois),
                     cameraFocus: cameraFocus,

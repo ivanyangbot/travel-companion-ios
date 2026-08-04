@@ -22,37 +22,7 @@ struct ItineraryView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let trip = syncEngine.trip {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            if !appleSignIn.isAuthenticated {
-                                signInBanner
-                            }
-                            if trip.isConfigured {
-                                tripHeader(trip)
-                                timeline(trip)
-                            } else {
-                                TripSetupSheet { destination, startDate, endDate, currency in
-                                    Task { await syncEngine.saveSetup(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
-                                }
-                            }
-                        }
-                        .padding()
-                    }
-                } else if case .failed(let message) = syncEngine.status {
-                    VStack(spacing: 16) {
-                        ContentUnavailableView(
-                            "无法加载共享行程",
-                            systemImage: "wifi.exclamationmark",
-                            description: Text(message)
-                        )
-                        Button("重试") { Task { await syncEngine.retry() } }
-                    }
-                } else {
-                    ProgressView("正在打开共享行程…")
-                }
-            }
+            itineraryContent
             .navigationTitle("旅程")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -251,6 +221,58 @@ struct ItineraryView: View {
             .onChange(of: syncEngine.isUserAuthenticated) { _, _ in
                 joinPendingInviteIfPossible()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var itineraryContent: some View {
+        if let trip = syncEngine.trip {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if !appleSignIn.isAuthenticated {
+                        signInBanner
+                    }
+                    if trip.isConfigured {
+                        tripHeader(trip)
+                        timeline(trip)
+                    } else {
+                        TripSetupSheet { destination, startDate, endDate, currency in
+                            Task { await syncEngine.saveSetup(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
+                        }
+                    }
+                }
+                .padding()
+            }
+        } else if case .failed(let message) = syncEngine.status {
+            VStack(spacing: 16) {
+                ContentUnavailableView(
+                    "无法加载共享行程",
+                    systemImage: "wifi.exclamationmark",
+                    description: Text(message)
+                )
+                Button("重试") { Task { await syncEngine.retry() } }
+            }
+        } else if case .synced = syncEngine.status {
+            ScrollView {
+                TripSetupSheet(isNewTrip: true) { destination, startDate, endDate, currency in
+                    Task {
+                        await syncEngine.createTrip(
+                            destination: destination,
+                            startDate: startDate,
+                            endDate: endDate,
+                            currency: currency
+                        )
+                    }
+                }
+                .padding()
+            }
+        } else if case .localOnly = syncEngine.status, !appleSignIn.isAuthenticated {
+            ScrollView {
+                signInBanner
+                    .padding()
+            }
+        } else {
+            ProgressView("正在打开共享行程…")
         }
     }
 

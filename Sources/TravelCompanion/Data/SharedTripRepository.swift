@@ -15,6 +15,23 @@ final class SharedTripRepository {
         return try mirror?.snapshot()
     }
 
+    func cachedTrips() throws -> [SharedTripSnapshot] {
+        try modelContext.fetch(
+            FetchDescriptor<SharedTripMirror>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        ).map { try $0.snapshot() }
+    }
+
+    /// Local trips use negative IDs until the first authenticated import gives
+    /// them server IDs. Computing the next value from persisted mirrors keeps
+    /// IDs stable across launches and avoids collisions between local trips.
+    func nextLocalTripID() throws -> Int {
+        let lowest = try modelContext.fetch(FetchDescriptor<SharedTripMirror>())
+            .map(\.tripID)
+            .filter { $0 < 0 }
+            .min() ?? 0
+        return min(-1, lowest - 1)
+    }
+
     func save(_ snapshot: SharedTripSnapshot) throws {
         if let mirror = try modelContext.fetch(FetchDescriptor<SharedTripMirror>()).first(where: { $0.tripID == snapshot.id }) {
             try mirror.replace(with: snapshot)
@@ -38,6 +55,25 @@ final class SharedTripRepository {
 
     func remove(_ operation: PendingOperation) throws {
         modelContext.delete(operation)
+        try modelContext.save()
+    }
+
+    /// A completed first-login import already materialized the optimistic
+    /// snapshot on the new server trip, so its old per-resource operations
+    /// must not be replayed against the retired local trip ID.
+    func discardOperations(for tripID: Int) throws {
+        let operations = try allOperations().filter { $0.tripID == tripID }
+        let draftIDs = Set(operations.compactMap(\.clientEntityID))
+        for operation in operations { modelContext.delete(operation) }
+        for draft in try confirmedAIDraftCards() where draftIDs.contains(draft.localID) {
+            modelContext.delete(draft)
+        }
+        try modelContext.save()
+    }
+
+    func removeCachedTrip(id: Int) throws {
+        let mirrors = try modelContext.fetch(FetchDescriptor<SharedTripMirror>())
+        for mirror in mirrors where mirror.tripID == id { modelContext.delete(mirror) }
         try modelContext.save()
     }
 

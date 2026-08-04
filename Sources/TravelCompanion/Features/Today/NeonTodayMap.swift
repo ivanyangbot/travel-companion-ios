@@ -18,7 +18,7 @@ struct TodayMapPoint: Identifiable, Equatable {
 /// coordinate or order naturally produces a different key, so only affected
 /// legs are requested again after the user edits the itinerary.
 @MainActor
-private final class TodayRouteGeometryCache {
+final class TodayRouteGeometryCache {
     static let shared = TodayRouteGeometryCache()
 
     private struct Coordinate: Codable {
@@ -31,36 +31,52 @@ private final class TodayRouteGeometryCache {
         let storedAt: Date
     }
 
-    private static let storageKey = "todayRouteGeometryCache.v1"
+    private static let storageKey = "todayRouteGeometryCache.v2"
+    private static let legacyStorageKey = "todayRouteGeometryCache.v1"
+    private static let maximumAge: TimeInterval = 24 * 60 * 60
     private static let maximumEntryCount = 128
     private var entries: [String: Entry]
 
     private init() {
+        UserDefaults.standard.removeObject(forKey: Self.legacyStorageKey)
         guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
               let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) else {
             entries = [:]
             return
         }
-        // v1 originally included TravelCardSnapshot.id, but that UUID is
-        // regenerated whenever a server snapshot decodes. Strip it from old
-        // keys so already downloaded routes remain usable after this fix.
-        entries = decoded.reduce(into: [:]) { migrated, item in
-            let key = Self.coordinateOnlyKey(fromStoredKey: item.key) ?? item.key
-            if let existing = migrated[key], existing.storedAt >= item.value.storedAt {
-                return
-            }
-            migrated[key] = item.value
-        }
+        entries = decoded.filter { Date.now.timeIntervalSince($0.value.storedAt) < Self.maximumAge }
         persist()
     }
 
-    func polyline(from origin: TodayMapPoint, to destination: TodayMapPoint) -> MKPolyline? {
-        guard let entry = entries[Self.key(from: origin, to: destination)],
-              entry.coordinates.count > 1 else { return nil }
-        var coordinates = entry.coordinates.map {
+    func coordinates(from origin: TodayMapPoint, to destination: TodayMapPoint) -> [CLLocationCoordinate2D]? {
+        let key = Self.key(from: origin, to: destination)
+        guard let entry = entries[key] else { return nil }
+        guard Date.now.timeIntervalSince(entry.storedAt) < Self.maximumAge else {
+            entries.removeValue(forKey: key)
+            persist()
+            return nil
+        }
+        guard entry.coordinates.count > 1 else { return nil }
+        return entry.coordinates.map {
             CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
         }
+    }
+
+    func polyline(from origin: TodayMapPoint, to destination: TodayMapPoint) -> MKPolyline? {
+        guard var coordinates = coordinates(from: origin, to: destination) else { return nil }
         return MKPolyline(coordinates: &coordinates, count: coordinates.count)
+    }
+
+    func store(_ coordinates: [CLLocationCoordinate2D], from origin: TodayMapPoint, to destination: TodayMapPoint) {
+        guard coordinates.count > 1 else { return }
+        entries[Self.key(from: origin, to: destination)] = Entry(
+            coordinates: coordinates.map {
+                Coordinate(latitude: $0.latitude, longitude: $0.longitude)
+            },
+            storedAt: .now
+        )
+        trimIfNeeded()
+        persist()
     }
 
     func store(_ polyline: MKPolyline, from origin: TodayMapPoint, to destination: TodayMapPoint) {
@@ -73,14 +89,7 @@ private final class TodayRouteGeometryCache {
             &coordinates,
             range: NSRange(location: 0, length: polyline.pointCount)
         )
-        entries[Self.key(from: origin, to: destination)] = Entry(
-            coordinates: coordinates.map {
-                Coordinate(latitude: $0.latitude, longitude: $0.longitude)
-            },
-            storedAt: .now
-        )
-        trimIfNeeded()
-        persist()
+        store(coordinates, from: origin, to: destination)
     }
 
     private static func key(from origin: TodayMapPoint, to destination: TodayMapPoint) -> String {
@@ -89,21 +98,6 @@ private final class TodayRouteGeometryCache {
 
     private static func pointKey(_ point: TodayMapPoint) -> String {
         "\(String(point.latitude.bitPattern, radix: 16)):\(String(point.longitude.bitPattern, radix: 16))"
-    }
-
-    private static func coordinateOnlyKey(fromStoredKey key: String) -> String? {
-        let legs = key.components(separatedBy: "->")
-        guard legs.count == 2 else { return nil }
-        let normalized = legs.compactMap { point -> String? in
-            let components = point.split(separator: ":", omittingEmptySubsequences: false)
-            if components.count == 2 {
-                return point
-            }
-            guard components.count == 3 else { return nil }
-            return "\(components[1]):\(components[2])"
-        }
-        guard normalized.count == 2 else { return nil }
-        return normalized.joined(separator: "->")
     }
 
     private func trimIfNeeded() {

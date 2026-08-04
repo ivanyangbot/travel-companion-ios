@@ -1,3 +1,5 @@
+import Foundation
+import SwiftData
 import XCTest
 @testable import TravelCompanion
 
@@ -67,4 +69,188 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertNil(CardPrice.minorUnits(from: "abc", currency: "CNY"))
         XCTAssertNil(CardPrice.minorUnits(from: "", currency: "CNY"))
     }
+
+    @MainActor
+    func testFirstLoginImportsLocalSharedDataAndLeavesWalletOnDevice() async throws {
+        FirstLoginMigrationURLProtocol.reset()
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [FirstLoginMigrationURLProtocol.self]
+        let client = APIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test")),
+            session: URLSession(configuration: sessionConfiguration),
+            tokenProvider: { "test-token" }
+        )
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self, LocalWalletItem.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let context = ModelContext(container)
+        let repository = SharedTripRepository(modelContext: context)
+        let card = TravelCardSnapshot(
+            serverID: 20,
+            dayID: 10,
+            kind: .activity,
+            title: "西湖",
+            startAt: try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-01T09:00:00Z")),
+            place: PlaceSnapshot(
+                id: 30,
+                name: "西湖风景名胜区",
+                address: "杭州",
+                latitude: 30.25,
+                longitude: 120.15,
+                placeId: "old-place",
+                cityCode: "0571",
+                updatedAt: .now
+            ),
+            notes: "本地卡片",
+            position: 0
+        )
+        let day = TripDaySnapshot(serverID: 10, date: "2026-10-01", position: 0, cards: [card])
+        let expense = ExpenseSnapshot(
+            serverID: 40,
+            amountMinor: 12_500,
+            currency: "CNY",
+            category: .tickets,
+            occurredOn: "2026-10-01",
+            note: "本地支出",
+            cardID: 20
+        )
+        let localTrip = SharedTripSnapshot(
+            id: 1,
+            destination: "杭州",
+            startDate: "2026-10-01",
+            endDate: "2026-10-02",
+            currency: "CNY",
+            version: 7,
+            updatedAt: .now,
+            days: [day],
+            expenses: [expense]
+        )
+        try repository.save(localTrip)
+        try repository.enqueue(method: "PATCH", path: "/v1/trip", tripID: 1, body: Data("{}".utf8), baseVersion: 7)
+
+        let wallet = LocalWalletItem(label: "只留本地", encryptedSecret: Data("wallet-ciphertext".utf8))
+        context.insert(wallet)
+        try context.save()
+
+        let suiteName = "FirstLoginMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: client,
+            localMigrationStore: LocalTripMigrationStore(defaults: defaults),
+            authenticatedOverride: true
+        )
+
+        await engine.bootstrap()
+
+        XCTAssertEqual(engine.trip?.id, 42)
+        XCTAssertEqual(engine.trip?.days.first?.cards.first?.title, "西湖")
+        XCTAssertEqual(engine.trip?.expenses.first?.amountMinor, 12_500)
+        XCTAssertEqual(engine.trip?.expenses.first?.cardID, 201)
+        XCTAssertTrue(try repository.pendingOperations().isEmpty)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<LocalWalletItem>()).first?.encryptedSecret, wallet.encryptedSecret)
+        XCTAssertEqual(
+            FirstLoginMigrationURLProtocol.requests.map { "\($0.httpMethod ?? "") \($0.url?.path ?? "")" },
+            [
+                "GET /v1/trips", "POST /v1/trips", "GET /v1/trip",
+                "POST /v1/days", "GET /v1/trip", "POST /v1/cards",
+                "GET /v1/trip", "POST /v1/expenses", "GET /v1/trip",
+                "GET /v1/trips",
+            ]
+        )
+        let outboundBodies = FirstLoginMigrationURLProtocol.requests.compactMap(\.httpBody)
+        XCTAssertFalse(outboundBodies.contains { String(decoding: $0, as: UTF8.self).contains("wallet-ciphertext") })
+    }
+}
+
+private final class FirstLoginMigrationURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var requests: [URLRequest] = []
+    nonisolated(unsafe) static var tripVersion = 0
+
+    static func reset() {
+        requests = []
+        tripVersion = 0
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.requests.append(request)
+        let path = request.url?.path ?? ""
+        let method = request.httpMethod ?? "GET"
+        let statusCode: Int
+        let body: Data
+
+        switch (method, path) {
+        case ("GET", "/v1/trips"):
+            statusCode = 200
+            body = Data((Self.tripVersion == 0 ? "{\"data\":[]}" : Self.tripSummaryEnvelope).utf8)
+        case ("POST", "/v1/trips"):
+            statusCode = 200
+            body = Data(Self.tripSummaryEnvelope.utf8)
+        case ("GET", "/v1/trip") where request.url?.query?.contains("afterVersion=3") == true:
+            statusCode = 204
+            body = Data()
+        case ("GET", "/v1/trip"):
+            statusCode = 200
+            body = Data(Self.tripEnvelope(version: Self.tripVersion).utf8)
+        case ("POST", "/v1/days"):
+            Self.tripVersion = 1
+            statusCode = 200
+            body = Data(Self.metaEnvelope(version: 1).utf8)
+        case ("POST", "/v1/cards"):
+            Self.tripVersion = 2
+            statusCode = 200
+            body = Data(Self.metaEnvelope(version: 2).utf8)
+        case ("POST", "/v1/expenses"):
+            Self.tripVersion = 3
+            statusCode = 200
+            body = Data(Self.metaEnvelope(version: 3).utf8)
+        default:
+            statusCode = 404
+            body = Data("{\"error\":{\"code\":\"not_found\",\"message\":\"unexpected request\",\"requestId\":\"test\"}}".utf8)
+        }
+
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !body.isEmpty { client?.urlProtocol(self, didLoad: body) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    private static let tripSummaryEnvelope = """
+    {"data":{"id":42,"destination":"杭州","startDate":"2026-10-01","endDate":"2026-10-02","currency":"CNY","version":3,"updatedAt":"2026-10-01T00:00:00Z","role":"owner","joinedAt":"2026-10-01T00:00:00Z"}}
+    """
+
+    private static func metaEnvelope(version: Int) -> String {
+        "{\"meta\":{\"tripVersion\":\(version),\"operationId\":null,\"conflict\":false,\"serverUpdatedAt\":\"2026-10-01T00:00:00Z\"}}"
+    }
+
+    private static func tripEnvelope(version: Int) -> String {
+        let day = """
+        {"id":101,"date":"2026-10-01","position":0,"updatedAt":"2026-10-01T00:00:00Z","cards":\(version >= 2 ? "[\(cardJSON)]" : "[]")}
+        """
+        let expenses = version >= 3 ? "[\(expenseJSON)]" : "[]"
+        let days = version >= 1 ? "[\(day)]" : "[]"
+        return """
+        {"data":{"id":42,"destination":"杭州","startDate":"2026-10-01","endDate":"2026-10-02","currency":"CNY","version":\(version),"updatedAt":"2026-10-01T00:00:00Z","days":\(days),"expenses":\(expenses)}}
+        """
+    }
+
+    private static let cardJSON = """
+    {"id":201,"dayId":101,"kind":"activity","title":"西湖","startAt":"2026-10-01T09:00:00Z","place":{"id":301,"name":"西湖风景名胜区","address":"杭州","latitude":30.25,"longitude":120.15,"placeId":"old-place","cityCode":"0571","updatedAt":"2026-10-01T00:00:00Z"},"notes":"本地卡片","position":0,"updatedAt":"2026-10-01T00:00:00Z"}
+    """
+
+    private static let expenseJSON = """
+    {"id":401,"amountMinor":12500,"currency":"CNY","category":"tickets","occurredOn":"2026-10-01","note":"本地支出","cardId":201,"updatedAt":"2026-10-01T00:00:00Z"}
+    """
 }

@@ -18,7 +18,7 @@ enum KeychainStoreError: LocalizedError {
 
 /// Stores the wallet encryption key in the device-only keychain. The key cannot
 /// migrate to another device or be restored from a backup.
-struct KeychainStore {
+struct KeychainStore: Sendable {
     private static let defaultService = "com.yangzhiyuan.travelcompanion.wallet"
     private static let defaultAccount = "aes-gcm-key-v1"
     private static let accessTokenAccount = "apple-access-token-v1"

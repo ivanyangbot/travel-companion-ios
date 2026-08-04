@@ -23,16 +23,23 @@ final class SyncEngine: ObservableObject {
 
     private let repository: SharedTripRepository
     private var apiClient: APIClient
+    private let localMigrationStore: LocalTripMigrationStore
     private var foregroundPollingTask: Task<Void, Never>?
     private var authObserver: NSObjectProtocol?
 
-    init(repository: SharedTripRepository, apiClient: APIClient? = nil) {
+    init(
+        repository: SharedTripRepository,
+        apiClient: APIClient? = nil,
+        localMigrationStore: LocalTripMigrationStore = LocalTripMigrationStore(),
+        authenticatedOverride: Bool? = nil
+    ) {
         self.repository = repository
         self.apiClient = apiClient ?? APIClient()
+        self.localMigrationStore = localMigrationStore
         apiBaseURLText = AppConfiguration.apiBaseURL()?.absoluteString ?? ""
         // Check the keychain directly at init time so we don't need to await
         // an actor call inside the synchronous initializer.
-        isUserAuthenticated = (try? KeychainStore().accessToken()) != nil
+        isUserAuthenticated = authenticatedOverride ?? ((try? KeychainStore().accessToken()) != nil)
     }
 
     /// Whether the engine should avoid all network traffic. The user may still
@@ -85,7 +92,23 @@ final class SyncEngine: ObservableObject {
         guard !localOnly else { status = .localOnly; return }
         status = .syncing
         do {
-            let summaries = try await apiClient.fetchTrips()
+            var summaries = try await apiClient.fetchTrips()
+            if let pendingMigration = try localMigrationStore.pendingMigration() {
+                try await importLocalTrip(pendingMigration, serverTrips: summaries)
+                summaries = try await apiClient.fetchTrips()
+            } else if !localMigrationStore.didFinishInitialImport {
+                if summaries.isEmpty, let localTrip = trip {
+                    let migration = PendingLocalTripMigration(source: localTrip)
+                    try localMigrationStore.save(migration)
+                    try await importLocalTrip(migration, serverTrips: summaries)
+                    summaries = try await apiClient.fetchTrips()
+                } else {
+                    // Either there is no local shared trip to claim, or this
+                    // account already owns cloud trips. Never merge an
+                    // unowned cache into a non-empty account implicitly.
+                    localMigrationStore.markInitialImportFinished()
+                }
+            }
             trips = summaries
             if selectedTripID == nil || !summaries.contains(where: { $0.id == selectedTripID }) {
                 selectedTripID = summaries.first?.id
@@ -103,8 +126,175 @@ final class SyncEngine: ObservableObject {
             }
             status = .synced
         } catch {
-            status = trip == nil ? .failed("无法加载共享行程") : .offline("离线浏览中")
+            if localMigrationStore.hasPendingMigration {
+                status = trip == nil
+                    ? .failed("本地数据同步失败，请重试。")
+                    : .offline("本地数据等待同步，联网后会自动重试")
+            } else {
+                status = trip == nil ? .failed("无法加载共享行程") : .offline("离线浏览中")
+            }
         }
+    }
+
+    /// Claims the pre-login shared snapshot for a brand-new account. The
+    /// migration is persisted before the first request and is content-aware,
+    /// so an interrupted import resumes without duplicating days, cards or
+    /// expenses. LocalWalletItem is deliberately outside this data path.
+    private func importLocalTrip(_ storedMigration: PendingLocalTripMigration, serverTrips: [TripSummary]) async throws {
+        var migration = storedMigration
+        let targetTripID: Int
+        if let existingTarget = migration.targetTripID {
+            guard serverTrips.isEmpty || serverTrips.contains(where: { $0.id == existingTarget }) else {
+                throw LocalTripMigrationError.accountMismatch
+            }
+            targetTripID = existingTarget
+        } else {
+            guard serverTrips.isEmpty else { throw LocalTripMigrationError.accountMismatch }
+            let source = migration.source
+            let created = try await apiClient.createTrip(
+                TripPatchRequest(
+                    destination: source.destination,
+                    startDate: source.startDate,
+                    endDate: source.endDate,
+                    currency: source.currency
+                ),
+                idempotencyKey: migration.createIdempotencyKey
+            )
+            migration.targetTripID = created.id
+            try localMigrationStore.save(migration)
+            targetTripID = created.id
+        }
+
+        selectedTripID = targetTripID
+        await apiClient.setActiveTripID(targetTripID)
+        guard var remote = try await apiClient.fetchTrip(id: targetTripID, afterVersion: nil) else {
+            throw LocalTripMigrationError.missingCreatedTrip
+        }
+
+        remote = try await importLocalDays(migration.source.days, into: remote)
+        remote = try await importLocalCards(migration.source.days, into: remote)
+        remote = try await importLocalExpenses(migration.source.expenses, sourceDays: migration.source.days, into: remote)
+
+        // Only now is the old optimistic queue redundant. Removing it before
+        // the full snapshot lands would risk losing unsynced local edits.
+        try repository.discardOperations(for: migration.source.id)
+        if migration.source.id != targetTripID {
+            try repository.removeCachedTrip(id: migration.source.id)
+        }
+        trip = remote
+        try repository.save(remote)
+        try await queueConfirmedAIDraftCardsIfReady()
+        localMigrationStore.markInitialImportFinished()
+    }
+
+    private func importLocalDays(_ localDays: [TripDaySnapshot], into initialRemote: SharedTripSnapshot) async throws -> SharedTripSnapshot {
+        var remote = initialRemote
+        var version = remote.version
+        let existingDates = Set(remote.days.map(\.date))
+        for day in localDays.sorted(by: { ($0.date, $0.position) < ($1.date, $1.position) }) where !existingDates.contains(day.date) {
+            version = try await sendMigrationWrite(
+                path: "/v1/days",
+                request: DayRequest(date: day.date, position: day.position),
+                tripID: remote.id,
+                baseVersion: version
+            )
+        }
+        if version != remote.version {
+            remote = try await requireTripSnapshot(id: remote.id)
+        }
+        return remote
+    }
+
+    private func importLocalCards(_ localDays: [TripDaySnapshot], into initialRemote: SharedTripSnapshot) async throws -> SharedTripSnapshot {
+        var remote = initialRemote
+        var version = remote.version
+        var remoteCounts = Self.cardCounts(in: remote)
+
+        for localDay in localDays.sorted(by: { ($0.date, $0.position) < ($1.date, $1.position) }) {
+            guard let remoteDay = remote.days.first(where: { $0.date == localDay.date }),
+                  let remoteDayID = remoteDay.serverID else { throw LocalTripMigrationError.missingImportedDay }
+            for card in localDay.cards.sorted(by: Self.cardTimeOrder) {
+                let fingerprint = MigrationCardFingerprint(day: localDay.date, card: card)
+                if remoteCounts[fingerprint, default: 0] > 0 {
+                    remoteCounts[fingerprint, default: 0] -= 1
+                    continue
+                }
+                version = try await sendMigrationWrite(
+                    path: "/v1/cards",
+                    request: Self.migrationCardRequest(card, dayID: remoteDayID),
+                    tripID: remote.id,
+                    baseVersion: version
+                )
+            }
+        }
+        if version != remote.version {
+            remote = try await requireTripSnapshot(id: remote.id)
+        }
+        return remote
+    }
+
+    private func importLocalExpenses(
+        _ localExpenses: [ExpenseSnapshot],
+        sourceDays: [TripDaySnapshot],
+        into initialRemote: SharedTripSnapshot
+    ) async throws -> SharedTripSnapshot {
+        var remote = initialRemote
+        var version = remote.version
+        let cardIDMap = Self.migratedCardIDMap(sourceDays: sourceDays, remote: remote)
+        var remoteCounts = Self.expenseCounts(in: remote)
+
+        for expense in localExpenses.sorted(by: { ($0.occurredOn, $0.updatedAt) < ($1.occurredOn, $1.updatedAt) }) {
+            let migratedCardID = expense.cardID.flatMap { cardIDMap[$0] }
+            let fingerprint = MigrationExpenseFingerprint(expense: expense, cardID: migratedCardID)
+            if remoteCounts[fingerprint, default: 0] > 0 {
+                remoteCounts[fingerprint, default: 0] -= 1
+                continue
+            }
+            version = try await sendMigrationWrite(
+                path: "/v1/expenses",
+                request: ExpenseRequest(
+                    amountMinor: expense.amountMinor,
+                    currency: expense.currency,
+                    category: expense.category,
+                    paidBy: expense.paidBy,
+                    splitMode: expense.splitMode,
+                    occurredOn: expense.occurredOn,
+                    note: expense.note,
+                    cardID: migratedCardID
+                ),
+                tripID: remote.id,
+                baseVersion: version
+            )
+        }
+        if version != remote.version {
+            remote = try await requireTripSnapshot(id: remote.id)
+        }
+        return remote
+    }
+
+    private func sendMigrationWrite<Request: Encodable & Sendable>(
+        path: String,
+        request: Request,
+        tripID: Int,
+        baseVersion: Int
+    ) async throws -> Int {
+        let body = try await apiClient.encode(request)
+        let payload = PendingOperationPayload(
+            method: "POST",
+            path: path,
+            tripID: tripID,
+            body: body,
+            baseVersion: baseVersion,
+            idempotencyKey: UUID()
+        )
+        return try await apiClient.send(payload, tripID: tripID).tripVersion
+    }
+
+    private func requireTripSnapshot(id: Int) async throws -> SharedTripSnapshot {
+        guard let snapshot = try await apiClient.fetchTrip(id: id, afterVersion: nil) else {
+            throw LocalTripMigrationError.missingCreatedTrip
+        }
+        return snapshot
     }
 
     func selectTrip(_ id: Int) async {
@@ -844,6 +1034,84 @@ let request = CardRequest(
         )
     }
 
+    private static func migrationCardRequest(_ card: TravelCardSnapshot, dayID: Int) -> CardRequest {
+        CardRequest(
+            dayId: dayID,
+            kind: card.kind,
+            title: card.title,
+            startAt: migrationTimestampFormatter.string(from: card.startAt),
+            endAt: card.endAt.map(migrationTimestampFormatter.string(from:)),
+            place: card.place.map {
+                PlaceRequest(
+                    name: $0.name,
+                    address: $0.address,
+                    latitude: $0.latitude,
+                    longitude: $0.longitude,
+                    placeId: $0.placeId,
+                    cityCode: $0.cityCode
+                )
+            },
+            bookingCode: card.bookingCode,
+            url: card.url,
+            description: card.description,
+            fromAirport: card.fromAirport,
+            toAirport: card.toAirport,
+            priceMinor: card.priceMinor,
+            actualPriceMinor: card.actualPriceMinor,
+            ticketPriceMinor: card.ticketPriceMinor,
+            stayDurationMinutes: card.stayDurationMinutes,
+            tips: card.tips,
+            images: card.images,
+            notes: card.notes,
+            position: card.position
+        )
+    }
+
+    private static func cardCounts(in trip: SharedTripSnapshot) -> [MigrationCardFingerprint: Int] {
+        var counts: [MigrationCardFingerprint: Int] = [:]
+        for day in trip.days {
+            for card in day.cards {
+                counts[MigrationCardFingerprint(day: day.date, card: card), default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    private static func expenseCounts(in trip: SharedTripSnapshot) -> [MigrationExpenseFingerprint: Int] {
+        var counts: [MigrationExpenseFingerprint: Int] = [:]
+        for expense in trip.expenses {
+            counts[MigrationExpenseFingerprint(expense: expense, cardID: expense.cardID), default: 0] += 1
+        }
+        return counts
+    }
+
+    private static func migratedCardIDMap(sourceDays: [TripDaySnapshot], remote: SharedTripSnapshot) -> [Int: Int] {
+        var remoteCards: [MigrationCardFingerprint: [TravelCardSnapshot]] = [:]
+        for day in remote.days {
+            for card in day.cards {
+                remoteCards[MigrationCardFingerprint(day: day.date, card: card), default: []].append(card)
+            }
+        }
+        for key in remoteCards.keys {
+            remoteCards[key]?.sort { ($0.serverID ?? Int.max) < ($1.serverID ?? Int.max) }
+        }
+
+        var consumed: [MigrationCardFingerprint: Int] = [:]
+        var result: [Int: Int] = [:]
+        for day in sourceDays.sorted(by: { ($0.date, $0.position) < ($1.date, $1.position) }) {
+            for card in day.cards.sorted(by: cardTimeOrder) {
+                guard let sourceID = card.serverID else { continue }
+                let fingerprint = MigrationCardFingerprint(day: day.date, card: card)
+                let index = consumed[fingerprint, default: 0]
+                guard let candidates = remoteCards[fingerprint], candidates.indices.contains(index),
+                      let targetID = candidates[index].serverID else { continue }
+                result[sourceID] = targetID
+                consumed[fingerprint] = index + 1
+            }
+        }
+        return result
+    }
+
 /// Resolve an AI-proposed name with Apple MapKit at import time. Existing
 /// coordinates from older drafts remain usable; new AI drafts never depend on
 /// a server-side map provider.
@@ -872,6 +1140,12 @@ private func resolvedPlace(from placeData: Data?) async -> PlaceRequest? {
         return formatter
     }()
 
+    private static let migrationTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     /// Formats a card start time the way the timeline displays it (device-local
     /// wall-clock), so the AI sees the same time the user sees when enriching.
     private static let cardTimeFormatter: DateFormatter = {
@@ -894,6 +1168,137 @@ enum SyncEngineError: LocalizedError {
         case .notAuthenticated:
             "请先登录后再使用该功能。未登录时旅行数据仅保存在本机。"
         }
+    }
+}
+
+struct PendingLocalTripMigration: Codable {
+    let source: SharedTripSnapshot
+    var targetTripID: Int?
+    let createIdempotencyKey: UUID
+
+    init(source: SharedTripSnapshot, targetTripID: Int? = nil, createIdempotencyKey: UUID = UUID()) {
+        self.source = source
+        self.targetTripID = targetTripID
+        self.createIdempotencyKey = createIdempotencyKey
+    }
+}
+
+@MainActor
+final class LocalTripMigrationStore {
+    private static let pendingKey = "localTripMigration.pending.v1"
+    private static let finishedKey = "localTripMigration.finished.v1"
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    var didFinishInitialImport: Bool {
+        defaults.bool(forKey: Self.finishedKey)
+    }
+
+    var hasPendingMigration: Bool {
+        defaults.data(forKey: Self.pendingKey) != nil
+    }
+
+    func pendingMigration() throws -> PendingLocalTripMigration? {
+        guard let data = defaults.data(forKey: Self.pendingKey) else { return nil }
+        return try JSONDecoder.sharedTrip.decode(PendingLocalTripMigration.self, from: data)
+    }
+
+    func save(_ migration: PendingLocalTripMigration) throws {
+        defaults.set(try JSONEncoder.sharedTrip.encode(migration), forKey: Self.pendingKey)
+    }
+
+    func markInitialImportFinished() {
+        defaults.set(true, forKey: Self.finishedKey)
+        defaults.removeObject(forKey: Self.pendingKey)
+    }
+}
+
+private enum LocalTripMigrationError: LocalizedError {
+    case accountMismatch
+    case missingCreatedTrip
+    case missingImportedDay
+
+    var errorDescription: String? {
+        switch self {
+        case .accountMismatch: "本地数据迁移记录与当前账户不匹配。"
+        case .missingCreatedTrip: "服务器未返回刚创建的旅程。"
+        case .missingImportedDay: "服务器未返回刚同步的行程日期。"
+        }
+    }
+}
+
+private struct MigrationCardFingerprint: Hashable {
+    let day: String
+    let kind: String
+    let title: String
+    let startAt: Date
+    let endAt: Date?
+    let placeName: String?
+    let placeAddress: String?
+    let latitude: Double?
+    let longitude: Double?
+    let bookingCode: String?
+    let url: String?
+    let description: String?
+    let fromAirport: String?
+    let toAirport: String?
+    let priceMinor: Int64?
+    let actualPriceMinor: Int64?
+    let ticketPriceMinor: Int64?
+    let stayDurationMinutes: Int?
+    let tips: [String]?
+    let images: [String]?
+    let notes: String?
+    let position: Int
+
+    init(day: String, card: TravelCardSnapshot) {
+        self.day = day
+        kind = card.kind.rawValue
+        title = card.title
+        startAt = card.startAt
+        endAt = card.endAt
+        placeName = card.place?.name
+        placeAddress = card.place?.address
+        latitude = card.place?.latitude
+        longitude = card.place?.longitude
+        bookingCode = card.bookingCode
+        url = card.url
+        description = card.description
+        fromAirport = card.fromAirport
+        toAirport = card.toAirport
+        priceMinor = card.priceMinor
+        actualPriceMinor = card.actualPriceMinor
+        ticketPriceMinor = card.ticketPriceMinor
+        stayDurationMinutes = card.stayDurationMinutes
+        tips = card.tips
+        images = card.images
+        notes = card.notes
+        position = card.position
+    }
+}
+
+private struct MigrationExpenseFingerprint: Hashable {
+    let amountMinor: Int64
+    let currency: String
+    let category: String
+    let paidBy: String?
+    let splitMode: String?
+    let occurredOn: String
+    let note: String?
+    let cardID: Int?
+
+    init(expense: ExpenseSnapshot, cardID: Int?) {
+        amountMinor = expense.amountMinor
+        currency = expense.currency
+        category = expense.category.rawValue
+        paidBy = expense.paidBy?.rawValue
+        splitMode = expense.splitMode?.rawValue
+        occurredOn = expense.occurredOn
+        note = expense.note
+        self.cardID = cardID
     }
 }
 

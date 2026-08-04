@@ -169,12 +169,15 @@ struct ContentView: View {
         .padding(4)
         .frame(width: 172, height: 60)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0.4))
-                }
+            ZStack {
+                AdjustableBackdropBlur(
+                    style: .systemUltraThinMaterialDark,
+                    intensity: 0.1
+                )
+                Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255)
+                    .opacity(0.16)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -186,6 +189,48 @@ struct ContentView: View {
             y: 12
         )
     }
+}
+
+private struct AdjustableBackdropBlur: UIViewRepresentable {
+    let style: UIBlurEffect.Style
+    let intensity: CGFloat
+
+    func makeUIView(context: Context) -> AdjustableBlurEffectView {
+        AdjustableBlurEffectView(style: style, intensity: intensity)
+    }
+
+    func updateUIView(_ view: AdjustableBlurEffectView, context: Context) {
+        view.setIntensity(intensity)
+    }
+}
+
+private final class AdjustableBlurEffectView: UIVisualEffectView {
+    private let blurEffect: UIBlurEffect
+    private var animator: UIViewPropertyAnimator?
+
+    init(style: UIBlurEffect.Style, intensity: CGFloat) {
+        blurEffect = UIBlurEffect(style: style)
+        super.init(effect: nil)
+        isUserInteractionEnabled = false
+
+        let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
+            guard let self else { return }
+            effect = blurEffect
+        }
+        animator.pausesOnCompletion = true
+        animator.fractionComplete = min(1, max(0, intensity))
+        self.animator = animator
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setIntensity(_ intensity: CGFloat) {
+        animator?.fractionComplete = min(1, max(0, intensity))
+    }
+
 }
 
 /// 原生雪碧图动画：没有 WebView，因此不会弹出图片长按菜单，也不会吞掉按钮点击。

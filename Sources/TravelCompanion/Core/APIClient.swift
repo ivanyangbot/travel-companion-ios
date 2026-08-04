@@ -9,7 +9,7 @@ actor APIClient {
     /// a token saved by ``AppleSignInStore`` is picked up without rebuilding
     /// the client. ``nil`` means "no authenticated user yet" — requests that
     /// require auth are expected to be skipped by the caller in that case.
-    private let tokenProvider: () -> String?
+    private let tokenProvider: @Sendable () -> String?
     private var activeTripID: Int?
 
     init(baseURL: URL? = AppConfiguration.apiBaseURL(), session: URLSession = .shared, keychain: KeychainStore = KeychainStore()) {
@@ -26,7 +26,7 @@ actor APIClient {
     }
 
     /// Convenience initializer for tests or callers that already hold a token.
-    init(baseURL: URL?, session: URLSession, tokenProvider: @escaping () -> String?) {
+    init(baseURL: URL?, session: URLSession, tokenProvider: @escaping @Sendable () -> String?) {
         self.baseURL = baseURL
         self.session = session
         self.encoder = JSONEncoder()
@@ -82,11 +82,14 @@ actor APIClient {
         return try decoder.decode(APIEnvelope<[TripSummary]>.self, from: data).data
     }
 
-    func createTrip(_ requestBody: TripPatchRequest) async throws -> TripSummary {
+    func createTrip(_ requestBody: TripPatchRequest, idempotencyKey: UUID? = nil) async throws -> TripSummary {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: "/v1/trips"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let idempotencyKey {
+            request.setValue(idempotencyKey.uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
+        }
         authorize(&request)
         request.httpBody = try encoder.encode(requestBody)
         let (data, response) = try await session.data(for: request)

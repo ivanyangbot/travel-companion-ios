@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		01CF842454052FCA56C9E53F /* MemoListEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */; };
+		038861FECCE58D3B9FD8B931 /* MapLibreTodayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */; };
 		0554718E10121E7B104D9B3A /* MemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052363166F7B2BC56DBDB352 /* MemoTests.swift */; };
 		0708992FBBEE91B48EE542ED /* AgentV2StreamParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5842942547DFB60B2B196D /* AgentV2StreamParserTests.swift */; };
 		0A2311E7F6DD352F955656DB /* TodayWeatherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 166A7CE158BD23101732C46C /* TodayWeatherTests.swift */; };
@@ -47,6 +48,7 @@
 		78220BFCF175DDD982D5EAD5 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72EAFDA83E7A9A0A19462E9B /* TodayView.swift */; };
 		7965BC0AB89D1C07744D1D05 /* SharedModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC509B17BD5736DD641FE015 /* SharedModels.swift */; };
 		7979F0B770A26778ACB9A16F /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A86FDF07921274643C9DA1E /* WalletView.swift */; };
+		7CAAC9F78ACB912B7166C2E2 /* TodayMapStyle.json in Resources */ = {isa = PBXBuildFile; fileRef = F06077E1F953BE92E1D0733F /* TodayMapStyle.json */; };
 		7F66A8BEFA8F151CF1397890 /* PendingSharedLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FACC90B0B873713F42DB22E /* PendingSharedLinkStore.swift */; };
 		834363BD092FA8393B0274F8 /* AlarmScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5E9B3D8C17EA8A30BEF503 /* AlarmScheduler.swift */; };
 		85C1F17BA4A204B9FAD64FC0 /* ExpenseListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB2711532E17CBD08B29873 /* ExpenseListView.swift */; };
@@ -77,6 +79,7 @@
 		E907DF43C051B0DAF088CE60 /* ExpenseEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768B5F4FCDC82CB0A5449464 /* ExpenseEditorView.swift */; };
 		ECD7126443B49BB19C646935 /* TodayWeather.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED684774368336D41506574B /* TodayWeather.swift */; };
 		ED5B127795A18F06919FE7A1 /* PlaceSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFFF65364CA027FE09B695E /* PlaceSearchView.swift */; };
+		EE22351C0FA0D396E24F2D34 /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = AC854E7F79A7B22A7D8C464E /* MapLibre */; };
 		EF0349F2BF435F2B71099A4A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93705EA523BBFC35E34367CD /* PrivacyInfo.xcprivacy */; };
 		F663D1D69B44261D68F51CE8 /* CardLegEstimateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6487F1A4A5B10200D6F17F0 /* CardLegEstimateView.swift */; };
 		F6771DB1BF02F36DE6AB4B6C /* CardPrice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417B65ABD31631164FAC1432 /* CardPrice.swift */; };
@@ -142,6 +145,7 @@
 		5172A532CF62EC36B6BC9BD9 /* TravelCardsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCardsTests.swift; sourceTree = "<group>"; };
 		520489DF3065E865856241C7 /* TravelCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TravelCompanion.entitlements; sourceTree = "<group>"; };
 		527D1567359E38E7955393A5 /* ItineraryChatCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItineraryChatCardView.swift; sourceTree = "<group>"; };
+		568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLibreTodayMap.swift; sourceTree = "<group>"; };
 		5B69CCD3DE0E2E85F11528FB /* CardDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDetailView.swift; sourceTree = "<group>"; };
 		5E71023CBDA0960AF76B17AE /* CardImageURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardImageURL.swift; sourceTree = "<group>"; };
 		5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoListEditor.swift; sourceTree = "<group>"; };
@@ -192,12 +196,24 @@
 		ECA17FF91696BD112B2C29F4 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
 		ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		ED684774368336D41506574B /* TodayWeather.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWeather.swift; sourceTree = "<group>"; };
+		F06077E1F953BE92E1D0733F /* TodayMapStyle.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = TodayMapStyle.json; sourceTree = "<group>"; };
 		F42D02E361B74E833454FBE1 /* AppleMapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMapService.swift; sourceTree = "<group>"; };
 		F6487F1A4A5B10200D6F17F0 /* CardLegEstimateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLegEstimateView.swift; sourceTree = "<group>"; };
 		F908BCA76A82FE0B98955362 /* TravelCompanionShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = TravelCompanionShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC967E42D0A71344B8A10BB4 /* TravelCardStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCardStyle.swift; sourceTree = "<group>"; };
 		FDFFF65364CA027FE09B695E /* PlaceSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceSearchView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F240D3B38F2C777A1CB81B03 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EE22351C0FA0D396E24F2D34 /* MapLibre in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		0E160A4629FE9416B0458ED6 /* TravelCompanionTests */ = {
@@ -352,6 +368,7 @@
 				6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */,
 				7C998B1C01614DB76665E7C5 /* Info.plist */,
 				ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */,
+				F06077E1F953BE92E1D0733F /* TodayMapStyle.json */,
 				520489DF3065E865856241C7 /* TravelCompanion.entitlements */,
 			);
 			path = Supporting;
@@ -415,6 +432,7 @@
 		F54B2CE2378BD64A7B5428D2 /* Today */ = {
 			isa = PBXGroup;
 			children = (
+				568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */,
 				AB5337983395B60705321FDC /* NeonTodayMap.swift */,
 				72EAFDA83E7A9A0A19462E9B /* TodayView.swift */,
 				ED684774368336D41506574B /* TodayWeather.swift */,
@@ -451,6 +469,7 @@
 			buildPhases = (
 				1E8831AF6AD2ED769985D131 /* Sources */,
 				33CA99B46FACED217EE4A05C /* Resources */,
+				F240D3B38F2C777A1CB81B03 /* Frameworks */,
 				8CF154DDFDE79584FBB93164 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -460,6 +479,7 @@
 			);
 			name = TravelCompanion;
 			packageProductDependencies = (
+				AC854E7F79A7B22A7D8C464E /* MapLibre */,
 			);
 			productName = TravelCompanion;
 			productReference = 660F4C444ECFE128677DA7F2 /* TravelCompanion.app */;
@@ -527,6 +547,9 @@
 			);
 			mainGroup = F8B89361BE22204F07EF412B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9C00F592F723C700D8D27F28 /* Products */;
 			projectDirPath = "";
@@ -547,6 +570,7 @@
 				A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */,
 				F9259F0C412752FC39352154 /* Assets.xcassets in Resources */,
 				460CDC18128838A78852D316 /* PrivacyInfo.xcprivacy in Resources */,
+				7CAAC9F78ACB912B7166C2E2 /* TodayMapStyle.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -604,6 +628,7 @@
 				9068403E3B53DE6E8BA45DFF /* JournalModels.swift in Sources */,
 				D1C34A8978C74BF45F5D7C2D /* JourneyView.swift in Sources */,
 				36F9B0F26C4A95B17D31BEFF /* KeychainStore.swift in Sources */,
+				038861FECCE58D3B9FD8B931 /* MapLibreTodayMap.swift in Sources */,
 				67677659F4150C50C8F56A73 /* MapLinkHandler.swift in Sources */,
 				177856D24110CCC27193D232 /* MemoAssistModels.swift in Sources */,
 				6432BE9695B27C3DE22AA3C0 /* MemoAssistSheet.swift in Sources */,
@@ -741,7 +766,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 12;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -753,7 +778,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.3;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -844,7 +869,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 12;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -862,7 +887,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.3;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -954,6 +979,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/maplibre/maplibre-gl-native-distribution";
+			requirement = {
+				kind = exactVersion;
+				version = 6.25.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AC854E7F79A7B22A7D8C464E /* MapLibre */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */;
+			productName = MapLibre;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 00C6EDEE6A662AA968BB92AA /* Project object */;
 }
