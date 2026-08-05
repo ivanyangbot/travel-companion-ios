@@ -4,11 +4,15 @@ import XCTest
 
 final class AgentV2SessionStoreTests: XCTestCase {
     @MainActor
-    func testRestoreRemovesUnverifiedPlaceCandidatesAndTheirChanges() throws {
+    func testRestoreKeepsExplicitTextOnlyPlaceAndRemovesUnsafeUnverifiedCandidates() throws {
         let defaults = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let failed = candidate(kind: .hotel, status: .failed, place: nil)
+        var explicitFailed = candidate(kind: .hotel, status: .failed, place: nil)
+        explicitFailed.sourceText = "末見山・日照金山雪山觀景新宿（雪嵩村店）"
+        var allowedRecommendation = candidate(kind: .activity, status: .failed, place: nil)
+        allowedRecommendation.allowsUnverifiedPlace = true
         let missingCoordinates = candidate(
             kind: .activity,
             status: .verified,
@@ -32,7 +36,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         let flight = candidate(kind: .flight, status: .notRequired, place: nil)
         let messages = [AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "保留我的输入", createdAt: .now)]
         let attachments = [AgentV2TurnRequest.Attachment(id: UUID(), mediaType: "image/jpeg", dataURI: "data:image/jpeg;base64,AAAA")]
-        let changes = [failed, missingCoordinates, missingAddress, blankAddress, verified, flight].map {
+        let changes = [failed, explicitFailed, allowedRecommendation, missingCoordinates, missingAddress, blankAddress, verified, flight].map {
             AgentV2Change(id: UUID(), operation: .add, candidateId: $0.id, targetCardId: nil, summary: $0.title, impact: nil)
         }
         let session = AgentV2LocalSession(
@@ -41,22 +45,23 @@ final class AgentV2SessionStoreTests: XCTestCase {
             preferences: .init(pace: "packed", companions: nil, budget: nil, interests: [], scope: nil),
             messages: messages,
             attachments: attachments,
-            draft: AgentV2Draft(candidates: [failed, missingCoordinates, missingAddress, blankAddress, verified, flight], changes: changes),
+            draft: AgentV2Draft(candidates: [failed, explicitFailed, allowedRecommendation, missingCoordinates, missingAddress, blankAddress, verified, flight], changes: changes),
             summary: AgentV2Summary(text: "旧摘要", coveredDates: [], pending: [])
         )
         defaults.set(try encoder.encode(session), forKey: sessionKey)
 
         let store = AgentV2SessionStore(defaults: defaults)
 
-        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [verified.id, flight.id])
-        XCTAssertEqual(Set(store.session.draft?.changes.compactMap(\.candidateId) ?? []), Set([verified.id, flight.id]))
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [explicitFailed.id, allowedRecommendation.id, verified.id, flight.id])
+        XCTAssertTrue(store.session.draft?.candidates.first?.isCommitReady == true)
+        XCTAssertEqual(Set(store.session.draft?.changes.compactMap(\.candidateId) ?? []), Set([explicitFailed.id, allowedRecommendation.id, verified.id, flight.id]))
         XCTAssertEqual(store.session.messages.map(\.id), messages.map(\.id))
         XCTAssertEqual(store.session.messages.map(\.content), messages.map(\.content))
         XCTAssertEqual(store.session.attachments.map(\.id), attachments.map(\.id))
 
         let persistedData = try XCTUnwrap(defaults.data(forKey: sessionKey))
         let persisted = try decoder.decode(AgentV2LocalSession.self, from: persistedData)
-        XCTAssertEqual(persisted.draft?.candidates.map(\.id), [verified.id, flight.id])
+        XCTAssertEqual(persisted.draft?.candidates.map(\.id), [explicitFailed.id, allowedRecommendation.id, verified.id, flight.id])
     }
 
     @MainActor
@@ -198,6 +203,103 @@ final class AgentV2SessionStoreTests: XCTestCase {
         let persisted = try decoder.decode(AgentV2LocalSession.self, from: persistedData)
         XCTAssertEqual(persisted.summary, oldSummary)
         XCTAssertEqual(persisted.draft?.candidates.map(\.id), [old.id])
+    }
+
+    @MainActor
+    func testBatchSelectionUpdatesAllCommitReadyCandidatesTogether() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        var first = candidate(kind: .flight, status: .notRequired, place: nil)
+        var second = candidate(kind: .flight, status: .notRequired, place: nil)
+        first.selected = false
+        second.selected = false
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [first, second], changes: []), summary: nil
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        store.setSelected(true, ids: Set([first.id, second.id]))
+
+        XCTAssertEqual(store.session.draft?.candidates.filter(\.selected).map(\.id), [first.id, second.id])
+    }
+
+    @MainActor
+    func testCompletedTurnPublishesExplicitUnverifiedCandidateAsAddableDraft() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        var pendingPlace = candidate(kind: .activity, status: .failed, place: nil)
+        pendingPlace.sourceText = "大經幡"
+        pendingPlace.missingFields = ["地图地点待确认"]
+        let change = AgentV2Change(
+            id: UUID(), operation: .add, candidateId: pendingPlace.id,
+            targetCardId: nil, summary: "新增大经幡", impact: nil
+        )
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        store.beginTurn()
+        store.apply(.candidateUpsert(pendingPlace))
+        store.apply(.changeSet([change]))
+        store.completeTurn()
+
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [pendingPlace.id])
+        XCTAssertTrue(store.session.draft?.candidates.first?.isCommitReady == true)
+        XCTAssertEqual(store.commitSnapshot()?.selected.map(\.id), [pendingPlace.id])
+    }
+
+    @MainActor
+    func testUserAllowedModelRecommendationIsPersistedAndCommitReady() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        var recommendation = candidate(kind: .activity, status: .failed, place: nil)
+        recommendation.sourceText = nil
+        recommendation.allowsUnverifiedPlace = true
+        recommendation.missingFields = ["地图地点待确认"]
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        store.beginTurn()
+        store.apply(.candidateUpsert(recommendation))
+        store.apply(.changeSet([
+            AgentV2Change(id: UUID(), operation: .add, candidateId: recommendation.id, targetCardId: nil, summary: "新增模型推荐", impact: nil)
+        ]))
+        store.completeTurn()
+
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [recommendation.id])
+        XCTAssertTrue(store.session.draft?.candidates.first?.isCommitReady == true)
+    }
+
+    @MainActor
+    func testUnverifiedRecommendationSwitchDefaultsOnAndPersistsUserChoice() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        XCTAssertTrue(store.session.preferences.retainsUnverifiedRecommendations)
+        store.setAllowUnverifiedRecommendations(false)
+        XCTAssertFalse(store.session.preferences.retainsUnverifiedRecommendations)
+
+        let restored = AgentV2SessionStore(defaults: defaults)
+        XCTAssertFalse(restored.session.preferences.retainsUnverifiedRecommendations)
+    }
+
+    @MainActor
+    func testRunStateRemainsGeneratingUntilSharedTaskFinishes() async throws {
+        let state = AgentV2RunState()
+        state.prepareForTurn()
+        let generationID = state.beginGeneration()
+        let task = Task<Void, Never> { try? await Task.sleep(for: .milliseconds(20)) }
+        state.attach(task, id: generationID)
+
+        XCTAssertTrue(state.isGenerating)
+        XCTAssertEqual(state.status, "正在理解你的需求…")
+
+        await task.value
+        state.finishGeneration(id: generationID)
+        XCTAssertFalse(state.isGenerating)
+        XCTAssertNil(state.status)
     }
 
     private let defaultsSuite = "AgentV2SessionStoreTests"

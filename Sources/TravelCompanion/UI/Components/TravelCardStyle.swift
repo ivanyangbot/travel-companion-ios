@@ -7,7 +7,14 @@ struct TravelCardStyle: ViewModifier {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(
+                Color(red: 0.095, green: 0.10, blue: 0.115),
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(.white.opacity(0.045), lineWidth: 1)
+            }
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(tint)

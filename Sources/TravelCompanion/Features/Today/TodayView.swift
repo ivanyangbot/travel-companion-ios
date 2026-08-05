@@ -1,6 +1,7 @@
 import MapKit
 import SwiftData
 import SwiftUI
+import UIKit
 
 /// “今日”页：全屏地图按时间顺序连线今日 POI，底部 swiper 横滑切换并点击查看详情。
 struct TodayView: View {
@@ -16,6 +17,14 @@ struct TodayView: View {
     /// 相对于排序后 days 的当前选中索引；nil 表示跟随“今日”基准。
     @State private var selectedDayIndex: Int?
     @State private var weatherEntries: [TodayWeatherEntry] = []
+    @State private var inviteURL: URL?
+    @State private var showsTripPicker = false
+    @State private var inviteErrorMessage: String?
+    @State private var activeQuickAction: TodayQuickAction?
+    @State private var isQuickActionsExpanded = false
+    @State private var isReloading = false
+    @State private var isRouteLoading = false
+    @State private var routeRefreshID = 0
 
     var body: some View {
         Group {
@@ -59,6 +68,67 @@ struct TodayView: View {
             TodayCardDetailSheet(card: card, linkHandler: linkHandler)
         }
         .sheet(isPresented: Binding(
+            get: { inviteURL != nil },
+            set: {
+                if !$0 {
+                    inviteURL = nil
+                    clearQuickAction(.addCompanion)
+                }
+            }
+        )) {
+            if let inviteURL {
+                ShareLink(item: inviteURL, message: Text("邀请你共同编辑我的旅行行程")) {
+                    Label("分享共同编辑邀请", systemImage: "person.badge.plus")
+                        .font(.headline)
+                }
+                .padding()
+                .presentationDetents([.height(140)])
+            }
+        }
+        .confirmationDialog("选择行程", isPresented: Binding(
+            get: { showsTripPicker },
+            set: {
+                showsTripPicker = $0
+                if !$0 { clearQuickAction(.tripSelection) }
+            }
+        ), titleVisibility: .visible) {
+            ForEach(syncEngine.trips) { summary in
+                Button {
+                    guard summary.id != syncEngine.selectedTripID else { return }
+                    selectedDayIndex = nil
+                    selectedPOIIndex = 0
+                    cameraFocus = nil
+                    weatherEntries = []
+                    Task { await syncEngine.selectTrip(summary.id) }
+                } label: {
+                    if summary.id == syncEngine.selectedTripID {
+                        Label(summary.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(summary.displayName)
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("选择要在首页显示的旅行行程。")
+        }
+        .alert("无法分享邀请", isPresented: Binding(
+            get: { inviteErrorMessage != nil },
+            set: {
+                if !$0 {
+                    inviteErrorMessage = nil
+                    clearQuickAction(.addCompanion)
+                }
+            }
+        )) {
+            Button("好", role: .cancel) {
+                inviteErrorMessage = nil
+                clearQuickAction(.addCompanion)
+            }
+        } message: {
+            Text(inviteErrorMessage ?? "")
+        }
+        .sheet(isPresented: Binding(
             get: { linkHandler.browserURL != nil },
             set: { if !$0 { linkHandler.browserURL = nil } }
         )) {
@@ -92,21 +162,24 @@ struct TodayView: View {
         let day = days[currentIndex]
         let pois = poiCards(in: day)
         ZStack {
-            if pois.isEmpty {
-                ContentUnavailableView(
-                    "这天还没有带地点的卡片",
-                    systemImage: "mappin.slash",
-                    description: Text("在「旅程」中为该日的卡片补上坐标后，这里会显示地图路径。")
-                )
-            } else {
-                MapLibreTodayMapCanvas(
-                    points: mapPoints(pois: pois),
-                    selectedIndex: clampedIndex(pois: pois),
-                    cameraFocus: cameraFocus,
-                    cameraRequestID: cameraRequestID
-                )
-                .ignoresSafeArea()
+            MapLibreTodayMapCanvas(
+                points: mapPoints(pois: pois),
+                // A selected map marker is the visual counterpart of the
+                // visible POI card. When the action drawer covers that card,
+                // keep every marker compact and neutral instead.
+                selectedIndex: isQuickActionsExpanded ? nil : clampedIndex(pois: pois),
+                cameraFocus: cameraFocus,
+                cameraRequestID: cameraRequestID,
+                overviewBottomInset: isQuickActionsExpanded ? 112 : 240,
+                routeRefreshID: routeRefreshID
+            ) { isLoading in
+                // UIViewRepresentable 更新期间不能同步写入 SwiftUI 状态。
+                DispatchQueue.main.async {
+                    updateRouteLoading(isLoading)
+                }
             }
+            .ignoresSafeArea()
+            .simultaneousGesture(daySwipeGesture(days: days, currentIndex: currentIndex))
 
             VStack(spacing: 0) {
                 LinearGradient(
@@ -125,8 +198,13 @@ struct TodayView: View {
             .allowsHitTesting(false)
 
             VStack {
-                mapHeader(for: day, currentIndex: currentIndex, baseIndex: baseIndex)
+                mapHeader(for: day, pois: pois, currentIndex: currentIndex, baseIndex: baseIndex)
                 Spacer()
+                if !pois.isEmpty && !isQuickActionsExpanded {
+                    poiSwiper(pois: pois)
+                        .padding(.bottom, 112)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             .padding(.top, 2)
         }
@@ -135,24 +213,30 @@ struct TodayView: View {
             fitAll(pois: pois)
             hasCenteredOnPOIs = true
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 40)
-                .onEnded { value in
-                    let horizontalDistance = value.translation.width
-                    let verticalDistance = value.translation.height
-                    guard abs(horizontalDistance) > abs(verticalDistance) * 1.25 else { return }
-
-                    if horizontalDistance < -50 {
-                        selectDay(days: days, index: currentIndex + 1)
-                    } else if horizontalDistance > 50 {
-                        selectDay(days: days, index: currentIndex - 1)
-                    }
-                }
-        )
     }
 
-    private func mapHeader(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> some View {
-        ZStack {
+    private func daySwipeGesture(days: [TripDaySnapshot], currentIndex: Int) -> some Gesture {
+        DragGesture(minimumDistance: 40)
+            .onEnded { value in
+                let horizontalDistance = value.translation.width
+                let verticalDistance = value.translation.height
+                guard abs(horizontalDistance) > abs(verticalDistance) * 1.25 else { return }
+
+                if horizontalDistance < -50 {
+                    selectDay(days: days, index: currentIndex + 1)
+                } else if horizontalDistance > 50 {
+                    selectDay(days: days, index: currentIndex - 1)
+                }
+            }
+    }
+
+    private func mapHeader(
+        for day: TripDaySnapshot,
+        pois: [TravelCardSnapshot],
+        currentIndex: Int,
+        baseIndex: Int
+    ) -> some View {
+        ZStack(alignment: .top) {
             Text(mapHeaderTitle(for: day, currentIndex: currentIndex, baseIndex: baseIndex))
                 .font(.custom("PingFangTC-Semibold", size: 24))
                 .tracking(0.024)
@@ -161,20 +245,97 @@ struct TodayView: View {
 
             HStack {
                 Spacer()
-                Button {
-                    withAnimation { section.toggle() }
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 48)
+                VStack(spacing: 16) {
+                    Button {
+                        withAnimation(.snappy(duration: 0.28)) { section = .itinerary }
+                    } label: {
+                        Image("icon-timeview-outline")
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .frame(width: 40, height: 40)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 48, height: 48)
+                    .background { TodayGlassBackdrop() }
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(
+                        color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+                        radius: 12,
+                        y: 12
+                    )
+                    .accessibilityLabel("查看旅程计划")
+
+                    TodayQuickActionsBar(
+                        isExpanded: $isQuickActionsExpanded,
+                        activeAction: activeQuickAction,
+                        isReloading: isReloading || isRouteLoading,
+                        onAction: { action in
+                            handleQuickAction(action, pois: pois)
+                        },
+                        onExpansionChanged: { isExpanded in
+                            guard isExpanded else { return }
+                            fitAll(pois: pois)
+                        }
+                    )
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(section.alternateTitle)
             }
         }
-        .padding(.horizontal, 36)
-        .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
+        .padding(.horizontal, 20)
+    }
+
+    private func handleQuickAction(_ action: TodayQuickAction, pois: [TravelCardSnapshot]) {
+        switch action {
+        case .addCompanion:
+            activeQuickAction = .addCompanion
+            Task {
+                inviteURL = await syncEngine.createShareInvite()
+                if inviteURL == nil {
+                    inviteErrorMessage = "当前旅程暂时无法创建共同编辑邀请。"
+                }
+            }
+        case .tripSelection:
+            activeQuickAction = .tripSelection
+            showsTripPicker = true
+        case .reload:
+            guard !isReloading else { return }
+            activeQuickAction = .reload
+            isReloading = true
+            routeRefreshID &+= 1
+            Task {
+                async let retry: Void = syncEngine.retry()
+                // 本地数据已是最新时，retry() 会立即返回；至少显示一整圈旋转，避免动画只闪动一帧。
+                try? await Task.sleep(for: .seconds(0.75))
+                await retry
+                fitAll(pois: pois)
+                isReloading = false
+                if !isRouteLoading {
+                    clearQuickAction(.reload)
+                }
+            }
+        }
+    }
+
+    private func updateRouteLoading(_ isLoading: Bool) {
+        guard isRouteLoading != isLoading else { return }
+        isRouteLoading = isLoading
+        if isLoading {
+            activeQuickAction = .reload
+        } else if !isReloading {
+            clearQuickAction(.reload)
+        }
+    }
+
+    private func clearQuickAction(_ action: TodayQuickAction) {
+        guard activeQuickAction == action else { return }
+        activeQuickAction = nil
     }
 
     private func mapHeaderTitle(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> String {
@@ -297,25 +458,30 @@ struct TodayView: View {
     private func poiSwiper(pois: [TravelCardSnapshot]) -> some View {
         let selection = Binding<Int>(
             get: { clampedIndex(pois: pois) },
-            set: { selectedPOIIndex = $0 }
-        )
-        TabView(selection: selection) {
-            ForEach(Array(pois.enumerated()), id: \.element.id) { index, card in
-                POICard(
-                    card: card,
-                    index: index,
-                    total: pois.count
-                )
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 4)
-                    .contentShape(Rectangle())
-                    .onTapGesture { detailCard = card }
-                    .tag(index)
+            set: { index in
+                guard pois.indices.contains(index), selectedPOIIndex != index else { return }
+                selectedPOIIndex = index
+                focus(pois: pois, index: index)
             }
+        )
+        GeometryReader { proxy in
+            let cardWidth = min(390, max(0, proxy.size.width - 40))
+            TabView(selection: selection) {
+                ForEach(Array(pois.enumerated()), id: \.element.id) { index, card in
+                    POICard(
+                        card: card,
+                        index: index,
+                        width: cardWidth
+                    )
+                        .contentShape(Rectangle())
+                        .onTapGesture { detailCard = card }
+                        .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(width: proxy.size.width, height: 248)
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: 140)
-        .padding(.horizontal, 16)
+        .frame(height: 248)
     }
 
     private func sortedDays(in trip: SharedTripSnapshot) -> [TripDaySnapshot] {
@@ -374,6 +540,7 @@ struct TodayView: View {
             return TodayMapPoint(
                 id: card.id,
                 title: card.place?.name ?? card.title,
+                categorySymbolName: card.kind.systemImage,
                 latitude: coordinate.latitude,
                 longitude: coordinate.longitude
             )
@@ -435,63 +602,276 @@ struct TodayView: View {
     }()
 }
 
+private enum TodayQuickAction: String, CaseIterable {
+    case addCompanion
+    case tripSelection
+    case reload
+
+    var iconName: String {
+        switch self {
+        case .addCompanion: "icon-adduser-outline"
+        case .tripSelection: "icon-plan-outline"
+        case .reload: "icon-reload-outline"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .addCompanion: "邀请同行人"
+        case .tripSelection: "选择行程"
+        case .reload: "重新同步"
+        }
+    }
+}
+
+private struct TodayQuickActionsBar: View {
+    @Binding var isExpanded: Bool
+    let activeAction: TodayQuickAction?
+    let isReloading: Bool
+    let onAction: (TodayQuickAction) -> Void
+    let onExpansionChanged: (Bool) -> Void
+
+    var body: some View {
+        VStack(spacing: isExpanded ? 8 : 0) {
+            expandButton
+
+            if isExpanded {
+                VStack(spacing: 12) {
+                    ForEach(TodayQuickAction.allCases, id: \.self) { action in
+                        actionButton(action)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .padding(.bottom, 4)
+            }
+        }
+        .frame(width: 48, height: isExpanded ? 204 : 48, alignment: .top)
+        .background {
+            TodayGlassBackdrop()
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+                }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .animation(.snappy(duration: 0.3), value: isExpanded)
+        .shadow(
+            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+            radius: 12,
+            y: 12
+        )
+    }
+
+    private var expandButton: some View {
+        Button {
+            let willExpand = !isExpanded
+            withAnimation(.snappy(duration: 0.3)) {
+                isExpanded = willExpand
+            }
+            onExpansionChanged(willExpand)
+        } label: {
+            Image("icon-dropdown-outline")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .frame(width: 40, height: 40)
+                .background(
+                    isExpanded ? Color.white.opacity(0.32) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .frame(width: 48, height: 48)
+        .background {
+            if isExpanded {
+                TodayGlassBackdrop()
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            if isExpanded {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+            }
+        }
+        .shadow(
+            color: isExpanded
+                ? Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1)
+                : .clear,
+            radius: 12,
+            y: 12
+        )
+        .zIndex(1)
+        .accessibilityLabel(isExpanded ? "收起功能栏" : "展开功能栏")
+        .accessibilityValue(isExpanded ? "已展开" : "已收起")
+    }
+
+    private func actionButton(_ action: TodayQuickAction) -> some View {
+        Button {
+            guard action != .reload || !isReloading else { return }
+            onAction(action)
+        } label: {
+            Image(action.iconName)
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .rotationEffect(.degrees(action == .reload && isReloading ? 360 : 0))
+                .animation(
+                    action == .reload && isReloading
+                        ? .linear(duration: 0.75).repeatForever(autoreverses: false)
+                        : .easeOut(duration: 0.2),
+                    value: isReloading
+                )
+                .frame(width: 40, height: 40)
+                .background(
+                    Circle()
+                        .fill(Color(red: 1, green: 110 / 255, blue: 0))
+                        .opacity(activeAction == action ? 1 : 0)
+                )
+                .animation(.easeInOut(duration: 0.2), value: activeAction)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 40, height: 40)
+        .accessibilityLabel(action.accessibilityLabel)
+        .accessibilityAddTraits(activeAction == action ? .isSelected : [])
+    }
+}
+
+private struct TodayGlassBackdrop: View {
+    var body: some View {
+        ZStack {
+            AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.1)
+            Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255)
+                .opacity(0.4)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
 private struct POICard: View {
     let card: TravelCardSnapshot
     let index: Int
-    let total: Int
+    let width: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: card.kind.systemImage)
-                    .font(.title3)
-                    .foregroundStyle(tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(card.kind.title).font(.caption.weight(.semibold)).foregroundStyle(tint)
-                    Text(card.title).font(.headline).lineLimit(1)
+        VStack(alignment: .leading, spacing: 0) {
+            coverImage
+                .frame(maxWidth: .infinity)
+                .frame(height: 154)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            poiSummary
+                .padding(.horizontal, 8)
+                .padding(.top, 11)
+                .padding(.bottom, 7)
+        }
+        .padding(6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: width, height: 248, alignment: .topLeading)
+        .background {
+            ZStack {
+                AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.45)
+                Color(red: 67 / 255, green: 67 / 255, blue: 67 / 255).opacity(0.4)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+        }
+        .accessibilityLabel("第 \(index + 1) 个地点，\(card.title)，\(timeText)")
+    }
+
+    private var poiSummary: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text("\(index + 1)")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.black)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(.white))
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(card.title)
+                        .font(.system(size: 22, weight: .medium))
+                        .tracking(0)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .lineSpacing(0)
+
+                    Circle()
+                        .fill(Color(red: 48 / 255, green: 214 / 255, blue: 76 / 255))
+                        .frame(width: 8, height: 8)
                 }
-                Spacer(minLength: 8)
-                Text("\(index + 1) / \(total)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 8)
-                    .glassEffect(.regular, in: Capsule())
-            }
-            if let place = card.place {
-                Label(place.name, systemImage: "mappin")
-                    .font(.subheadline)
-                    .lineLimit(1)
-            }
-            HStack(spacing: 10) {
-                Label(timeText, systemImage: "clock").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Text("查看详情")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(tint)
+
+                HStack(spacing: 8) {
+                    Text(timeText)
+                        .font(.custom("Inter", size: 14).weight(.medium))
+                        .foregroundStyle(Color(red: 180 / 255, green: 180 / 255, blue: 180 / 255))
+                        .lineSpacing(0)
+
+                    Spacer(minLength: 8)
+
+                    Text("詳細資訊")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .glassEffect(.regular.tint(tint.opacity(0.15)), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var coverImage: some View {
+        if let url = CardImageURL.resolve(card.images?.first) {
+            AsyncImage(url: url, transaction: Transaction(animation: .easeInOut(duration: 0.2))) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    coverPlaceholder
+                }
+            }
+            .clipped()
+        } else {
+            coverPlaceholder
+        }
+    }
+
+    private var coverPlaceholder: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 67 / 255, green: 67 / 255, blue: 67 / 255),
+                    Color(red: 28 / 255, green: 28 / 255, blue: 28 / 255)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: card.kind.systemImage)
+                .font(.system(size: 44, weight: .medium))
+                .foregroundStyle(.white.opacity(0.75))
+        }
     }
 
     private var timeText: String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "HH:mm"
-        if let endAt = card.endAt { return "\(formatter.string(from: card.startAt)) — \(formatter.string(from: endAt))" }
+        if let endAt = card.endAt { return "\(formatter.string(from: card.startAt))~\(formatter.string(from: endAt))" }
         return formatter.string(from: card.startAt)
     }
 
-    private var tint: Color {
-        switch card.kind {
-        case .flight: .blue
-        case .hotel: .indigo
-        case .activity: .teal
-        }
-    }
 }
 
 private struct TodayCardDetailSheet: View {

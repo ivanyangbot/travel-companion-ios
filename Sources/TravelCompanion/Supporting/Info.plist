@@ -24,6 +24,8 @@
     <string>用于根据行程一键创建提醒事项，让你在系统提醒事项 App 中收到明日待办。</string>
     <key>NSCameraUsageDescription</key>
     <string>用于拍摄银行卡、门票等卡面，由 AI 识别后录入卡包；照片仅用于本次识别，不会留存。</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>用于在当天尚无地点时，将地图定位到你的当前位置。</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

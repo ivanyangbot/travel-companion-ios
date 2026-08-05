@@ -373,7 +373,7 @@ actor APIClient {
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         authorize(&request, tripID: tripID)
         request.httpBody = try encoder.encode(payload)
-        request.timeoutInterval = 100
+        request.timeoutInterval = 600
         let finalRequest = request
         let session = self.session
         return AsyncThrowingStream { continuation in
@@ -460,36 +460,36 @@ actor APIClient {
         }
     }
 
-    func fetchJournal() async throws -> JournalSnapshot {
-        try await journalRequest(path: "/v1/journal", method: "GET", body: nil)
+    func fetchJournal(tripID: Int) async throws -> JournalSnapshot {
+        try await journalRequest(path: "/v1/journal", method: "GET", body: nil, tripID: tripID)
     }
 
-    func createJournalGroup(_ value: JournalGroupRequest) async throws -> JournalGroup {
-        try await journalRequest(path: "/v1/journal/groups", method: "POST", body: encoder.encode(value))
+    func createJournalGroup(_ value: JournalGroupRequest, tripID: Int) async throws -> JournalGroup {
+        try await journalRequest(path: "/v1/journal/groups", method: "POST", body: encoder.encode(value), tripID: tripID)
     }
 
-    func updateJournalGroup(id: Int, _ value: JournalGroupRequest) async throws -> JournalGroup {
-        try await journalRequest(path: "/v1/journal/groups/\(id)", method: "PATCH", body: encoder.encode(value))
+    func updateJournalGroup(id: Int, _ value: JournalGroupRequest, tripID: Int) async throws -> JournalGroup {
+        try await journalRequest(path: "/v1/journal/groups/\(id)", method: "PATCH", body: encoder.encode(value), tripID: tripID)
     }
 
-    func deleteJournalGroup(id: Int) async throws {
-        let _: DeletedJournalItem = try await journalRequest(path: "/v1/journal/groups/\(id)", method: "DELETE", body: nil)
+    func deleteJournalGroup(id: Int, tripID: Int) async throws {
+        let _: DeletedJournalItem = try await journalRequest(path: "/v1/journal/groups/\(id)", method: "DELETE", body: nil, tripID: tripID)
     }
 
-    func createJournalEntry(_ value: JournalEntryRequest) async throws -> JournalEntry {
-        try await journalRequest(path: "/v1/journal/entries", method: "POST", body: encoder.encode(value))
+    func createJournalEntry(_ value: JournalEntryRequest, tripID: Int) async throws -> JournalEntry {
+        try await journalRequest(path: "/v1/journal/entries", method: "POST", body: encoder.encode(value), tripID: tripID)
     }
 
-    func updateJournalEntry(id: Int, _ value: JournalEntryRequest) async throws -> JournalEntry {
-        try await journalRequest(path: "/v1/journal/entries/\(id)", method: "PATCH", body: encoder.encode(value))
+    func updateJournalEntry(id: Int, _ value: JournalEntryRequest, tripID: Int) async throws -> JournalEntry {
+        try await journalRequest(path: "/v1/journal/entries/\(id)", method: "PATCH", body: encoder.encode(value), tripID: tripID)
     }
 
-    func deleteJournalEntry(id: Int) async throws {
-        let _: DeletedJournalItem = try await journalRequest(path: "/v1/journal/entries/\(id)", method: "DELETE", body: nil)
+    func deleteJournalEntry(id: Int, tripID: Int) async throws {
+        let _: DeletedJournalItem = try await journalRequest(path: "/v1/journal/entries/\(id)", method: "DELETE", body: nil, tripID: tripID)
     }
 
-    func uploadJournalImage(data: Data, contentType: String) async throws -> String {
-        let intent: JournalUploadIntent = try await journalRequest(path: "/v1/journal/upload-intents", method: "POST", body: encoder.encode(JournalUploadIntentRequest(contentType: contentType, sizeBytes: data.count)))
+    func uploadJournalImage(data: Data, contentType: String, tripID: Int) async throws -> String {
+        let intent: JournalUploadIntent = try await journalRequest(path: "/v1/journal/upload-intents", method: "POST", body: encoder.encode(JournalUploadIntentRequest(contentType: contentType, sizeBytes: data.count)), tripID: tripID)
         guard let url = URL(string: intent.uploadUrl) else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
@@ -500,12 +500,12 @@ actor APIClient {
         return intent.key
     }
 
-    private func journalRequest<Value: Decodable>(path: String, method: String, body: Data?) async throws -> Value {
+    private func journalRequest<Value: Decodable>(path: String, method: String, body: Data?, tripID: Int) async throws -> Value {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         if let body { request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = body }
-        authorize(&request)
+        authorize(&request, tripID: tripID)
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         try validate(response: httpResponse, data: data)

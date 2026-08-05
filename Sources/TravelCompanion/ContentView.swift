@@ -9,9 +9,12 @@ struct ContentView: View {
     @State private var syncEngine: SyncEngine?
     @StateObject private var sharedLinkStore = PendingSharedLinkStore()
     @StateObject private var appleSignIn = AppleSignInStore()
+    @StateObject private var agentSessionStore = AgentV2SessionStore()
+    @StateObject private var agentRunState = AgentV2RunState()
     @State private var showsAgent = false
     @State private var selectedSection: MainSection = .journey
-    @Namespace private var navigationSelection
+    @State private var navigationDragTranslation: CGFloat = 0
+    @State private var navigationDragHasStarted = false
 
     private enum MainSection: CaseIterable {
         case journey
@@ -28,9 +31,9 @@ struct ContentView: View {
 
         var icon: String {
             switch self {
-            case .journey: "JourneyTabIcon"
-            case .expenses: "MoneyTabIcon"
-            case .notes: "NoteTabIcon"
+            case .journey: "icon-trip-outline"
+            case .expenses: "icon-money-outline-1"
+            case .notes: "icon-note-outline-1"
             }
         }
     }
@@ -41,6 +44,8 @@ struct ContentView: View {
         // Apple Sign-In entry point. The sync engine skips all network calls
         // until a token appears in the keychain.
         mainTabs
+            .environmentObject(agentSessionStore)
+            .environmentObject(agentRunState)
     }
 
     private var mainTabs: some View {
@@ -103,8 +108,8 @@ struct ContentView: View {
             AnimatedAgentIcon()
                 .frame(width: 40, height: 40)
                 .frame(width: 60, height: 60)
-                .background(Color(red: 1, green: 110 / 255, blue: 0), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Color(red: 1, green: 110 / 255, blue: 0), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("打开 Agent")
@@ -139,33 +144,25 @@ struct ContentView: View {
     }
 
     private var customNavigation: some View {
-        HStack(spacing: 4) {
-            ForEach(MainSection.allCases, id: \.self) { section in
-                Button {
-                    withAnimation(.snappy(duration: 0.25)) {
-                        selectedSection = section
-                    }
-                } label: {
-                    Image(section.icon)
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                        .foregroundStyle(selectedSection == section ? Color.black : Color.white)
-                        .frame(width: 25, height: 25)
-                        .frame(width: 52, height: 52)
-                        .background {
-                            if selectedSection == section {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(.white)
-                                    .matchedGeometryEffect(id: "navigation-selection", in: navigationSelection)
-                            }
-                        }
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.white)
+                .frame(width: navigationItemSize, height: navigationItemSize)
+                .offset(x: navigationHighlightOffset)
+
+            navigationIcons(tint: .white)
+
+            // 黑色图标层只会透过白色块显示，因此图标会随白色块的覆盖比例逐步变黑。
+            navigationIcons(tint: .black)
+                .mask(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .frame(width: navigationItemSize, height: navigationItemSize)
+                        .offset(x: navigationHighlightOffset)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(section.title)
-                .accessibilityAddTraits(selectedSection == section ? .isSelected : [])
-            }
+
         }
+        .contentShape(Rectangle())
+        .gesture(navigationDragGesture)
         .padding(4)
         .frame(width: 172, height: 60)
         .background {
@@ -177,10 +174,10 @@ struct ContentView: View {
                 Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255)
                     .opacity(0.16)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(.white.opacity(0.6), lineWidth: 1.5)
         }
         .shadow(
@@ -189,9 +186,103 @@ struct ContentView: View {
             y: 12
         )
     }
+
+    private func navigationIcons(tint: Color) -> some View {
+        HStack(spacing: navigationItemSpacing) {
+            ForEach(MainSection.allCases, id: \.self) { section in
+                Image(section.icon)
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(tint)
+                    .frame(width: 25, height: 25)
+                    .frame(width: navigationItemSize, height: navigationItemSize)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// 由 TabBar 容器独占手势，避免起始 Tab 的 Button 在松手时覆盖落点选择。
+    /// 从白色选中块开始时拖动；点按其他图标时直接切换到对应 Tab。
+    private var navigationDragGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard navigationDragHasStarted || navigationSelectedItemFrame.contains(value.startLocation) else {
+                    return
+                }
+                navigationDragHasStarted = true
+                navigationDragTranslation = clampedNavigationTranslation(value.translation.width)
+            }
+            .onEnded { value in
+                if navigationDragHasStarted {
+                    navigationDragHasStarted = false
+
+                    let destination = navigationSection(forHighlightOffset: navigationHighlightOffset)
+                    withAnimation(.snappy(duration: 0.25)) {
+                        selectedSection = destination
+                        navigationDragTranslation = 0
+                    }
+                    return
+                }
+
+                guard value.translation.width.magnitude < 10, value.translation.height.magnitude < 10 else { return }
+                selectSection(at: value.startLocation.x)
+            }
+    }
+
+    private func selectSection(_ section: MainSection) {
+        withAnimation(.snappy(duration: 0.25)) {
+            selectedSection = section
+            navigationDragTranslation = 0
+        }
+    }
+
+    private func selectSection(at horizontalPosition: CGFloat) {
+        let index = min(
+            max(Int((horizontalPosition / navigationItemStride).rounded(.down)), 0),
+            MainSection.allCases.count - 1
+        )
+        selectSection(MainSection.allCases[index])
+    }
+
+    private var navigationItemSize: CGFloat { 52 }
+    private var navigationItemSpacing: CGFloat { 4 }
+    private var navigationItemStride: CGFloat { navigationItemSize + navigationItemSpacing }
+
+    private var navigationSelectedIndex: Int {
+        MainSection.allCases.firstIndex(of: selectedSection) ?? 0
+    }
+
+    private var navigationSelectedItemFrame: CGRect {
+        CGRect(
+            x: CGFloat(navigationSelectedIndex) * navigationItemStride,
+            y: 0,
+            width: navigationItemSize,
+            height: navigationItemSize
+        )
+    }
+
+    private var navigationHighlightOffset: CGFloat {
+        CGFloat(navigationSelectedIndex) * navigationItemStride + navigationDragTranslation
+    }
+
+    private func clampedNavigationTranslation(_ translation: CGFloat) -> CGFloat {
+        let lowerBound = -CGFloat(navigationSelectedIndex) * navigationItemStride
+        let upperBound = CGFloat(MainSection.allCases.count - 1 - navigationSelectedIndex) * navigationItemStride
+        return min(max(translation, lowerBound), upperBound)
+    }
+
+    private func navigationSection(forHighlightOffset offset: CGFloat) -> MainSection {
+        let proposedIndex = offset / navigationItemStride
+        let index = min(
+            max(Int(proposedIndex.rounded()), 0),
+            MainSection.allCases.count - 1
+        )
+        return MainSection.allCases[index]
+    }
 }
 
-private struct AdjustableBackdropBlur: UIViewRepresentable {
+struct AdjustableBackdropBlur: UIViewRepresentable {
     let style: UIBlurEffect.Style
     let intensity: CGFloat
 
@@ -204,7 +295,7 @@ private struct AdjustableBackdropBlur: UIViewRepresentable {
     }
 }
 
-private final class AdjustableBlurEffectView: UIVisualEffectView {
+final class AdjustableBlurEffectView: UIVisualEffectView {
     private let blurEffect: UIBlurEffect
     private var animator: UIViewPropertyAnimator?
 

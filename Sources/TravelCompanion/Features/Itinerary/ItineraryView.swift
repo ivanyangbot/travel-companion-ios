@@ -111,8 +111,9 @@ struct ItineraryView: View {
 
     private var alertContent: some View {
         itineraryContent
-            .navigationTitle("旅程")
-            .toolbar { itineraryToolbar }
+            .toolbar(.hidden, for: .navigationBar)
+            .preferredColorScheme(.dark)
+            .background(Color.black.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) { syncStatus }
             .sheet(item: $activeDaySheet) { sheet in
                 let editingDay = sheet.day
@@ -181,80 +182,15 @@ struct ItineraryView: View {
             }
     }
 
-    @ToolbarContentBuilder
-    private var itineraryToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                withAnimation { section.toggle() }
-            } label: {
-                Image(systemName: section.alternateIcon)
-            }
-            .accessibilityLabel(section.alternateTitle)
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                ForEach(syncEngine.trips) { summary in
-                    Button {
-                        Task { await syncEngine.selectTrip(summary.id) }
-                    } label: {
-                        if summary.id == syncEngine.selectedTripID {
-                            Label(summary.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(summary.displayName)
-                        }
-                    }
-                }
-                Divider()
-                Button("新建旅程", systemImage: "plus") { showsNewTripEditor = true }
-            } label: {
-                Label("切换旅程", systemImage: "point.3.connected.trianglepath.dotted")
-            }
-            .accessibilityLabel("切换旅程")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            if syncEngine.trips.first(where: { $0.id == syncEngine.selectedTripID })?.canShare == true {
-                Button {
-                    Task { inviteURL = await syncEngine.createShareInvite() }
-                } label: {
-                    Image(systemName: "person.badge.plus")
-                }
-                .accessibilityLabel("邀请共同编辑")
-            }
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { Task { await syncEngine.retry() } } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .accessibilityLabel("重新同步")
-        }
-        signOutToolbarItem
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                aiItinerarySeed = nil
-                showsAIItinerary = true
-            } label: { Image(systemName: "sparkles") }
-                .disabled(syncEngine.trip?.isConfigured != true)
-                .accessibilityLabel("AI 填入行程")
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var signOutToolbarItem: some ToolbarContent {
-        if appleSignIn.isAuthenticated {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showsSignOutConfirmation = true } label: {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                }
-                .accessibilityLabel("退出登录")
-            }
-        }
-    }
-
     @ViewBuilder
     private var itineraryContent: some View {
         if let trip = syncEngine.trip {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 26) {
+                    journeyActionBar
+                    Text("旅程")
+                        .font(.system(size: 44, weight: .black, design: .rounded))
+                        .tracking(-1.5)
                     if !appleSignIn.isAuthenticated {
                         signInBanner
                     }
@@ -267,8 +203,11 @@ struct ItineraryView: View {
                         }
                     }
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 112)
             }
+            .scrollIndicators(.hidden)
         } else if case .failed(let message) = syncEngine.status {
             VStack(spacing: 16) {
                 ContentUnavailableView(
@@ -305,6 +244,77 @@ struct ItineraryView: View {
         } else {
             ProgressView("正在打开共享行程…")
         }
+    }
+
+    /// A persistent, touch-friendly action strip replaces the compact system
+    /// toolbar. It keeps the six primary journey actions visible in the same
+    /// order as the visual design while retaining their previous behavior.
+    private var journeyActionBar: some View {
+        HStack(spacing: 2) {
+            Button {
+                withAnimation(.snappy(duration: 0.28)) { section.toggle() }
+            } label: {
+                Image("icon-mapview-outline")
+                    .journeyActionIcon()
+            }
+            .accessibilityLabel(section.alternateTitle)
+
+            Menu {
+                ForEach(syncEngine.trips) { summary in
+                    Button {
+                        Task { await syncEngine.selectTrip(summary.id) }
+                    } label: {
+                        if summary.id == syncEngine.selectedTripID {
+                            Label(summary.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(summary.displayName)
+                        }
+                    }
+                }
+                Divider()
+                Button("新建旅程", systemImage: "plus") { showsNewTripEditor = true }
+            } label: {
+                Image("icon-plan-outline")
+                    .journeyActionIcon()
+            }
+            .accessibilityLabel("切换旅程")
+
+            Button {
+                Task { inviteURL = await syncEngine.createShareInvite() }
+            } label: {
+                Image("icon-adduser-outline")
+                    .journeyActionIcon()
+            }
+            .disabled(syncEngine.trips.first(where: { $0.id == syncEngine.selectedTripID })?.canShare != true)
+            .accessibilityLabel("邀请共同编辑")
+
+            Button { Task { await syncEngine.retry() } } label: {
+                Image("icon-reload-outline")
+                    .journeyActionIcon()
+            }
+            .accessibilityLabel("重新同步")
+
+            Button { showsSignOutConfirmation = true } label: {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .journeyActionIcon()
+            }
+            .disabled(!appleSignIn.isAuthenticated)
+            .accessibilityLabel("退出登录")
+
+            Button {
+                aiItinerarySeed = nil
+                showsAIItinerary = true
+            } label: {
+                Image("icon-ai-outline")
+                    .journeyActionIcon()
+            }
+            .disabled(syncEngine.trip?.isConfigured != true)
+            .accessibilityLabel("AI 填入行程")
+        }
+        .padding(5)
+        .frame(maxWidth: .infinity)
+        .background(JourneyPalette.toolbarFill, in: Capsule())
+        .overlay { Capsule().stroke(.white.opacity(0.13), lineWidth: 1) }
     }
 
     private func joinPendingInviteIfPossible() {
@@ -384,54 +394,69 @@ struct ItineraryView: View {
     private func tripHeader(_ trip: SharedTripSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(trip.destination ?? "未设置目的地")
-                .font(.largeTitle.bold())
+                .font(.system(size: 39, weight: .black, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             Text([trip.startDate, trip.endDate].compactMap { $0 }.joined(separator: " — "))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.white.opacity(0.62))
             Text(trip.currency ?? "")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.white.opacity(0.62))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .glassEffect(.regular.tint(.indigo), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(24)
+        .background(JourneyPalette.tripBlue, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(.white.opacity(0.17), lineWidth: 1)
+        }
         .overlay(alignment: .topTrailing) {
             Button("编辑") { showsTripEditor = true }
-                .font(.caption.weight(.semibold))
-                .buttonStyle(.glass)
-                .padding(12)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 11)
+                .background(JourneyPalette.actionBlue, in: Capsule())
+                .padding(18)
+                .buttonStyle(.plain)
         }
     }
 
     private func timeline(_ trip: SharedTripSnapshot) -> some View {
-        GlassEffectContainer(spacing: 12) {
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Text("时间轴").font(.title3.bold())
+                    Text("时间轴").font(.system(size: 30, weight: .black, design: .rounded))
                     Spacer()
                     Button("添加日期", systemImage: "plus") { activeDaySheet = .add }
-                        .buttonStyle(.glass)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(JourneyPalette.controlFill, in: Capsule())
+                        .overlay { Capsule().stroke(JourneyPalette.actionBlue.opacity(0.75), lineWidth: 1) }
+                        .buttonStyle(.plain)
                 }
                 let days = trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
                 ForEach(days, id: \.id) { day in
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 16) {
                         HStack {
-                            Text(day.date).font(.headline)
+                            Text(day.date).font(.title2.weight(.black))
                             Spacer()
                             Button(role: .destructive) { dayPendingDeletion = day } label: { Image(systemName: "trash") }
-                                .buttonStyle(.glass)
+                                .journeyRoundControl()
                                 .disabled(day.serverID == nil && syncEngine.isUserAuthenticated)
                                 .accessibilityLabel("删除日期")
                             Button { activeCardEditor = .create(day) } label: { Image(systemName: "plus") }
-                                .buttonStyle(.glass)
+                                .journeyRoundControl()
                                 .accessibilityLabel("添加行程卡片")
                         }
-                        Text("行程卡片").font(.subheadline.weight(.semibold))
+                        Text("行程卡片").font(.title3.weight(.black))
                         let cards = day.cards.sorted(by: Self.cardTimeOrder)
                         if !cards.isEmpty && !cards.contains(where: { $0.kind == .hotel }) {
                             Label("今日未添加住宿", systemImage: "bed.double")
                                 .font(.caption)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.white.opacity(0.38))
                         }
                         if cards.isEmpty {
                             Label("暂无行程卡片", systemImage: "rectangle.stack")
@@ -478,12 +503,15 @@ struct ItineraryView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
-                    .glassEffect(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .background(JourneyPalette.dayFill, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(JourneyPalette.dayBorder, lineWidth: 1)
+                    }
                 }
                 if trip.days.isEmpty {
                     ContentUnavailableView("还没有日期", systemImage: "calendar.badge.plus", description: Text("添加旅行日期后即可安排卡片。"))
                 }
-            }
         }
     }
 
@@ -542,8 +570,12 @@ struct ItineraryView: View {
             Button("添加实际支出", systemImage: "plus") {
                 expenseEditorDate = Self.dayDate(from: day.date)
             }
-            .buttonStyle(.glass)
             .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(JourneyPalette.controlFill, in: Capsule())
+            .buttonStyle(.plain)
             .disabled(trip.currency == nil)
         }
     }
@@ -662,5 +694,39 @@ struct ItineraryView: View {
         case .localOnly: return appleSignIn.isAuthenticated ? nil : "本地模式·全部功能可用"
         case .offline(let message), .failed(let message): return message
         }
+    }
+}
+
+private enum JourneyPalette {
+    static let tripBlue = Color(red: 0.36, green: 0.45, blue: 0.97)
+    static let actionBlue = Color(red: 0.09, green: 0.20, blue: 0.68)
+    static let toolbarFill = Color(red: 0.075, green: 0.075, blue: 0.08)
+    static let controlFill = Color(red: 0.095, green: 0.10, blue: 0.13)
+    static let dayFill = Color(red: 0.025, green: 0.03, blue: 0.06)
+    static let dayBorder = Color(red: 0.17, green: 0.20, blue: 0.36)
+}
+
+private extension Image {
+    func journeyActionIcon() -> some View {
+        self
+            .resizable()
+            .renderingMode(.template)
+            .scaledToFit()
+            .foregroundStyle(.white)
+            .frame(width: 27, height: 27)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .contentShape(Rectangle())
+            .opacity(1)
+    }
+}
+
+private extension View {
+    func journeyRoundControl() -> some View {
+        self
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(width: 54, height: 54)
+            .background(JourneyPalette.controlFill, in: Circle())
+            .buttonStyle(.plain)
     }
 }

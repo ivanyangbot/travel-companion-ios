@@ -4,8 +4,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: 0.1.3
-    CURRENT_PROJECT_VERSION: 12
+    MARKETING_VERSION: 0.1.4
+    CURRENT_PROJECT_VERSION: 16
 packages:
   MapLibre:
     url: https://github.com/maplibre/maplibre-gl-native-distribution

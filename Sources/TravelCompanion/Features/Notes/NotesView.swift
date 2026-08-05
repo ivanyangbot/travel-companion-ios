@@ -33,6 +33,7 @@ struct NotesView: View {
             .task { await reload() }
             .refreshable { await reload() }
             .onChange(of: syncEngine.isUserAuthenticated) { _, _ in Task { await reload() } }
+            .onChange(of: syncEngine.selectedTripID) { _, _ in Task { await reload() } }
             .sheet(item: $editor) { entry in JournalEditor(entry: entry.id == 0 ? nil : entry, groups: snapshot.groups, defaultGroupID: entry.groupId) { request, attachments in await save(entry: entry, request: request, attachments: attachments) } }
             .sheet(isPresented: $showsGroupEditor) { JournalGroupsEditor(groups: snapshot.groups) { await saveGroup($0) } onDelete: { group in await deleteGroup(group) } }
             .alert("操作未完成", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) { Button("好", role: .cancel) {} } message: { Text(errorMessage ?? "") }
@@ -40,6 +41,13 @@ struct NotesView: View {
     }
 
     private var selectedGroupTitle: String { snapshot.groups.first(where: { $0.id == selectedGroupID })?.name ?? "全部" }
+
+    private var remoteTripID: Int? {
+        guard syncEngine.isUserAuthenticated,
+              let tripID = syncEngine.selectedTripID,
+              tripID > 0 else { return nil }
+        return tripID
+    }
 
     private func journalCard(_ entry: JournalEntry) -> some View {
         Button { editor = entry } label: {
@@ -84,22 +92,26 @@ struct NotesView: View {
     }
 
     private func reload() async {
-        guard syncEngine.isUserAuthenticated else {
+        guard let tripID = remoteTripID else {
             snapshot = localStore.snapshot
             return
         }
+        guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
         do {
             if !localStore.snapshot.entries.isEmpty || !localStore.snapshot.groups.isEmpty {
-                try await migrateLocalJournal()
+                try await migrateLocalJournal(to: tripID)
             }
-            snapshot = try await api.fetchJournal()
+            snapshot = try await api.fetchJournal(tripID: tripID)
+            if let selectedGroupID, !snapshot.groups.contains(where: { $0.id == selectedGroupID }) {
+                self.selectedGroupID = nil
+            }
         } catch { errorMessage = error.localizedDescription }
     }
 
     private func save(entry: JournalEntry, request: JournalEntryRequest, attachments: [JournalAttachment]) async {
-        guard syncEngine.isUserAuthenticated else {
+        guard let tripID = remoteTripID else {
             do {
                 try localStore.save(entryID: entry.id == 0 ? nil : entry.id, request: request, attachments: attachments)
                 snapshot = localStore.snapshot
@@ -107,33 +119,33 @@ struct NotesView: View {
             } catch { errorMessage = error.localizedDescription }
             return
         }
-        do { let keys = try await withThrowingTaskGroup(of: String.self) { group in for attachment in attachments { group.addTask { try await api.uploadJournalImage(data: attachment.data, contentType: "image/jpeg") } }; var all = request.imageKeys; for try await key in group { all.append(key) }; return all }; let request = JournalEntryRequest(groupId: request.groupId, title: request.title, content: request.content, imageKeys: keys); _ = entry.id == 0 ? try await api.createJournalEntry(request) : try await api.updateJournalEntry(id: entry.id, request); self.editor = nil; await reload() } catch { errorMessage = error.localizedDescription }
+        do { let keys = try await withThrowingTaskGroup(of: String.self) { group in for attachment in attachments { group.addTask { try await api.uploadJournalImage(data: attachment.data, contentType: "image/jpeg", tripID: tripID) } }; var all = request.imageKeys; for try await key in group { all.append(key) }; return all }; let request = JournalEntryRequest(groupId: request.groupId, title: request.title, content: request.content, imageKeys: keys); _ = entry.id == 0 ? try await api.createJournalEntry(request, tripID: tripID) : try await api.updateJournalEntry(id: entry.id, request, tripID: tripID); self.editor = nil; await reload() } catch { errorMessage = error.localizedDescription }
     }
 
     private func deleteEntries(at offsets: IndexSet) {
-        guard syncEngine.isUserAuthenticated else {
+        guard let tripID = remoteTripID else {
             do {
                 try localStore.deleteEntries(offsets.map { visibleEntries[$0].id })
                 snapshot = localStore.snapshot
             } catch { errorMessage = error.localizedDescription }
             return
         }
-        for index in offsets { let entry = visibleEntries[index]; Task { do { try await api.deleteJournalEntry(id: entry.id); await reload() } catch { errorMessage = error.localizedDescription } } }
+        for index in offsets { let entry = visibleEntries[index]; Task { do { try await api.deleteJournalEntry(id: entry.id, tripID: tripID); await reload() } catch { errorMessage = error.localizedDescription } } }
     }
 
     private func saveGroup(_ request: JournalGroupRequest) async {
-        guard syncEngine.isUserAuthenticated else {
+        guard let tripID = remoteTripID else {
             do {
                 try localStore.createGroup(request)
                 snapshot = localStore.snapshot
             } catch { errorMessage = error.localizedDescription }
             return
         }
-        do { _ = try await api.createJournalGroup(request); await reload() } catch { errorMessage = error.localizedDescription }
+        do { _ = try await api.createJournalGroup(request, tripID: tripID); await reload() } catch { errorMessage = error.localizedDescription }
     }
 
     private func deleteGroup(_ group: JournalGroup) async {
-        guard syncEngine.isUserAuthenticated else {
+        guard let tripID = remoteTripID else {
             do {
                 try localStore.deleteGroup(group.id)
                 if selectedGroupID == group.id { selectedGroupID = nil }
@@ -141,15 +153,16 @@ struct NotesView: View {
             } catch { errorMessage = error.localizedDescription }
             return
         }
-        do { try await api.deleteJournalGroup(id: group.id); if selectedGroupID == group.id { selectedGroupID = nil }; await reload() } catch { errorMessage = error.localizedDescription }
+        do { try await api.deleteJournalGroup(id: group.id, tripID: tripID); if selectedGroupID == group.id { selectedGroupID = nil }; await reload() } catch { errorMessage = error.localizedDescription }
     }
 
-    private func migrateLocalJournal() async throws {
+    private func migrateLocalJournal(to tripID: Int) async throws {
         let local = localStore.snapshot
         var groupIDs: [Int: Int] = [:]
         for group in local.groups.sorted(by: { $0.position < $1.position }) {
             let created = try await api.createJournalGroup(
-                JournalGroupRequest(name: group.name, color: group.color, position: group.position)
+                JournalGroupRequest(name: group.name, color: group.color, position: group.position),
+                tripID: tripID
             )
             groupIDs[group.id] = created.id
         }
@@ -157,7 +170,7 @@ struct NotesView: View {
             var keys: [String] = []
             for image in entry.images {
                 guard let data = localStore.imageData(for: image) else { continue }
-                keys.append(try await api.uploadJournalImage(data: data, contentType: "image/jpeg"))
+                keys.append(try await api.uploadJournalImage(data: data, contentType: "image/jpeg", tripID: tripID))
             }
             _ = try await api.createJournalEntry(
                 JournalEntryRequest(
@@ -165,7 +178,8 @@ struct NotesView: View {
                     title: entry.title,
                     content: entry.content,
                     imageKeys: keys
-                )
+                ),
+                tripID: tripID
             )
         }
         try localStore.clear()

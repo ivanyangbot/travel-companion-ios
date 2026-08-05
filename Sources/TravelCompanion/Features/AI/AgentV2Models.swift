@@ -31,6 +31,11 @@ struct AgentV2TurnRequest: Codable, Sendable {
         var budget: String?
         var interests: [String]
         var scope: String?
+        var allowUnverifiedRecommendations: Bool? = nil
+
+        var retainsUnverifiedRecommendations: Bool {
+            allowUnverifiedRecommendations ?? true
+        }
     }
     struct Message: Codable, Sendable, Identifiable {
         let id: UUID
@@ -79,6 +84,8 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     let id: UUID
     var kind: TravelCardSnapshot.Kind
     var title: String
+    var sourceText: String? = nil
+    var allowsUnverifiedPlace: Bool? = nil
     var date: String
     var startAt: String
     var endAt: String?
@@ -114,15 +121,32 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
         return true
     }
 
+    /// A server-approved text-only itinerary item copied from the user's
+    /// message. It is addable without inventing coordinates or a provider ID.
+    var hasExplicitUnverifiedPlace: Bool {
+        guard placeStatus == .failed, place == nil,
+              let sourceText,
+              !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return false }
+        return true
+    }
+
+    /// The server marks this only after applying the user's current policy.
+    /// The card remains text-only; no coordinates or provider identity are
+    /// invented, and the user must still select it before commit.
+    var hasAllowedUnverifiedPlace: Bool {
+        placeStatus == .failed && place == nil && allowsUnverifiedPlace == true
+    }
+
     var isSafeForPersistedDraft: Bool {
-        kind != .activity && kind != .hotel || hasConcreteVerifiedPlace
+        kind != .activity && kind != .hotel || hasConcreteVerifiedPlace || hasExplicitUnverifiedPlace || hasAllowedUnverifiedPlace
     }
 
     var isCommitReady: Bool {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !date.isEmpty, !startAt.isEmpty else { return false }
         if kind == .activity || kind == .hotel {
-            return hasConcreteVerifiedPlace
+            return hasConcreteVerifiedPlace || hasExplicitUnverifiedPlace || hasAllowedUnverifiedPlace
         }
         return kind != .flight || (bookingCode?.isEmpty == false && fromAirport?.isEmpty == false && toAirport?.isEmpty == false)
     }
@@ -197,5 +221,5 @@ struct AgentV2LocalSession: Codable, Identifiable {
     var draft: AgentV2Draft?
     var summary: AgentV2Summary?
 
-    static let empty = AgentV2LocalSession(id: UUID(), updatedAt: .now, preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil), messages: [], attachments: [], draft: nil, summary: nil)
+    static let empty = AgentV2LocalSession(id: UUID(), updatedAt: .now, preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil, allowUnverifiedRecommendations: true), messages: [], attachments: [], draft: nil, summary: nil)
 }

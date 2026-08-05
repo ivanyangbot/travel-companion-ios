@@ -5,21 +5,13 @@ import SwiftUI
 /// user explicitly selects and commits candidate cards.
 struct AgentWorkbenchView: View {
     @ObservedObject var syncEngine: SyncEngine
-    @StateObject private var store = AgentV2SessionStore()
+    @EnvironmentObject private var store: AgentV2SessionStore
+    @EnvironmentObject private var runState: AgentV2RunState
     @FocusState private var isComposerFocused: Bool
     @State private var message = ""
-    @State private var status: String?
-    @State private var reasoningSummary = ""
-    @State private var streamingReply = ""
-    @State private var liveCards: [AgentV2LiveCard] = []
-    @State private var stagedSummaryText = ""
-    @State private var error: String?
-    @State private var generationTask: Task<Void, Never>?
     @State private var photo: PhotosPickerItem?
-    @State private var isCommitting = false
     @State private var isShowingContext = false
     @State private var isConfirmingClear = false
-    private let client = APIClient()
 
     var body: some View {
         NavigationStack {
@@ -40,8 +32,8 @@ struct AgentWorkbenchView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .background(Color(.systemGroupedBackground))
                 .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
-                .onChange(of: streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
-                .onChange(of: liveCards.count) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
+                .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
             }
             .navigationTitle("旅行 Agent")
@@ -57,11 +49,10 @@ struct AgentWorkbenchView: View {
             } message: {
                 Text("已加入行程的内容不会受到影响。")
             }
-            .alert("无法完成操作", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            .alert("无法完成操作", isPresented: Binding(get: { runState.error != nil }, set: { if !$0 { runState.error = nil } })) {
                 Button("知道了", role: .cancel) {}
-            } message: { Text(error ?? "") }
+            } message: { Text(runState.error ?? "") }
         }
-        .onDisappear { generationTask?.cancel() }
     }
 
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
@@ -190,14 +181,14 @@ struct AgentWorkbenchView: View {
                 ChatMessageView(message: item)
             }
 
-            if !streamingReply.isEmpty {
+            if !runState.streamingReply.isEmpty {
                 AssistantMessageContainer {
-                    Text(streamingReply)
+                    Text(runState.streamingReply)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
-            if let status {
+            if let status = runState.status {
                 AssistantMessageContainer {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
@@ -206,10 +197,10 @@ struct AgentWorkbenchView: View {
                 }
             }
 
-            if !reasoningSummary.isEmpty {
+            if !runState.reasoningSummary.isEmpty {
                 AssistantMessageContainer {
                     DisclosureGroup("查看思考摘要") {
-                        Text(reasoningSummary)
+                        Text(runState.reasoningSummary)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .padding(.top, 8)
@@ -219,12 +210,12 @@ struct AgentWorkbenchView: View {
                 }
             }
 
-            if !liveCards.isEmpty {
+            if !runState.liveCards.isEmpty {
                 AssistantMessageContainer {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("正在生成候选")
                             .font(.subheadline.weight(.semibold))
-                        ForEach(liveCards) { card in
+                        ForEach(runState.liveCards) { card in
                             LiveCandidateCard(card: card)
                         }
                     }
@@ -255,19 +246,13 @@ struct AgentWorkbenchView: View {
             }
 
             if let draft = store.session.draft {
-                let visible = Array(draft.candidates.prefix(6))
-                if !visible.isEmpty {
+                if !draft.candidates.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("候选行程").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                        ForEach(visible) { candidate in
+                        ForEach(draft.candidates) { candidate in
                             AgentV2CandidateCard(candidate: candidate) { value in
                                 store.setSelected(value, id: candidate.id)
                             }
-                        }
-                        if draft.candidates.count > 6 {
-                            Text("其余 \(draft.candidates.count - 6) 项已收起，请缩小本轮范围后继续调整。")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -297,10 +282,24 @@ struct AgentWorkbenchView: View {
                 }
 
                 let selected = draft.candidates.filter(\.selected)
+                let commitReady = draft.candidates.filter(\.isCommitReady)
+                let allCommitReadySelected = !commitReady.isEmpty && commitReady.allSatisfy(\.selected)
                 VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("可导入 \(commitReady.count) 项")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(allCommitReadySelected ? "取消全选" : "全选可导入项") {
+                            store.setSelected(!allCommitReadySelected, ids: Set(commitReady.map(\.id)))
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .disabled(commitReady.isEmpty || runState.isCommitting)
+                    }
+
                     Button { commit() } label: {
                         HStack {
-                            if isCommitting { ProgressView().tint(.white) }
+                            if runState.isCommitting { ProgressView().tint(.white) }
                             Text("确认加入行程（\(selected.count)）")
                             Spacer()
                             Image(systemName: "arrow.right")
@@ -312,11 +311,11 @@ struct AgentWorkbenchView: View {
                         .background(Color.indigo, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .disabled(selected.isEmpty || selected.contains(where: { !$0.isCommitReady }) || isCommitting)
+                    .disabled(selected.isEmpty || selected.contains(where: { !$0.isCommitReady }) || runState.isCommitting)
                     .opacity(selected.isEmpty || selected.contains(where: { !$0.isCommitReady }) ? 0.45 : 1)
 
                     if selected.contains(where: { !$0.isCommitReady }) {
-                        Text("活动和酒店必须显示“地点已验证”；航班需完整航班与机场信息。")
+                        Text("仍在验证的地点暂不可加入；“地点待确认”的用户原文项目可以直接加入，稍后再补地图点位。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -363,16 +362,16 @@ struct AgentWorkbenchView: View {
                     .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 19, style: .continuous))
                     .onSubmit { if canSend { send() } }
 
-                Button { generationTask == nil ? send() : cancelGeneration() } label: {
-                    Image(systemName: generationTask == nil ? "arrow.up" : "stop.fill")
+                Button { runState.isGenerating ? cancelGeneration() : send() } label: {
+                    Image(systemName: runState.isGenerating ? "stop.fill" : "arrow.up")
                         .font(.body.weight(.bold))
-                        .foregroundStyle(canSend || generationTask != nil ? .white : .secondary)
+                        .foregroundStyle(canSend || runState.isGenerating ? .white : .secondary)
                         .frame(width: 36, height: 36)
-                        .background(canSend || generationTask != nil ? Color.indigo : Color(.tertiarySystemFill), in: Circle())
+                        .background(canSend || runState.isGenerating ? Color.indigo : Color(.tertiarySystemFill), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(generationTask == nil && !canSend)
-                .accessibilityLabel(generationTask == nil ? "发送" : "停止生成")
+                .disabled(!runState.isGenerating && !canSend)
+                .accessibilityLabel(runState.isGenerating ? "停止生成" : "发送")
             }
         }
         .padding(.horizontal, 12)
@@ -383,7 +382,7 @@ struct AgentWorkbenchView: View {
     }
 
     private var canSend: Bool {
-        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && generationTask == nil
+        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !runState.isGenerating
     }
 
     private var quickPrompts: [String] {
@@ -418,86 +417,82 @@ struct AgentWorkbenchView: View {
     }
 
     private func clearSession() {
-        generationTask?.cancel()
         store.discardTurn()
-        status = nil
-        streamingReply = ""
-        reasoningSummary = ""
-        stagedSummaryText = ""
-        liveCards = []
+        runState.clearTransientState()
         store.clear()
     }
 
     private func cancelGeneration() {
-        generationTask?.cancel()
+        runState.cancelGeneration()
         store.discardTurn()
-        status = nil
     }
 
     private func load(_ item: PhotosPickerItem?) {
         guard let item else { return }
         Task {
-            guard let data = try? await item.loadTransferable(type: Data.self) else { error = "无法读取图片。"; return }
-            guard data.count <= 2_000_000 else { error = "请使用不超过 2 MB 的攻略图片，以保留可重试的本机副本。"; return }
+            guard let data = try? await item.loadTransferable(type: Data.self) else { runState.error = "无法读取图片。"; return }
+            guard data.count <= 2_000_000 else { runState.error = "请使用不超过 2 MB 的攻略图片，以保留可重试的本机副本。"; return }
             store.addAttachment(.init(id: UUID(), mediaType: "image/jpeg", dataURI: "data:image/jpeg;base64," + data.base64EncodedString()))
             photo = nil
         }
     }
 
     private func send() {
-        guard let request = makeRequest() else { error = "请先完成旅行设置。"; return }
-        guard let tripID = syncEngine.trip?.id else { error = "无法确定当前旅行，请刷新后重试。"; return }
+        guard let request = makeRequest() else { runState.error = "请先完成旅行设置。"; return }
+        guard let tripID = syncEngine.trip?.id else { runState.error = "无法确定当前旅行，请刷新后重试。"; return }
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: message, createdAt: .now)
         store.beginTurn()
         store.append(userMessage)
         message = ""
-        streamingReply = ""
-        reasoningSummary = ""
-        stagedSummaryText = ""
-        liveCards = []
-        status = "正在理解你的需求…"
+        runState.prepareForTurn()
         isComposerFocused = false
-        generationTask = Task {
+        let state = runState
+        let sessionStore = store
+        let client = APIClient()
+        let generationID = runState.beginGeneration()
+        let task = Task {
             do {
                 let stream = try await client.agentV2Stream(request, tripID: tripID)
                 for try await event in stream {
                     switch event {
-                    case .status(let text): status = text
-                    case .reasoningSummary(let text): reasoningSummary += text
+                    case .status(let text): state.status = text
+                    case .reasoningSummary(let text): state.reasoningSummary += text
                     case .assistantDelta(let text):
-                        status = nil
-                        streamingReply += text
+                        state.status = nil
+                        state.streamingReply += text
                     case .cardBegin(let id, let index):
-                        if !liveCards.contains(where: { $0.id == id }) { liveCards.append(.init(id: id, index: index)) }
+                        if !state.liveCards.contains(where: { $0.id == id }) { state.liveCards.append(.init(id: id, index: index)) }
                     case .cardFieldDelta(let id, let field, let value):
-                        guard let index = liveCards.firstIndex(where: { $0.id == id }) else { break }
-                        liveCards[index].fields[field] = value
-                    case .question(let text): store.append(.init(id: UUID(), role: "assistant", content: text, createdAt: .now))
+                        guard let index = state.liveCards.firstIndex(where: { $0.id == id }) else { break }
+                        state.liveCards[index].fields[field] = value
+                    case .question(let text): sessionStore.append(.init(id: UUID(), role: "assistant", content: text, createdAt: .now))
                     case .summary(let summary):
-                        stagedSummaryText = summary.text
-                        store.apply(event)
+                        state.stagedSummaryText = summary.text
+                        sessionStore.apply(event)
                     case .candidateUpsert:
-                        store.apply(event)
+                        sessionStore.apply(event)
                     case .done:
-                        let completedReply = streamingReply.isEmpty ? stagedSummaryText : streamingReply
+                        let completedReply = state.streamingReply.isEmpty ? state.stagedSummaryText : state.streamingReply
                         if !completedReply.isEmpty {
-                            store.append(.init(id: UUID(), role: "assistant", content: completedReply, createdAt: .now))
-                            streamingReply = ""
+                            sessionStore.append(.init(id: UUID(), role: "assistant", content: completedReply, createdAt: .now))
+                            state.streamingReply = ""
                         }
-                        store.completeTurn()
-                        liveCards = []
-                    default: store.apply(event)
+                        sessionStore.completeTurn()
+                        state.liveCards = []
+                    default: sessionStore.apply(event)
                     }
                 }
             } catch is CancellationError {
                 // The persisted draft, input context and attachments remain retryable.
-            } catch { self.error = error.localizedDescription }
-            self.store.discardTurn()
-            self.liveCards = []
-            self.stagedSummaryText = ""
-            self.status = nil
-            self.generationTask = nil
+            } catch {
+                state.error = error.localizedDescription
+            }
+            sessionStore.discardTurn()
+            state.liveCards = []
+            state.stagedSummaryText = ""
+            state.finishGeneration(id: generationID)
         }
+        runState.attach(task, id: generationID)
     }
 
     private func makeRequest() -> AgentV2TurnRequest? {
@@ -516,15 +511,16 @@ struct AgentWorkbenchView: View {
         // session. The button's `draft`/`selected` values belong to an earlier
         // SwiftUI render and can be stale after a streaming turn completes.
         guard let snapshot = store.commitSnapshot() else {
-            error = "当前没有可确认的候选，请重新选择后确认。"
+            runState.error = "当前没有可确认的候选，请重新选择后确认。"
             return
         }
         guard snapshot.selected.allSatisfy(\.isCommitReady) else {
-            error = "选中的候选信息尚未完整，请等待地点验证完成后再确认。"
+            runState.error = "选中的候选仍在生成或缺少必要时间信息，请稍后再确认。"
             return
         }
 
-        isCommitting = true
+        runState.isCommitting = true
+        let client = APIClient()
         Task {
             do {
                 _ = try await client.commitAgentV2(
@@ -541,9 +537,9 @@ struct AgentWorkbenchView: View {
                 store.clearCommittedDraft()
                 await syncEngine.refresh()
             } catch {
-                self.error = error.localizedDescription
+                runState.error = error.localizedDescription
             }
-            self.isCommitting = false
+            runState.isCommitting = false
         }
     }
 }
@@ -699,6 +695,14 @@ private struct AgentContextSheet: View {
                 }
 
                 Section {
+                    Toggle("保留未验证的模型推荐", isOn: allowUnverifiedRecommendationsBinding)
+                } header: {
+                    Text("地图点位")
+                } footer: {
+                    Text("开启后，Apple Maps 未命中的模型推荐仍会作为“地点待确认”候选，由你决定是否添加；不会伪造坐标。你原文明确写出的地点始终保留。")
+                }
+
+                Section {
                     FlowLayout(spacing: 8) {
                         ForEach(interests, id: \.self) { interest in
                             Button { toggleInterest(interest) } label: {
@@ -734,6 +738,13 @@ private struct AgentContextSheet: View {
         Binding(
             get: { store.session.preferences[keyPath: keyPath] ?? "" },
             set: { value in store.updatePreference(keyPath, value: value.isEmpty ? nil : value) }
+        )
+    }
+
+    private var allowUnverifiedRecommendationsBinding: Binding<Bool> {
+        Binding(
+            get: { store.session.preferences.retainsUnverifiedRecommendations },
+            set: { store.setAllowUnverifiedRecommendations($0) }
         )
     }
 

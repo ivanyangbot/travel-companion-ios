@@ -210,6 +210,24 @@ final class AITests: XCTestCase {
         XCTAssertEqual(APIClientProtocolStub.requests.map { $0.url?.path }, ["/v1/cards", "/v1/cards"])
     }
 
+    func testJournalRequestUsesItsExplicitTripID() async throws {
+        APIClientProtocolStub.requests = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [APIClientProtocolStub.self]
+        let client = APIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test")),
+            session: URLSession(configuration: configuration),
+            tokenProvider: { "test-token" }
+        )
+
+        _ = try await client.fetchJournal(tripID: 42)
+
+        let request = try XCTUnwrap(APIClientProtocolStub.requests.first)
+        XCTAssertEqual(request.url?.path, "/v1/journal")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Trip-ID"), "42")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
+    }
+
     @MainActor
     func testPermanentFailureStopsBackgroundRetryAndRetainsConfirmedDraft() throws {
         let container = try ModelContainer(
@@ -238,7 +256,10 @@ private final class APIClientProtocolStub: URLProtocol {
         Self.requests.append(request)
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data("{\"meta\":{\"tripVersion\":8,\"operationId\":null,\"conflict\":false,\"serverUpdatedAt\":\"2026-10-01T00:00:00Z\"}}".utf8))
+        let body = request.url?.path == "/v1/journal"
+            ? "{\"data\":{\"groups\":[],\"entries\":[]}}"
+            : "{\"meta\":{\"tripVersion\":8,\"operationId\":null,\"conflict\":false,\"serverUpdatedAt\":\"2026-10-01T00:00:00Z\"}}"
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
 

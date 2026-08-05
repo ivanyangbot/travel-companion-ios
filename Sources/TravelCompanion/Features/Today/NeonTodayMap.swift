@@ -6,12 +6,22 @@ import UIKit
 struct TodayMapPoint: Identifiable, Equatable {
     let id: UUID
     let title: String
+    /// Shown above the current, enlarged number marker.
+    let categorySymbolName: String
     let latitude: Double
     let longitude: Double
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
+}
+
+/// Road geometry plus the travel mode that produced it. Keeping the mode in
+/// the cache lets the map preserve the dashed treatment for walking-only legs
+/// after the screen is recreated.
+struct TodayRouteGeometry {
+    let coordinates: [CLLocationCoordinate2D]
+    let isWalking: Bool
 }
 
 /// Persists resolved road geometry by adjacent itinerary points. A changed
@@ -28,17 +38,22 @@ final class TodayRouteGeometryCache {
 
     private struct Entry: Codable {
         let coordinates: [Coordinate]
+        let isWalking: Bool
         let storedAt: Date
     }
 
-    private static let storageKey = "todayRouteGeometryCache.v2"
-    private static let legacyStorageKey = "todayRouteGeometryCache.v1"
+    private static let storageKey = "todayRouteGeometryCache.v4"
+    private static let legacyStorageKeys = [
+        "todayRouteGeometryCache.v1",
+        "todayRouteGeometryCache.v2",
+        "todayRouteGeometryCache.v3"
+    ]
     private static let maximumAge: TimeInterval = 24 * 60 * 60
     private static let maximumEntryCount = 128
     private var entries: [String: Entry]
 
     private init() {
-        UserDefaults.standard.removeObject(forKey: Self.legacyStorageKey)
+        Self.legacyStorageKeys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
         guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
               let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) else {
             entries = [:]
@@ -48,7 +63,7 @@ final class TodayRouteGeometryCache {
         persist()
     }
 
-    func coordinates(from origin: TodayMapPoint, to destination: TodayMapPoint) -> [CLLocationCoordinate2D]? {
+    func route(from origin: TodayMapPoint, to destination: TodayMapPoint) -> TodayRouteGeometry? {
         let key = Self.key(from: origin, to: destination)
         guard let entry = entries[key] else { return nil }
         guard Date.now.timeIntervalSince(entry.storedAt) < Self.maximumAge else {
@@ -57,9 +72,16 @@ final class TodayRouteGeometryCache {
             return nil
         }
         guard entry.coordinates.count > 1 else { return nil }
-        return entry.coordinates.map {
-            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-        }
+        return TodayRouteGeometry(
+            coordinates: entry.coordinates.map {
+                CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+            },
+            isWalking: entry.isWalking
+        )
+    }
+
+    func coordinates(from origin: TodayMapPoint, to destination: TodayMapPoint) -> [CLLocationCoordinate2D]? {
+        route(from: origin, to: destination)?.coordinates
     }
 
     func polyline(from origin: TodayMapPoint, to destination: TodayMapPoint) -> MKPolyline? {
@@ -67,12 +89,18 @@ final class TodayRouteGeometryCache {
         return MKPolyline(coordinates: &coordinates, count: coordinates.count)
     }
 
-    func store(_ coordinates: [CLLocationCoordinate2D], from origin: TodayMapPoint, to destination: TodayMapPoint) {
+    func store(
+        _ coordinates: [CLLocationCoordinate2D],
+        from origin: TodayMapPoint,
+        to destination: TodayMapPoint,
+        isWalking: Bool = false
+    ) {
         guard coordinates.count > 1 else { return }
         entries[Self.key(from: origin, to: destination)] = Entry(
             coordinates: coordinates.map {
                 Coordinate(latitude: $0.latitude, longitude: $0.longitude)
             },
+            isWalking: isWalking,
             storedAt: .now
         )
         trimIfNeeded()

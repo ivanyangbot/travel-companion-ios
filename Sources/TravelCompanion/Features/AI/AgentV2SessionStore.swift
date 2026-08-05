@@ -1,5 +1,71 @@
 import Foundation
 
+/// Long-lived state for one in-flight Agent turn. ContentView owns this
+/// object, so dismissing and reopening the sheet does not cancel or visually
+/// reset an active conversation.
+@MainActor
+final class AgentV2RunState: ObservableObject {
+    @Published var status: String?
+    @Published var reasoningSummary = ""
+    @Published var streamingReply = ""
+    @Published var liveCards: [AgentV2LiveCard] = []
+    @Published var stagedSummaryText = ""
+    @Published var error: String?
+    @Published private(set) var isGenerating = false
+    @Published var isCommitting = false
+
+    private(set) var generationTask: Task<Void, Never>?
+    private var generationID: UUID?
+
+    func beginGeneration() -> UUID {
+        generationTask?.cancel()
+        let id = UUID()
+        generationID = id
+        isGenerating = true
+        return id
+    }
+
+    func attach(_ task: Task<Void, Never>, id: UUID) {
+        guard generationID == id else { task.cancel(); return }
+        generationTask = task
+    }
+
+    func finishGeneration(id: UUID) {
+        guard generationID == id else { return }
+        generationID = nil
+        generationTask = nil
+        isGenerating = false
+        status = nil
+    }
+
+    func cancelGeneration() {
+        generationTask?.cancel()
+        generationID = nil
+        generationTask = nil
+        isGenerating = false
+        status = nil
+    }
+
+    func prepareForTurn() {
+        streamingReply = ""
+        reasoningSummary = ""
+        stagedSummaryText = ""
+        liveCards = []
+        status = "正在理解你的需求…"
+        error = nil
+    }
+
+    func clearTransientState() {
+        cancelGeneration()
+        streamingReply = ""
+        reasoningSummary = ""
+        stagedSummaryText = ""
+        liveCards = []
+        error = nil
+        isCommitting = false
+    }
+}
+
 /// Drafts are deliberately kept outside the shared trip store.  This gives a
 /// user reliable retry/resume behavior without exposing unconfirmed plans to a
 /// collaborator or the backend.
@@ -154,6 +220,15 @@ final class AgentV2SessionStore: ObservableObject {
         save()
     }
 
+    func setSelected(_ selected: Bool, ids: Set<UUID>) {
+        guard var draft = session.draft, !ids.isEmpty else { return }
+        for index in draft.candidates.indices where ids.contains(draft.candidates[index].id) {
+            draft.candidates[index].selected = selected
+        }
+        session.draft = draft
+        save()
+    }
+
     /// Returns one coherent commit payload from the current published draft.
     /// The workbench must not submit candidates captured by an earlier SwiftUI
     /// render: a completed stream can replace `session.draft` between a card
@@ -175,6 +250,11 @@ final class AgentV2SessionStore: ObservableObject {
 
     func updatePreference(_ keyPath: WritableKeyPath<AgentV2TurnRequest.Preferences, String?>, value: String?) {
         session.preferences[keyPath: keyPath] = value
+        save()
+    }
+
+    func setAllowUnverifiedRecommendations(_ allowed: Bool) {
+        session.preferences.allowUnverifiedRecommendations = allowed
         save()
     }
 
