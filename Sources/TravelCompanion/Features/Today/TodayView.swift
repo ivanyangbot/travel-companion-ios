@@ -761,7 +761,7 @@ private struct POICard: View {
     let width: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 4) {
             coverImage
                 .frame(maxWidth: .infinity)
                 .frame(height: 154)
@@ -769,16 +769,15 @@ private struct POICard: View {
 
             poiSummary
                 .padding(.horizontal, 8)
-                .padding(.top, 11)
-                .padding(.bottom, 7)
+                .frame(maxWidth: .infinity, minHeight: 78, maxHeight: 78)
         }
         .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(width: width, height: 248, alignment: .topLeading)
         .background {
             ZStack {
-                AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.45)
-                Color(red: 67 / 255, green: 67 / 255, blue: 67 / 255).opacity(0.4)
+                AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.18)
+                Color(red: 67 / 255, green: 67 / 255, blue: 67 / 255).opacity(0.25)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -804,7 +803,6 @@ private struct POICard: View {
                         .tracking(0)
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
                         .lineSpacing(0)
 
                     Circle()
