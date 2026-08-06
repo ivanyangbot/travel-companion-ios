@@ -3,6 +3,361 @@ import MapKit
 import SwiftUI
 import UIKit
 
+/// OpenFreeMap renders WGS-84 geometry. Apple road geometry in mainland China
+/// is GCJ-02 aligned, so normalize only at the MapLibre display boundary while
+/// keeping persisted POIs and Apple routing requests in their original space.
+enum MapLibreCoordinateTransform {
+    private static let semiMajorAxis = 6_378_245.0
+    private static let eccentricitySquared = 0.00669342162296594323
+
+    static func displayCoordinate(
+        for appleCoordinate: CLLocationCoordinate2D
+    ) -> CLLocationCoordinate2D {
+        guard CLLocationCoordinate2DIsValid(appleCoordinate),
+              isInsideMainlandChina(appleCoordinate) else {
+            return appleCoordinate
+        }
+
+        // Iteratively invert WGS-84 -> GCJ-02. Six passes converge well below
+        // MapLibre's pixel precision without relying on a city-specific offset.
+        var estimate = appleCoordinate
+        for _ in 0..<6 {
+            let projected = gcj02Coordinate(forWGS84: estimate)
+            estimate.latitude -= projected.latitude - appleCoordinate.latitude
+            estimate.longitude -= projected.longitude - appleCoordinate.longitude
+        }
+        return estimate
+    }
+
+    static func displayCoordinates(
+        for appleCoordinates: [CLLocationCoordinate2D]
+    ) -> [CLLocationCoordinate2D] {
+        appleCoordinates.map(displayCoordinate(for:))
+    }
+
+    private static func isInsideMainlandChina(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        mainlandChinaBoundary.containsCoordinate(coordinate)
+            || hainanBoundary.containsCoordinate(coordinate)
+    }
+
+    private static let hainanBoundary: [CLLocationCoordinate2D] = [
+        .init(latitude: 18.197701, longitude: 109.47521),
+        .init(latitude: 18.507682, longitude: 108.655208),
+        .init(latitude: 19.367888, longitude: 108.626217),
+        .init(latitude: 19.821039, longitude: 109.119056),
+        .init(latitude: 20.101254, longitude: 110.211599),
+        .init(latitude: 20.077534, longitude: 110.786551),
+        .init(latitude: 19.69593, longitude: 111.010051),
+        .init(latitude: 19.255879, longitude: 110.570647),
+        .init(latitude: 18.678395, longitude: 110.339188),
+        .init(latitude: 18.197701, longitude: 109.47521)
+    ]
+
+    private static let mainlandChinaBoundary: [CLLocationCoordinate2D] = [
+        .init(latitude: 42.349999, longitude: 80.25999),
+        .init(latitude: 42.920068, longitude: 80.18015),
+        .init(latitude: 43.180362, longitude: 80.866206),
+        .init(latitude: 44.917517, longitude: 79.966106),
+        .init(latitude: 45.317027, longitude: 81.947071),
+        .init(latitude: 45.53965, longitude: 82.458926),
+        .init(latitude: 47.330031, longitude: 83.180484),
+        .init(latitude: 47.000956, longitude: 85.16429),
+        .init(latitude: 47.452969, longitude: 85.720484),
+        .init(latitude: 48.455751, longitude: 85.768233),
+        .init(latitude: 48.549182, longitude: 86.598776),
+        .init(latitude: 49.214981, longitude: 87.35997),
+        .init(latitude: 49.297198, longitude: 87.751264),
+        .init(latitude: 48.599463, longitude: 88.013832),
+        .init(latitude: 48.069082, longitude: 88.854298),
+        .init(latitude: 47.693549, longitude: 90.280826),
+        .init(latitude: 46.888146, longitude: 90.970809),
+        .init(latitude: 45.719716, longitude: 90.585768),
+        .init(latitude: 45.286073, longitude: 90.94554),
+        .init(latitude: 45.115076, longitude: 92.133891),
+        .init(latitude: 44.975472, longitude: 93.480734),
+        .init(latitude: 44.352332, longitude: 94.688929),
+        .init(latitude: 44.241331, longitude: 95.306875),
+        .init(latitude: 43.319449, longitude: 95.762455),
+        .init(latitude: 42.725635, longitude: 96.349396),
+        .init(latitude: 42.74889, longitude: 97.451757),
+        .init(latitude: 42.524691, longitude: 99.515817),
+        .init(latitude: 42.663804, longitude: 100.845866),
+        .init(latitude: 42.514873, longitude: 101.83304),
+        .init(latitude: 41.907468, longitude: 103.312278),
+        .init(latitude: 41.908347, longitude: 104.522282),
+        .init(latitude: 41.59741, longitude: 104.964994),
+        .init(latitude: 42.134328, longitude: 106.129316),
+        .init(latitude: 42.481516, longitude: 107.744773),
+        .init(latitude: 42.519446, longitude: 109.243596),
+        .init(latitude: 42.871234, longitude: 110.412103),
+        .init(latitude: 43.406834, longitude: 111.129682),
+        .init(latitude: 43.743118, longitude: 111.829588),
+        .init(latitude: 44.073176, longitude: 111.667737),
+        .init(latitude: 44.457442, longitude: 111.348377),
+        .init(latitude: 45.102079, longitude: 111.873306),
+        .init(latitude: 45.011646, longitude: 112.436062),
+        .init(latitude: 44.808893, longitude: 113.463907),
+        .init(latitude: 45.339817, longitude: 114.460332),
+        .init(latitude: 45.727235, longitude: 115.985096),
+        .init(latitude: 46.388202, longitude: 116.717868),
+        .init(latitude: 46.672733, longitude: 117.421701),
+        .init(latitude: 46.805412, longitude: 118.874326),
+        .init(latitude: 46.69268, longitude: 119.66327),
+        .init(latitude: 47.048059, longitude: 119.772824),
+        .init(latitude: 47.74706, longitude: 118.866574),
+        .init(latitude: 48.06673, longitude: 118.064143),
+        .init(latitude: 47.697709, longitude: 117.295507),
+        .init(latitude: 47.85341, longitude: 116.308953),
+        .init(latitude: 47.726545, longitude: 115.742837),
+        .init(latitude: 48.135383, longitude: 115.485282),
+        .init(latitude: 49.134598, longitude: 116.191802),
+        .init(latitude: 49.888531, longitude: 116.678801),
+        .init(latitude: 49.510983, longitude: 117.879244),
+        .init(latitude: 50.142883, longitude: 119.288461),
+        .init(latitude: 50.58292, longitude: 119.27939),
+        .init(latitude: 51.64355, longitude: 120.18208),
+        .init(latitude: 51.96411, longitude: 120.7382),
+        .init(latitude: 52.516226, longitude: 120.725789),
+        .init(latitude: 52.753886, longitude: 120.177089),
+        .init(latitude: 53.251401, longitude: 121.003085),
+        .init(latitude: 53.431726, longitude: 122.245748),
+        .init(latitude: 53.4588, longitude: 123.57147),
+        .init(latitude: 53.161045, longitude: 125.068211),
+        .init(latitude: 52.792799, longitude: 125.946349),
+        .init(latitude: 51.784255, longitude: 126.564399),
+        .init(latitude: 51.353894, longitude: 126.939157),
+        .init(latitude: 50.739797, longitude: 127.287456),
+        .init(latitude: 49.76027, longitude: 127.6574),
+        .init(latitude: 49.4406, longitude: 129.397818),
+        .init(latitude: 48.729687, longitude: 130.582293),
+        .init(latitude: 47.79013, longitude: 130.98726),
+        .init(latitude: 47.78896, longitude: 132.50669),
+        .init(latitude: 48.183442, longitude: 133.373596),
+        .init(latitude: 48.47823, longitude: 135.026311),
+        .init(latitude: 47.57845, longitude: 134.50081),
+        .init(latitude: 47.21248, longitude: 134.11235),
+        .init(latitude: 46.116927, longitude: 133.769644),
+        .init(latitude: 45.14409, longitude: 133.09712),
+        .init(latitude: 45.321162, longitude: 131.883454),
+        .init(latitude: 44.96796, longitude: 131.02519),
+        .init(latitude: 44.11152, longitude: 131.288555),
+        .init(latitude: 42.92999, longitude: 131.144688),
+        .init(latitude: 42.903015, longitude: 130.633866),
+        .init(latitude: 42.395024, longitude: 130.64),
+        .init(latitude: 42.985387, longitude: 129.994267),
+        .init(latitude: 42.424982, longitude: 129.596669),
+        .init(latitude: 41.994285, longitude: 128.052215),
+        .init(latitude: 41.466772, longitude: 128.208433),
+        .init(latitude: 41.503152, longitude: 127.343783),
+        .init(latitude: 41.816569, longitude: 126.869083),
+        .init(latitude: 41.107336, longitude: 126.182045),
+        .init(latitude: 40.569824, longitude: 125.079942),
+        .init(latitude: 39.928493, longitude: 124.265625),
+        .init(latitude: 39.637788, longitude: 122.86757),
+        .init(latitude: 39.170452, longitude: 122.131388),
+        .init(latitude: 38.897471, longitude: 121.054554),
+        .init(latitude: 39.360854, longitude: 121.585995),
+        .init(latitude: 39.750261, longitude: 121.376757),
+        .init(latitude: 40.422443, longitude: 122.168595),
+        .init(latitude: 40.94639, longitude: 121.640359),
+        .init(latitude: 40.593388, longitude: 120.768629),
+        .init(latitude: 39.898056, longitude: 119.639602),
+        .init(latitude: 39.252333, longitude: 119.023464),
+        .init(latitude: 39.204274, longitude: 118.042749),
+        .init(latitude: 38.737636, longitude: 117.532702),
+        .init(latitude: 38.061476, longitude: 118.059699),
+        .init(latitude: 37.897325, longitude: 118.87815),
+        .init(latitude: 37.448464, longitude: 118.911636),
+        .init(latitude: 37.156389, longitude: 119.702802),
+        .init(latitude: 37.870428, longitude: 120.823457),
+        .init(latitude: 37.481123, longitude: 121.711259),
+        .init(latitude: 37.454484, longitude: 122.357937),
+        .init(latitude: 36.930614, longitude: 122.519995),
+        .init(latitude: 36.651329, longitude: 121.104164),
+        .init(latitude: 36.11144, longitude: 120.637009),
+        .init(latitude: 35.609791, longitude: 119.664562),
+        .init(latitude: 34.909859, longitude: 119.151208),
+        .init(latitude: 34.360332, longitude: 120.227525),
+        .init(latitude: 33.376723, longitude: 120.620369),
+        .init(latitude: 32.460319, longitude: 121.229014),
+        .init(latitude: 31.692174, longitude: 121.908146),
+        .init(latitude: 30.949352, longitude: 121.891919),
+        .init(latitude: 30.676267, longitude: 121.264257),
+        .init(latitude: 30.142915, longitude: 121.503519),
+        .init(latitude: 29.83252, longitude: 122.092114),
+        .init(latitude: 29.018022, longitude: 121.938428),
+        .init(latitude: 28.225513, longitude: 121.684439),
+        .init(latitude: 28.135673, longitude: 121.125661),
+        .init(latitude: 27.053207, longitude: 120.395473),
+        .init(latitude: 25.740781, longitude: 119.585497),
+        .init(latitude: 24.547391, longitude: 118.656871),
+        .init(latitude: 23.624501, longitude: 117.281606),
+        .init(latitude: 22.782873, longitude: 115.890735),
+        .init(latitude: 22.668074, longitude: 114.763827),
+        .init(latitude: 22.22376, longitude: 114.152547),
+        .init(latitude: 22.54834, longitude: 113.80678),
+        .init(latitude: 22.051367, longitude: 113.241078),
+        .init(latitude: 21.550494, longitude: 111.843592),
+        .init(latitude: 21.397144, longitude: 110.785466),
+        .init(latitude: 20.341033, longitude: 110.444039),
+        .init(latitude: 20.282457, longitude: 109.889861),
+        .init(latitude: 21.008227, longitude: 109.627655),
+        .init(latitude: 21.395051, longitude: 109.864488),
+        .init(latitude: 21.715212, longitude: 108.522813),
+        .init(latitude: 21.55238, longitude: 108.05018),
+        .init(latitude: 21.811899, longitude: 107.04342),
+        .init(latitude: 22.218205, longitude: 106.567273),
+        .init(latitude: 22.794268, longitude: 106.725403),
+        .init(latitude: 22.976892, longitude: 105.811247),
+        .init(latitude: 23.352063, longitude: 105.329209),
+        .init(latitude: 22.81915, longitude: 104.476858),
+        .init(latitude: 22.703757, longitude: 103.504515),
+        .init(latitude: 22.708795, longitude: 102.706992),
+        .init(latitude: 22.464753, longitude: 102.170436),
+        .init(latitude: 22.318199, longitude: 101.652018),
+        .init(latitude: 21.174367, longitude: 101.80312),
+        .init(latitude: 21.201652, longitude: 101.270026),
+        .init(latitude: 21.436573, longitude: 101.180005),
+        .init(latitude: 21.849984, longitude: 101.150033),
+        .init(latitude: 21.558839, longitude: 100.416538),
+        .init(latitude: 21.742937, longitude: 99.983489),
+        .init(latitude: 22.118314, longitude: 99.240899),
+        .init(latitude: 22.949039, longitude: 99.531992),
+        .init(latitude: 23.142722, longitude: 98.898749),
+        .init(latitude: 24.063286, longitude: 98.660262),
+        .init(latitude: 23.897405, longitude: 97.60472),
+        .init(latitude: 25.083637, longitude: 97.724609),
+        .init(latitude: 25.918703, longitude: 98.671838),
+        .init(latitude: 26.743536, longitude: 98.712094),
+        .init(latitude: 27.508812, longitude: 98.68269),
+        .init(latitude: 27.747221, longitude: 98.246231),
+        .init(latitude: 28.335945, longitude: 97.911988),
+        .init(latitude: 28.261583, longitude: 97.327114),
+        .init(latitude: 28.411031, longitude: 96.248833),
+        .init(latitude: 28.83098, longitude: 96.586591),
+        .init(latitude: 29.452802, longitude: 96.117679),
+        .init(latitude: 29.031717, longitude: 95.404802),
+        .init(latitude: 29.277438, longitude: 94.56599),
+        .init(latitude: 28.640629, longitude: 93.413348),
+        .init(latitude: 27.896876, longitude: 92.503119),
+        .init(latitude: 27.771742, longitude: 91.696657),
+        .init(latitude: 28.040614, longitude: 91.258854),
+        .init(latitude: 28.064954, longitude: 90.730514),
+        .init(latitude: 28.296439, longitude: 90.015829),
+        .init(latitude: 28.042759, longitude: 89.47581),
+        .init(latitude: 27.299316, longitude: 88.814248),
+        .init(latitude: 28.086865, longitude: 88.730326),
+        .init(latitude: 27.876542, longitude: 88.120441),
+        .init(latitude: 27.974262, longitude: 86.954517),
+        .init(latitude: 28.203576, longitude: 85.82332),
+        .init(latitude: 28.642774, longitude: 85.011638),
+        .init(latitude: 28.839894, longitude: 84.23458),
+        .init(latitude: 29.320226, longitude: 83.898993),
+        .init(latitude: 29.463732, longitude: 83.337115),
+        .init(latitude: 30.115268, longitude: 82.327513),
+        .init(latitude: 30.422717, longitude: 81.525804),
+        .init(latitude: 30.183481, longitude: 81.111256),
+        .init(latitude: 30.882715, longitude: 79.721367),
+        .init(latitude: 31.515906, longitude: 78.738894),
+        .init(latitude: 32.618164, longitude: 78.458446),
+        .init(latitude: 32.48378, longitude: 79.176129),
+        .init(latitude: 32.994395, longitude: 79.208892),
+        .init(latitude: 33.506198, longitude: 78.811086),
+        .init(latitude: 34.321936, longitude: 78.912269),
+        .init(latitude: 35.49401, longitude: 77.837451),
+        .init(latitude: 35.898403, longitude: 76.192848),
+        .init(latitude: 36.666806, longitude: 75.896897),
+        .init(latitude: 37.133031, longitude: 75.158028),
+        .init(latitude: 37.41999, longitude: 74.980002),
+        .init(latitude: 37.990007, longitude: 74.829986),
+        .init(latitude: 38.378846, longitude: 74.864816),
+        .init(latitude: 38.606507, longitude: 74.257514),
+        .init(latitude: 38.505815, longitude: 73.928852),
+        .init(latitude: 39.431237, longitude: 73.675379),
+        .init(latitude: 39.660008, longitude: 73.960013),
+        .init(latitude: 39.893973, longitude: 73.822244),
+        .init(latitude: 40.366425, longitude: 74.776862),
+        .init(latitude: 40.562072, longitude: 75.467828),
+        .init(latitude: 40.427946, longitude: 76.526368),
+        .init(latitude: 41.066486, longitude: 76.904484),
+        .init(latitude: 41.185316, longitude: 78.187197),
+        .init(latitude: 41.582243, longitude: 78.543661),
+        .init(latitude: 42.123941, longitude: 80.11943),
+        .init(latitude: 42.349999, longitude: 80.25999)
+    ]
+
+    private static func gcj02Coordinate(
+        forWGS84 coordinate: CLLocationCoordinate2D
+    ) -> CLLocationCoordinate2D {
+        let latitude = coordinate.latitude
+        let longitude = coordinate.longitude
+        let latitudeRadians = latitude * .pi / 180
+        let sine = sin(latitudeRadians)
+        let magic = 1 - eccentricitySquared * sine * sine
+        let squareRootMagic = sqrt(magic)
+
+        var latitudeDelta = transformedLatitude(
+            longitude: longitude - 105,
+            latitude: latitude - 35
+        )
+        var longitudeDelta = transformedLongitude(
+            longitude: longitude - 105,
+            latitude: latitude - 35
+        )
+        latitudeDelta = latitudeDelta * 180
+            / ((semiMajorAxis * (1 - eccentricitySquared)) / (magic * squareRootMagic) * .pi)
+        longitudeDelta = longitudeDelta * 180
+            / (semiMajorAxis / squareRootMagic * cos(latitudeRadians) * .pi)
+
+        return CLLocationCoordinate2D(
+            latitude: latitude + latitudeDelta,
+            longitude: longitude + longitudeDelta
+        )
+    }
+
+    private static func transformedLatitude(longitude x: Double, latitude y: Double) -> Double {
+        var result = -100 + 2 * x + 3 * y + 0.2 * y * y
+            + 0.1 * x * y + 0.2 * sqrt(abs(x))
+        result += (20 * sin(6 * x * .pi) + 20 * sin(2 * x * .pi)) * 2 / 3
+        result += (20 * sin(y * .pi) + 40 * sin(y / 3 * .pi)) * 2 / 3
+        result += (160 * sin(y / 12 * .pi) + 320 * sin(y * .pi / 30)) * 2 / 3
+        return result
+    }
+
+    private static func transformedLongitude(longitude x: Double, latitude y: Double) -> Double {
+        var result = 300 + x + 2 * y + 0.1 * x * x
+            + 0.1 * x * y + 0.1 * sqrt(abs(x))
+        result += (20 * sin(6 * x * .pi) + 20 * sin(2 * x * .pi)) * 2 / 3
+        result += (20 * sin(x * .pi) + 40 * sin(x / 3 * .pi)) * 2 / 3
+        result += (150 * sin(x / 12 * .pi) + 300 * sin(x / 30 * .pi)) * 2 / 3
+        return result
+    }
+}
+
+private extension Array where Element == CLLocationCoordinate2D {
+    func containsCoordinate(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        guard count > 2, var previous = last else { return false }
+        var isInside = false
+
+        for current in self {
+            let crossesLatitude = (current.latitude > coordinate.latitude)
+                != (previous.latitude > coordinate.latitude)
+            if crossesLatitude {
+                let boundaryLongitude = (previous.longitude - current.longitude)
+                    * (coordinate.latitude - current.latitude)
+                    / (previous.latitude - current.latitude)
+                    + current.longitude
+                if coordinate.longitude < boundaryLongitude {
+                    isInside.toggle()
+                }
+            }
+            previous = current
+        }
+
+        return isInside
+    }
+}
+
 /// Experimental vector-map renderer for the Today screen. Apple services still
 /// provide POI resolution and route geometry; MapLibre only draws the basemap.
 struct MapLibreTodayMapCanvas: UIViewRepresentable {
@@ -16,6 +371,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     let overviewBottomInset: CGFloat
     let routeRefreshID: Int
     let onRouteLoadingChanged: (Bool) -> Void
+    /// Reports whether the viewport is actively moving and whether a real
+    /// itinerary POI (not an edge proxy) is currently visible in it.
+    let onViewportStateChanged: (Bool, Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -40,7 +398,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: points,
             selectedIndex: selectedIndex,
             routeRefreshID: routeRefreshID,
-            onRouteLoadingChanged: onRouteLoadingChanged
+            onRouteLoadingChanged: onRouteLoadingChanged,
+            onViewportStateChanged: onViewportStateChanged
         )
         return mapView
     }
@@ -51,7 +410,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: points,
             selectedIndex: selectedIndex,
             routeRefreshID: routeRefreshID,
-            onRouteLoadingChanged: onRouteLoadingChanged
+            onRouteLoadingChanged: onRouteLoadingChanged,
+            onViewportStateChanged: onViewportStateChanged
         )
         context.coordinator.updateCamera(
             on: mapView,
@@ -77,6 +437,18 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var isFollowingUserLocation = false
         private var isRouting = false
         private var isShowingRouteOverview = false
+        private var isMapRegionChanging = false
+        /// Set before our own camera animations. Those movements should not
+        /// dismiss the swiper; only a direct map gesture does that.
+        private var isProgrammaticCameraChange = false
+        private var onViewportStateChanged: ((Bool, Bool) -> Void)?
+        private var lastReportedViewportIsMoving: Bool?
+        private var lastReportedHasVisiblePOI: Bool?
+        /// POIs that currently need an edge proxy while the user is dragging.
+        /// This is deliberately separate from `pinPlacements`: when a POI
+        /// comes back onscreen, its old bubble is allowed to follow the map
+        /// until the gesture ends, but it is not fully laid out again yet.
+        private var draggingEdgePinIDs: Set<UUID> = []
         private var overviewBottomInset: CGFloat = 240
         private var pinPlacements: [UUID: MapLibrePinPlacement] = [:]
         /// Keep enough surrounding roads and nearby POIs in view while a
@@ -88,10 +460,15 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: [TodayMapPoint],
             selectedIndex: Int?,
             routeRefreshID: Int,
-            onRouteLoadingChanged: @escaping (Bool) -> Void
+            onRouteLoadingChanged: @escaping (Bool) -> Void,
+            onViewportStateChanged: @escaping (Bool, Bool) -> Void
         ) {
+            self.onViewportStateChanged = onViewportStateChanged
             let refreshRequested = routeRefreshID != handledRouteRefreshID
-            guard points != renderedPoints || selectedIndex != renderedSelection || refreshRequested else { return }
+            guard points != renderedPoints || selectedIndex != renderedSelection || refreshRequested else {
+                reportViewportState(on: mapView, isMoving: isMapRegionChanging)
+                return
+            }
             let pointsChanged = points != renderedPoints
             let forceRouteRefresh = refreshRequested && routeRefreshID > 0
 
@@ -120,6 +497,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             renderedPoints = points
             renderedSelection = selectedIndex
             updatePinPlacements(on: mapView)
+            reportViewportState(on: mapView, isMoving: isMapRegionChanging)
         }
 
         private func rebuildNavigationRoute(
@@ -150,7 +528,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     routeAnnotations.append(
                         contentsOf: routeAnnotations(for: route, origin: origin, destination: destination)
                     )
-                    displayedRouteCoordinates.append(contentsOf: route.coordinates)
+                    displayedRouteCoordinates.append(
+                        contentsOf: MapLibreCoordinateTransform.displayCoordinates(for: route.coordinates)
+                    )
                 } else {
                     missingLegs.append((origin, destination))
                 }
@@ -216,11 +596,17 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                             destination: destination
                         )
                         routeAnnotations.append(contentsOf: annotations)
-                        displayedRouteCoordinates.append(contentsOf: route.coordinates)
+                        displayedRouteCoordinates.append(
+                            contentsOf: MapLibreCoordinateTransform.displayCoordinates(for: route.coordinates)
+                        )
                         annotations.forEach(mapView.addAnnotation)
                     }
                 }
-                updatePinPlacements(on: mapView)
+                if self.isMapRegionChanging {
+                    self.updateEdgePinPlacementsDuringGesture(on: mapView)
+                } else {
+                    self.updatePinPlacements(on: mapView)
+                }
             }
         }
 
@@ -240,21 +626,28 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             origin: TodayMapPoint,
             destination: TodayMapPoint
         ) -> [MLNPolyline] {
+            let routeCoordinates = MapLibreCoordinateTransform.displayCoordinates(for: route.coordinates)
             var annotations: [MLNPolyline]
             if route.isWalking {
-                annotations = dashedRouteAnnotations(for: route.coordinates)
+                annotations = dashedRouteAnnotations(for: routeCoordinates)
             } else {
-                annotations = [routeAnnotation(for: route.coordinates)]
+                annotations = [routeAnnotation(for: routeCoordinates)]
             }
 
             // MapKit may snap a coordinate to the nearest routable road. Make
             // that final off-road distance explicit instead of leaving the
             // orange route visually detached from the POI pin.
-            if let first = route.coordinates.first {
-                annotations.append(contentsOf: dashedConnector(from: origin.coordinate, to: first))
+            if let first = routeCoordinates.first {
+                annotations.append(contentsOf: dashedConnector(
+                    from: MapLibreCoordinateTransform.displayCoordinate(for: origin.coordinate),
+                    to: first
+                ))
             }
-            if let last = route.coordinates.last {
-                annotations.append(contentsOf: dashedConnector(from: last, to: destination.coordinate))
+            if let last = routeCoordinates.last {
+                annotations.append(contentsOf: dashedConnector(
+                    from: last,
+                    to: MapLibreCoordinateTransform.displayCoordinate(for: destination.coordinate)
+                ))
             }
             return annotations
         }
@@ -438,8 +831,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
 
             if let focus {
                 isShowingRouteOverview = false
+                if animated { isProgrammaticCameraChange = true }
                 mapView.setCenter(
-                    focus,
+                    MapLibreCoordinateTransform.displayCoordinate(for: focus),
                     zoomLevel: points.count == 1 ? 12 : poiSwiperFocusZoomLevel,
                     animated: animated
                 )
@@ -467,12 +861,16 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: [TodayMapPoint],
             animated: Bool
         ) {
-            var coordinates = points.map(\.coordinate)
+            var coordinates = points.map {
+                MapLibreCoordinateTransform.displayCoordinate(for: $0.coordinate)
+            }
             coordinates.append(contentsOf: displayedRouteCoordinates)
             if coordinates.count == 1, let coordinate = coordinates.first {
+                if animated { isProgrammaticCameraChange = true }
                 mapView.setCenter(coordinate, zoomLevel: 12, animated: animated)
                 return
             }
+            if animated { isProgrammaticCameraChange = true }
             mapView.setVisibleCoordinates(
                 &coordinates,
                 count: UInt(coordinates.count),
@@ -510,7 +908,10 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+            isMapRegionChanging = false
             updatePinPlacements(on: mapView)
+            reportViewportState(on: mapView, isMoving: false)
+            isProgrammaticCameraChange = false
         }
 
         /// `regionDidChangeAnimated` only fires after a pan/zoom settles. Keep
@@ -518,21 +919,122 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         /// temporary map coordinates drift with the map until the user's
         /// finger lifts.
         func mapViewRegionIsChanging(_ mapView: MLNMapView) {
-            updatePinPlacements(on: mapView)
+            isMapRegionChanging = true
+            if !isProgrammaticCameraChange {
+                reportViewportState(on: mapView, isMoving: true)
+            }
+            updateEdgePinPlacementsDuringGesture(on: mapView)
+        }
+
+        private func reportViewportState(on mapView: MLNMapView, isMoving: Bool) {
+            guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return }
+            let hasVisiblePOI = pointAnnotations.contains { annotation in
+                mapView.bounds.contains(
+                    mapView.convert(annotation.sourceCoordinate, toPointTo: mapView)
+                )
+            }
+            guard lastReportedViewportIsMoving != isMoving
+                    || lastReportedHasVisiblePOI != hasVisiblePOI else {
+                return
+            }
+            lastReportedViewportIsMoving = isMoving
+            lastReportedHasVisiblePOI = hasVisiblePOI
+            onViewportStateChanged?(isMoving, hasVisiblePOI)
         }
 
         private func updatePinPlacements(on mapView: MLNMapView) {
             let placements = calculatedPinPlacements(on: mapView)
+            applyPinPlacements(
+                placements,
+                on: mapView,
+                refreshing: Set(pointAnnotations.map(\.pointID))
+            )
+            draggingEdgePinIDs.removeAll()
+        }
+
+        /// During a pan/zoom, only edge proxies are recomputed. On-screen
+        /// pins remain at their POI coordinates until the gesture ends.
+        private func updateEdgePinPlacementsDuringGesture(on mapView: MLNMapView) {
+            guard !pointAnnotations.isEmpty else { return }
+            guard !pinPlacements.isEmpty else {
+                updatePinPlacements(on: mapView)
+                return
+            }
+
+            let edgeRect = edgePinBounds(on: mapView)
+            for annotation in pointAnnotations {
+                let sourcePoint = mapView.convert(annotation.sourceCoordinate, toPointTo: mapView)
+                if edgeRect.contains(sourcePoint) {
+                    draggingEdgePinIDs.remove(annotation.pointID)
+
+                    // Let a proxy return to the real POI as soon as the POI
+                    // enters the viewport, but do not re-layout its bubble
+                    // until the user releases the gesture.
+                    if annotation.coordinate.latitude != annotation.sourceCoordinate.latitude
+                        || annotation.coordinate.longitude != annotation.sourceCoordinate.longitude {
+                        annotation.coordinate = annotation.sourceCoordinate
+                    }
+                } else {
+                    draggingEdgePinIDs.insert(annotation.pointID)
+                }
+            }
+
+            let edgeAnnotations = pointAnnotations.filter {
+                draggingEdgePinIDs.contains($0.pointID)
+            }
+            guard !edgeAnnotations.isEmpty else { return }
+
+            let sourcePoints = Dictionary(uniqueKeysWithValues: pointAnnotations.map {
+                ($0.pointID, mapView.convert($0.sourceCoordinate, toPointTo: mapView))
+            })
+            let edgePlacements = arrangedEdgePinPlacements(
+                annotations: edgeAnnotations,
+                sourcePoints: sourcePoints,
+                safeRect: edgeRect
+            )
+            var placements = pinPlacements
+            // A previously visible edge proxy can become the farthest point
+            // while panning. Remove its old placement before adding the new
+            // queue so it really disappears instead of remaining at a stale
+            // screen-edge coordinate.
+            edgeAnnotations.forEach { placements.removeValue(forKey: $0.pointID) }
+            let refreshedIDs = Set(edgeAnnotations.map(\.pointID))
+            for annotation in edgeAnnotations {
+                guard let edgePlacement = edgePlacements[annotation.pointID] else { continue }
+                placements[annotation.pointID] = edgePlacement
+            }
+            applyPinPlacements(placements, on: mapView, refreshing: refreshedIDs)
+        }
+
+        private func applyPinPlacements(
+            _ placements: [UUID: MapLibrePinPlacement],
+            on mapView: MLNMapView,
+            refreshing refreshedIDs: Set<UUID>
+        ) {
             pinPlacements = placements
 
             for annotation in pointAnnotations {
-                guard let placement = placements[annotation.pointID] else { continue }
+                guard let placement = placements[annotation.pointID] else {
+                    // The queue on this screen edge is full. Restore the real
+                    // (off-screen) coordinate and hide any old proxy view.
+                    // This keeps an evicted POI from flashing at its prior
+                    // edge location until MapLibre has culled it.
+                    if annotation.coordinate.latitude != annotation.sourceCoordinate.latitude
+                        || annotation.coordinate.longitude != annotation.sourceCoordinate.longitude {
+                        annotation.coordinate = annotation.sourceCoordinate
+                    }
+                    if refreshedIDs.contains(annotation.pointID) {
+                        mapView.view(for: annotation)?.isHidden = true
+                    }
+                    continue
+                }
 
                 // MapLibre does not create an annotation view for a coordinate
                 // outside its viewport. Edge pins therefore use a temporary
                 // map coordinate under their screen-space number bubble while
                 // retaining `sourceCoordinate` as the real itinerary POI.
                 let displayedCoordinate = placement.isEdgePinned
+                    && (!isMapRegionChanging || draggingEdgePinIDs.contains(annotation.pointID))
                     ? mapView.convert(placement.anchorPoint, toCoordinateFrom: mapView)
                     : annotation.sourceCoordinate
                 if annotation.coordinate.latitude != displayedCoordinate.latitude
@@ -540,7 +1042,11 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     annotation.coordinate = displayedCoordinate
                 }
 
-                guard let view = mapView.view(for: annotation) as? MapLibreNumberedAnnotationView else { continue }
+                guard refreshedIDs.contains(annotation.pointID),
+                      let view = mapView.view(for: annotation) as? MapLibreNumberedAnnotationView else {
+                    continue
+                }
+                view.isHidden = false
                 view.configure(
                     with: annotation,
                     placement: placement
@@ -552,11 +1058,10 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on mapView: MLNMapView
         ) -> [UUID: MapLibrePinPlacement] {
             guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return [:] }
-            let safeRect = pinSafeRect(on: mapView)
+            let edgeRect = edgePinBounds(on: mapView)
             let sourcePoints = Dictionary(uniqueKeysWithValues: pointAnnotations.map {
                 ($0.pointID, mapView.convert($0.sourceCoordinate, toPointTo: mapView))
             })
-            let routePoints = sampledRouteScreenPoints(on: mapView)
             let regularPlacements: [UUID: MapLibrePinPlacement] = Dictionary(
                 uniqueKeysWithValues: pointAnnotations.map { annotation in
                     let target = sourcePoints[annotation.pointID]!
@@ -564,143 +1069,62 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                         annotation.pointID,
                         regularPinPlacement(
                             for: annotation,
-                            target: target,
-                            safeRect: safeRect,
-                            routePoints: routePoints,
-                            otherPinPoints: sourcePoints
-                                .filter { $0.key != annotation.pointID }
-                                .map(\.value),
-                            mapMidX: mapView.bounds.midX
+                            target: target
                         )
                     )
                 }
             )
             let edgeAnnotations = pointAnnotations.filter {
-                guard let point = sourcePoints[$0.pointID],
-                      let regularPlacement = regularPlacements[$0.pointID] else { return false }
-                // Stay attached to the edge until both the real POI and its
-                // complete white label can transition into the usable map
-                // without clipping under the header/card.
-                return !safeRect.contains(point) || !safeRect.contains(regularPlacement.labelRect)
+                guard let point = sourcePoints[$0.pointID] else { return false }
+                // Only a POI outside the actual map viewport gets an edge
+                // proxy. A label being under the SwiftUI card/tab bar is not
+                // an offscreen POI and must not force its pin to the edge.
+                return !edgeRect.contains(point)
             }
-            let edgeCenters = arrangedEdgePinCenters(
+            let edgePlacements = arrangedEdgePinPlacements(
                 annotations: edgeAnnotations,
                 sourcePoints: sourcePoints,
-                safeRect: safeRect
+                safeRect: edgeRect
             )
 
             var result: [UUID: MapLibrePinPlacement] = [:]
             for annotation in pointAnnotations {
-                if let edgeCenter = edgeCenters[annotation.pointID] {
-                    result[annotation.pointID] = edgePinPlacement(
-                        for: annotation,
-                        numberCenter: edgeCenter
-                    )
-                } else {
+                if let edgePlacement = edgePlacements[annotation.pointID] {
+                    result[annotation.pointID] = edgePlacement
+                } else if !edgeAnnotations.contains(where: { $0.pointID == annotation.pointID }) {
                     result[annotation.pointID] = regularPlacements[annotation.pointID]
                 }
             }
             return result
         }
 
-        private func pinSafeRect(on mapView: MLNMapView) -> CGRect {
-            // Camera padding is intentionally smaller than the visible swiper
-            // footprint. Edge pins need the full card + tab-bar exclusion or a
-            // bottom proxy remains alive but hidden underneath the SwiftUI UI.
-            let bottomExclusion = overviewBottomInset > 180
-                ? overviewBottomInset + 120
-                : overviewBottomInset
-            return CGRect(
-                x: 16,
-                y: 108,
-                // Keep the edge queue left of the always-visible action rail.
-                width: max(1, mapView.bounds.width - 16 - 76),
-                height: max(1, mapView.bounds.height - 108 - bottomExclusion)
-            )
+        /// The outer bounds for an edge bubble. The 3pt inset is measured
+        /// from the map/screen edge; the arrangement helper then accounts for
+        /// the bubble radius (and the highlighted category bubble) so the
+        /// rendered white pin never clips.
+        private func edgePinBounds(on mapView: MLNMapView) -> CGRect {
+            mapView.bounds.insetBy(dx: 3, dy: 3)
         }
 
-        /// Selects a side and leader length that keeps an on-screen label clear
-        /// of the orange route. Off-screen POIs are handled separately by edge
-        /// pins because MapLibre culls their original annotation coordinates.
+        /// On-screen pins are centered directly on their POI coordinate.
         private func regularPinPlacement(
             for annotation: MapLibreNumberedAnnotation,
             on mapView: MLNMapView
         ) -> MapLibrePinPlacement {
             regularPinPlacement(
                 for: annotation,
-                target: mapView.convert(annotation.sourceCoordinate, toPointTo: mapView),
-                safeRect: pinSafeRect(on: mapView),
-                routePoints: sampledRouteScreenPoints(on: mapView),
-                otherPinPoints: pointAnnotations
-                    .filter { $0 !== annotation }
-                    .map { mapView.convert($0.sourceCoordinate, toPointTo: mapView) },
-                mapMidX: mapView.bounds.midX
+                target: mapView.convert(annotation.sourceCoordinate, toPointTo: mapView)
             )
         }
 
         private func regularPinPlacement(
             for annotation: MapLibreNumberedAnnotation,
-            target: CGPoint,
-            safeRect: CGRect,
-            routePoints: [CGPoint],
-            otherPinPoints: [CGPoint],
-            mapMidX: CGFloat
+            target: CGPoint
         ) -> MapLibrePinPlacement {
-            let preferredSide: MapLibrePinPlacement.Side = target.x < mapMidX ? .right : .left
-            let sides: [MapLibrePinPlacement.Side] = [preferredSide, preferredSide.opposite]
-            let reaches: [CGFloat] = [42, 50, 58, 66]
-            var best = MapLibrePinPlacement.regular(
+            return MapLibrePinPlacement.regular(
                 target: target,
-                side: preferredSide,
-                horizontalReach: 50,
                 isHighlighted: annotation.isHighlighted
             )
-            var bestScore = CGFloat.greatestFiniteMagnitude
-
-            for side in sides {
-                for reach in reaches {
-                    let candidate = MapLibrePinPlacement.regular(
-                        target: target,
-                        side: side,
-                        horizontalReach: reach,
-                        isHighlighted: annotation.isHighlighted
-                    )
-                    let labelRect = candidate.labelRect
-                    let elbow = candidate.connectorPoints[1]
-                    var score = overflowPenalty(for: labelRect, outside: safeRect) * 80
-                    score += abs(reach - 50) * 0.35
-
-                    // Do not place either white circle over an orange segment.
-                    let expandedLabelRect = labelRect.insetBy(dx: -8, dy: -8)
-                    score += CGFloat(routePoints.filter { expandedLabelRect.contains($0) }.count) * 150
-                    score += CGFloat(otherPinPoints.filter { expandedLabelRect.contains($0) }.count) * 500
-
-                    // Sample the diagonal itself. Ignore the immediate target
-                    // neighborhood because every valid leader meets the route
-                    // at its orange endpoint there.
-                    for step in 2...9 {
-                        let progress = CGFloat(step) / 10
-                        let sample = CGPoint(
-                            x: target.x + (elbow.x - target.x) * progress,
-                            y: target.y + (elbow.y - target.y) * progress
-                        )
-                        let nearestRouteDistance = routePoints
-                            .filter { hypot($0.x - target.x, $0.y - target.y) > 24 }
-                            .map { hypot($0.x - sample.x, $0.y - sample.y) }
-                            .min() ?? 100
-                        if nearestRouteDistance < 18 {
-                            let overlap = 18 - nearestRouteDistance
-                            score += overlap * overlap * 2.5
-                        }
-                    }
-
-                    if score < bestScore {
-                        best = candidate
-                        bestScore = score
-                    }
-                }
-            }
-            return best
         }
 
         private struct EdgePinCandidate {
@@ -720,15 +1144,39 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             let axisMaximum: CGFloat
             let extentBefore: CGFloat
             let extentAfter: CGFloat
+            /// Screen-space distance from the POI to the edge queue. When an
+            /// edge is full, retain nearby POIs and evict the farthest ones.
+            let distanceToEdge: CGFloat
+        }
+
+        /// One visible edge pill may represent multiple POIs that project to
+        /// nearly the same point on the screen boundary.
+        private struct EdgePinGroupCandidate {
+            let annotations: [MapLibreNumberedAnnotation]
+            let edge: EdgePinCandidate.Edge
+            let desiredCenter: CGPoint
+            let axisMinimum: CGFloat
+            let axisMaximum: CGFloat
+            let extentBefore: CGFloat
+            let extentAfter: CGFloat
+            let distanceToEdge: CGFloat
+            let labelText: String
+            let labelSize: CGSize
+
+            var displayAnnotation: MapLibreNumberedAnnotation {
+                annotations.min {
+                    $0.index < $1.index
+                } ?? annotations[0]
+            }
         }
 
         /// Projects each unavailable POI onto the usable map boundary, then
         /// spaces pins that share an edge so their white bubbles do not stack.
-        private func arrangedEdgePinCenters(
+        private func arrangedEdgePinPlacements(
             annotations: [MapLibreNumberedAnnotation],
             sourcePoints: [UUID: CGPoint],
             safeRect: CGRect
-        ) -> [UUID: CGPoint] {
+        ) -> [UUID: MapLibrePinPlacement] {
             let candidates: [EdgePinCandidate] = annotations.compactMap { annotation in
                 guard let source = sourcePoints[annotation.pointID] else { return nil }
                 let topExtent = annotation.isHighlighted
@@ -754,7 +1202,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                         axisMinimum: centerRect.minX,
                         axisMaximum: centerRect.maxX,
                         extentBefore: MapLibrePinPlacement.bubbleSize / 2,
-                        extentAfter: MapLibrePinPlacement.bubbleSize / 2
+                        extentAfter: MapLibrePinPlacement.bubbleSize / 2,
+                        distanceToEdge: hypot(source.x - projection.point.x, source.y - projection.point.y)
                     )
                 }
                 return EdgePinCandidate(
@@ -764,73 +1213,164 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     axisMinimum: centerRect.minY,
                     axisMaximum: centerRect.maxY,
                     extentBefore: topExtent,
-                    extentAfter: bottomExtent
+                    extentAfter: bottomExtent,
+                    distanceToEdge: hypot(source.x - projection.point.x, source.y - projection.point.y)
                 )
             }
 
-            var result: [UUID: CGPoint] = [:]
+            var result: [UUID: MapLibrePinPlacement] = [:]
             for edge in [EdgePinCandidate.Edge.top, .right, .bottom, .left] {
-                let group = candidates
+                let edgeCandidates = candidates
                     .filter { $0.edge == edge }
                     .sorted {
                         let lhs = edge.isHorizontal ? $0.desiredCenter.x : $0.desiredCenter.y
                         let rhs = edge.isHorizontal ? $1.desiredCenter.x : $1.desiredCenter.y
                         return lhs == rhs ? $0.annotation.index < $1.annotation.index : lhs < rhs
                     }
-                guard !group.isEmpty else { continue }
-                let lanes = edgeLanes(for: group)
-                let laneStride = edge.isHorizontal
-                    && group.contains(where: { $0.annotation.isHighlighted })
-                    ? MapLibrePinPlacement.highlightedTopExtent
-                        + MapLibrePinPlacement.bubbleSize / 2 + 6
-                    : MapLibrePinPlacement.bubbleSize + 6
-
-                for (laneIndex, lane) in lanes.enumerated() {
-                    let positions = spacedEdgePositions(for: lane, horizontal: edge.isHorizontal)
-                    for (candidate, position) in zip(lane, positions) {
-                        var center = candidate.desiredCenter
-                        if edge.isHorizontal {
-                            center.x = position
-                            center.y += (edge == .top ? 1 : -1) * CGFloat(laneIndex) * laneStride
-                        } else {
-                            center.y = position
-                            center.x += (edge == .left ? 1 : -1) * CGFloat(laneIndex) * laneStride
+                guard !edgeCandidates.isEmpty else { continue }
+                // Keep one queue on the physical edge. Adding inward lanes
+                // made the top of the map increasingly crowded; instead,
+                // retain the nearest POIs and hide the farthest overflow.
+                let visible = edgeQueueCandidates(
+                    from: mergedEdgeCandidates(edgeCandidates, horizontal: edge.isHorizontal)
+                )
+                let positions = spacedEdgePositions(for: visible, horizontal: edge.isHorizontal)
+                for (candidate, position) in zip(visible, positions) {
+                    var center = candidate.desiredCenter
+                    if edge.isHorizontal {
+                        center.x = position
+                    } else {
+                        center.y = position
+                        // A merged pill is wider than the original round
+                        // number pin. Anchor its nearest side to the physical
+                        // map edge, so the extra width always grows inward.
+                        switch edge {
+                        case .left:
+                            center.x = safeRect.minX + candidate.labelSize.width / 2
+                        case .right:
+                            center.x = safeRect.maxX - candidate.labelSize.width / 2
+                        case .top, .bottom:
+                            break
                         }
-                        result[candidate.annotation.pointID] = center
                     }
+                    let annotation = candidate.displayAnnotation
+                    result[annotation.pointID] = edgePinPlacement(
+                        for: annotation,
+                        numberCenter: center,
+                        labelText: candidate.labelText,
+                        labelSize: candidate.labelSize
+                    )
                 }
             }
             return result
         }
 
-        /// Splits an overcrowded edge into inward lanes instead of allowing
-        /// bubbles to overlap and hide one another. Most trips need one lane;
-        /// dense days can use a second compact row/column near the same edge.
-        private func edgeLanes(for candidates: [EdgePinCandidate]) -> [[EdgePinCandidate]] {
+        /// Neighboring off-screen POIs are visually one cluster, not several
+        /// competing bubbles. Do not merge the selected POI: it keeps its
+        /// category icon and enlarged treatment while the swiper is visible.
+        private func mergedEdgeCandidates(
+            _ candidates: [EdgePinCandidate],
+            horizontal: Bool
+        ) -> [EdgePinGroupCandidate] {
+            let mergeDistance = MapLibrePinPlacement.bubbleSize + 10
+            var clusters: [[EdgePinCandidate]] = []
+
+            for candidate in candidates {
+                let axis = horizontal ? candidate.desiredCenter.x : candidate.desiredCenter.y
+                guard let last = clusters.indices.last,
+                      let previous = clusters[last].last else {
+                    clusters.append([candidate])
+                    continue
+                }
+                let previousAxis = horizontal ? previous.desiredCenter.x : previous.desiredCenter.y
+                let canMerge = !candidate.annotation.isHighlighted
+                    && !previous.annotation.isHighlighted
+                    && axis - previousAxis <= mergeDistance
+                if canMerge {
+                    clusters[last].append(candidate)
+                } else {
+                    clusters.append([candidate])
+                }
+            }
+
+            return clusters.map { cluster in
+                let first = cluster[0]
+                let indexes = cluster.map { String($0.annotation.index + 1) }
+                let labelText = indexes.joined(separator: ".")
+                let labelSize = MapLibrePinPlacement.edgeLabelSize(for: labelText)
+                let axis = cluster.map { horizontal ? $0.desiredCenter.x : $0.desiredCenter.y }
+                    .sorted()
+                let medianAxis = axis[axis.count / 2]
+                var desiredCenter = first.desiredCenter
+                if horizontal {
+                    desiredCenter.x = medianAxis
+                } else {
+                    desiredCenter.y = medianAxis
+                }
+                let annotations = cluster.map(\.annotation)
+                let isHighlighted = annotations.contains(where: \.isHighlighted)
+                let extentBefore = horizontal
+                    ? labelSize.width / 2
+                    : (isHighlighted ? MapLibrePinPlacement.highlightedTopExtent : labelSize.height / 2)
+                let extentAfter = horizontal ? labelSize.width / 2 : labelSize.height / 2
+                // For top/bottom pins, the pill grows along the edge's queue
+                // axis. Replace the old circular-pin bounds with its actual
+                // width before arranging and clamping that queue.
+                let axisMinimum = horizontal
+                    ? first.axisMinimum - MapLibrePinPlacement.bubbleSize / 2 + labelSize.width / 2
+                    : first.axisMinimum
+                let axisMaximum = horizontal
+                    ? first.axisMaximum + MapLibrePinPlacement.bubbleSize / 2 - labelSize.width / 2
+                    : first.axisMaximum
+                return EdgePinGroupCandidate(
+                    annotations: annotations,
+                    edge: first.edge,
+                    desiredCenter: desiredCenter,
+                    axisMinimum: axisMinimum,
+                    axisMaximum: axisMaximum,
+                    extentBefore: extentBefore,
+                    extentAfter: extentAfter,
+                    distanceToEdge: cluster.map(\.distanceToEdge).min() ?? 0,
+                    labelText: labelText,
+                    labelSize: labelSize
+                )
+            }
+        }
+
+        /// Fits as many pins as one edge can hold without overlap. Candidates
+        /// are chosen by their distance outside the viewport, then returned in
+        /// map order so their final positions still follow the edge naturally.
+        private func edgeQueueCandidates(
+            from candidates: [EdgePinGroupCandidate]
+        ) -> [EdgePinGroupCandidate] {
             guard let first = candidates.first else { return [] }
             let availableLength = first.axisMaximum - first.axisMinimum
             let gap: CGFloat = 6
-            var lanes: [[EdgePinCandidate]] = [[]]
+            var visible: [EdgePinGroupCandidate] = []
             var occupied: CGFloat = 0
 
-            for candidate in candidates {
+            for candidate in candidates.sorted(by: {
+                $0.distanceToEdge == $1.distanceToEdge
+                    ? $0.displayAnnotation.index < $1.displayAnnotation.index
+                    : $0.distanceToEdge < $1.distanceToEdge
+            }) {
                 let length = candidate.extentBefore + candidate.extentAfter
-                let proposed = lanes[lanes.count - 1].isEmpty
+                let proposed = visible.isEmpty
                     ? length
                     : occupied + gap + length
-                if proposed > availableLength, !lanes[lanes.count - 1].isEmpty {
-                    lanes.append([candidate])
-                    occupied = length
-                } else {
-                    lanes[lanes.count - 1].append(candidate)
-                    occupied = proposed
-                }
+                guard proposed <= availableLength else { continue }
+                visible.append(candidate)
+                occupied = proposed
             }
-            return lanes
+            return visible.sorted {
+                let lhs = first.edge.isHorizontal ? $0.desiredCenter.x : $0.desiredCenter.y
+                let rhs = first.edge.isHorizontal ? $1.desiredCenter.x : $1.desiredCenter.y
+                return lhs == rhs ? $0.displayAnnotation.index < $1.displayAnnotation.index : lhs < rhs
+            }
         }
 
         private func spacedEdgePositions(
-            for candidates: [EdgePinCandidate],
+            for candidates: [EdgePinGroupCandidate],
             horizontal: Bool
         ) -> [CGFloat] {
             let gap: CGFloat = 6
@@ -891,35 +1431,21 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
 
         private func edgePinPlacement(
             for annotation: MapLibreNumberedAnnotation,
-            numberCenter: CGPoint
+            numberCenter: CGPoint,
+            labelText: String? = nil,
+            labelSize: CGSize = CGSize(
+                width: MapLibrePinPlacement.bubbleSize,
+                height: MapLibrePinPlacement.bubbleSize
+            )
         ) -> MapLibrePinPlacement {
             return MapLibrePinPlacement(
                 anchorPoint: numberCenter,
                 numberCenter: numberCenter,
-                connectorPoints: [],
-                targetCenter: nil,
                 isHighlighted: annotation.isHighlighted,
-                isEdgePinned: true
+                isEdgePinned: true,
+                labelText: labelText,
+                labelSize: labelSize
             )
-        }
-
-        private func sampledRouteScreenPoints(on mapView: MLNMapView) -> [CGPoint] {
-            guard !displayedRouteCoordinates.isEmpty else { return [] }
-            let step = max(1, displayedRouteCoordinates.count / 400)
-            var points = stride(from: 0, to: displayedRouteCoordinates.count, by: step).map {
-                mapView.convert(displayedRouteCoordinates[$0], toPointTo: mapView)
-            }
-            if let last = displayedRouteCoordinates.last {
-                points.append(mapView.convert(last, toPointTo: mapView))
-            }
-            return points
-        }
-
-        private func overflowPenalty(for rect: CGRect, outside safeRect: CGRect) -> CGFloat {
-            max(0, safeRect.minX - rect.minX)
-                + max(0, rect.maxX - safeRect.maxX)
-                + max(0, safeRect.minY - rect.minY)
-                + max(0, rect.maxY - safeRect.maxY)
         }
 
         func mapView(
@@ -1018,9 +1544,9 @@ private final class MapLibreNumberedAnnotation: MLNPointAnnotation {
         self.index = index
         self.isHighlighted = isHighlighted
         categorySymbolName = point.categorySymbolName
-        sourceCoordinate = point.coordinate
+        sourceCoordinate = MapLibreCoordinateTransform.displayCoordinate(for: point.coordinate)
         super.init()
-        coordinate = point.coordinate
+        coordinate = sourceCoordinate
         title = point.title
     }
 
@@ -1030,41 +1556,40 @@ private final class MapLibreNumberedAnnotation: MLNPointAnnotation {
 }
 
 private struct MapLibrePinPlacement {
-    enum Side {
-        case left
-        case right
-
-        var direction: CGFloat { self == .left ? -1 : 1 }
-        var opposite: Side { self == .left ? .right : .left }
-    }
-
     static let bubbleSize: CGFloat = 32
-    static let bubbleGap: CGFloat = 4
     static let categoryGap: CGFloat = 2
-    static let stemLength: CGFloat = 16
-    static let targetSize: CGFloat = 10
     static let highlightedTopExtent = bubbleSize * 1.5 + categoryGap
 
     /// Screen point backed by the annotation's temporary map coordinate. For
-    /// regular pins this is the orange POI dot; for edge pins it is the white
+    /// regular pins this is the POI itself; for edge pins it is the white
     /// number bubble, which keeps MapLibre from culling an off-screen POI.
     let anchorPoint: CGPoint
     let numberCenter: CGPoint
-    let connectorPoints: [CGPoint]
-    let targetCenter: CGPoint?
     let isHighlighted: Bool
     let isEdgePinned: Bool
+    /// `nil` for a standard single-number pin. Edge clusters supply a joined
+    /// value such as "2.4.9" and widen only that one pill.
+    let labelText: String?
+    let labelSize: CGSize
 
     var labelRect: CGRect {
-        Self.labelRect(numberCenter: numberCenter, isHighlighted: isHighlighted)
+        Self.labelRect(
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            isHighlighted: isHighlighted
+        )
     }
 
-    static func labelRect(numberCenter: CGPoint, isHighlighted: Bool) -> CGRect {
+    static func labelRect(
+        numberCenter: CGPoint,
+        labelSize: CGSize,
+        isHighlighted: Bool
+    ) -> CGRect {
         let numberRect = CGRect(
-            x: numberCenter.x - Self.bubbleSize / 2,
-            y: numberCenter.y - Self.bubbleSize / 2,
-            width: Self.bubbleSize,
-            height: Self.bubbleSize
+            x: numberCenter.x - labelSize.width / 2,
+            y: numberCenter.y - labelSize.height / 2,
+            width: labelSize.width,
+            height: labelSize.height
         )
         guard isHighlighted else { return numberRect }
         let categoryRect = numberRect.offsetBy(
@@ -1074,32 +1599,26 @@ private struct MapLibrePinPlacement {
         return numberRect.union(categoryRect)
     }
 
+    static func edgeLabelSize(for text: String) -> CGSize {
+        let font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        let measuredWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        return CGSize(
+            width: max(bubbleSize, measuredWidth + 20),
+            height: bubbleSize
+        )
+    }
+
     static func regular(
         target: CGPoint,
-        side: Side,
-        horizontalReach: CGFloat,
         isHighlighted: Bool
     ) -> Self {
-        let diagonalRise = min(62, max(40, horizontalReach * 0.9))
-        let numberCenter = CGPoint(
-            x: target.x + side.direction * horizontalReach,
-            y: target.y - diagonalRise - stemLength - bubbleGap - bubbleSize / 2
-        )
-        let lineStart = CGPoint(
-            x: numberCenter.x,
-            y: numberCenter.y + bubbleSize / 2 + bubbleGap
-        )
-        let elbow = CGPoint(
-            x: numberCenter.x,
-            y: lineStart.y + stemLength
-        )
         return Self(
             anchorPoint: target,
-            numberCenter: numberCenter,
-            connectorPoints: [lineStart, elbow, target],
-            targetCenter: target,
+            numberCenter: target,
             isHighlighted: isHighlighted,
-            isEdgePinned: false
+            isEdgePinned: false,
+            labelText: nil,
+            labelSize: CGSize(width: bubbleSize, height: bubbleSize)
         )
     }
 }
@@ -1111,9 +1630,7 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
     private let categoryBackground = UIView()
     private let numberLabel = UILabel()
     private let categoryImageView = UIImageView()
-    private let connectorLayer = CAShapeLayer()
     private let gooeyBackgroundLayer = CAShapeLayer()
-    private let targetDot = UIView()
 
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
@@ -1125,21 +1642,16 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
         numberBackground.layer.cornerRadius = MapLibrePinPlacement.bubbleSize / 2
         categoryBackground.layer.cornerRadius = MapLibrePinPlacement.bubbleSize / 2
 
-        connectorLayer.strokeColor = UIColor.white.cgColor
-        connectorLayer.fillColor = UIColor.clear.cgColor
-        connectorLayer.lineWidth = 2
-        connectorLayer.lineCap = .round
-        connectorLayer.lineJoin = .round
-        layer.insertSublayer(connectorLayer, at: 0)
-
         gooeyBackgroundLayer.fillColor = UIColor.white.cgColor
-        gooeyBackgroundLayer.strokeColor = nil
+        gooeyBackgroundLayer.strokeColor = UIColor(
+            red: 1,
+            green: 110 / 255,
+            blue: 0,
+            alpha: 1
+        ).cgColor
+        gooeyBackgroundLayer.lineWidth = 2
+        gooeyBackgroundLayer.lineJoin = .round
         layer.insertSublayer(gooeyBackgroundLayer, at: 1)
-
-        targetDot.backgroundColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
-        targetDot.layer.borderColor = UIColor.white.cgColor
-        targetDot.layer.borderWidth = 2
-        targetDot.layer.cornerRadius = MapLibrePinPlacement.targetSize / 2
 
         numberLabel.textAlignment = .center
         numberLabel.textColor = .black
@@ -1147,7 +1659,6 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
         categoryImageView.tintColor = .black
         categoryImageView.contentMode = .scaleAspectFit
 
-        addSubview(targetDot)
         addSubview(numberBackground)
         addSubview(categoryBackground)
         addSubview(numberLabel)
@@ -1163,24 +1674,9 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
         placement: MapLibrePinPlacement
     ) {
         let bubbleSize = MapLibrePinPlacement.bubbleSize
-        let targetSize = MapLibrePinPlacement.targetSize
+        let labelSize = placement.labelSize
         let padding: CGFloat = 4
         var screenFrame = placement.labelRect
-        for point in placement.connectorPoints {
-            screenFrame = screenFrame.union(
-                CGRect(x: point.x - 1, y: point.y - 1, width: 2, height: 2)
-            )
-        }
-        if let targetCenter = placement.targetCenter {
-            screenFrame = screenFrame.union(
-                CGRect(
-                    x: targetCenter.x - targetSize / 2,
-                    y: targetCenter.y - targetSize / 2,
-                    width: targetSize,
-                    height: targetSize
-                )
-            )
-        }
         screenFrame = screenFrame.insetBy(dx: -padding, dy: -padding)
         bounds = CGRect(origin: .zero, size: screenFrame.size)
         centerOffset = CGVector(
@@ -1194,14 +1690,15 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
 
         let localNumberCenter = local(placement.numberCenter)
         let numberFrame = CGRect(
-            x: localNumberCenter.x - bubbleSize / 2,
-            y: localNumberCenter.y - bubbleSize / 2,
-            width: bubbleSize,
-            height: bubbleSize
+            x: localNumberCenter.x - labelSize.width / 2,
+            y: localNumberCenter.y - labelSize.height / 2,
+            width: labelSize.width,
+            height: labelSize.height
         )
         numberBackground.frame = numberFrame
+        numberBackground.layer.cornerRadius = labelSize.height / 2
         numberLabel.frame = numberFrame
-        numberLabel.text = String(annotation.index + 1)
+        numberLabel.text = placement.labelText ?? String(annotation.index + 1)
 
         if annotation.isHighlighted {
             let categoryFrame = numberFrame.offsetBy(
@@ -1235,29 +1732,6 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
             categoryBackground.isHidden = true
             categoryImageView.isHidden = true
             gooeyBackgroundLayer.isHidden = true
-        }
-
-        let leader = UIBezierPath()
-        if let first = placement.connectorPoints.first {
-            leader.move(to: local(first))
-            for point in placement.connectorPoints.dropFirst() {
-                leader.addLine(to: local(point))
-            }
-        }
-        connectorLayer.frame = bounds
-        connectorLayer.path = leader.cgPath
-
-        if let targetCenter = placement.targetCenter {
-            let localTarget = local(targetCenter)
-            targetDot.frame = CGRect(
-                x: localTarget.x - targetSize / 2,
-                y: localTarget.y - targetSize / 2,
-                width: targetSize,
-                height: targetSize
-            )
-            targetDot.isHidden = false
-        } else {
-            targetDot.isHidden = true
         }
 
         let title = annotation.title ?? "地点"

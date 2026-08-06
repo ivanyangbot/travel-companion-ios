@@ -17,7 +17,7 @@ struct ItineraryView: View {
     @State private var aiItinerarySeed: String?
     @State private var cardPendingDeletion: TravelCardSnapshot?
     @State private var expenseEditorDate: Date?
-    @State private var inviteURL: URL?
+    @State private var showsSharingSheet = false
     @State private var inviteBeingJoined: String?
     @State private var signOutErrorMessage: String?
     @StateObject private var linkHandler = ExternalLinkHandler()
@@ -82,18 +82,8 @@ struct ItineraryView: View {
                 guard token != nil else { return }
                 joinPendingInviteIfPossible()
             }
-            .sheet(isPresented: Binding(
-                get: { inviteURL != nil },
-                set: { if !$0 { inviteURL = nil } }
-            )) {
-                if let inviteURL {
-                    ShareLink(item: inviteURL, message: Text("邀请你共同编辑我的旅行行程")) {
-                        Label("分享共同编辑邀请", systemImage: "person.badge.plus")
-                            .font(.headline)
-                    }
-                    .padding()
-                    .presentationDetents([.height(140)])
-                }
+            .sheet(isPresented: $showsSharingSheet) {
+                TripSharingSheet(syncEngine: syncEngine)
             }
             .onChange(of: syncEngine.trip?.version) { _, _ in
                 presentSharedLinkIfPossible()
@@ -280,13 +270,13 @@ struct ItineraryView: View {
             .accessibilityLabel("切换旅程")
 
             Button {
-                Task { inviteURL = await syncEngine.createShareInvite() }
+                showsSharingSheet = true
             } label: {
                 Image("icon-adduser-outline")
                     .journeyActionIcon()
             }
-            .disabled(syncEngine.trips.first(where: { $0.id == syncEngine.selectedTripID })?.canShare != true)
-            .accessibilityLabel("邀请共同编辑")
+            .disabled(!syncEngine.isUserAuthenticated || syncEngine.selectedTripID == nil)
+            .accessibilityLabel("查看共享成员")
 
             Button { Task { await syncEngine.retry() } } label: {
                 Image("icon-reload-outline")

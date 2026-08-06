@@ -1,8 +1,37 @@
 import XCTest
+import CoreLocation
 import SwiftData
 @testable import TravelCompanion
 
 final class MapsTests: XCTestCase {
+    func testMainlandAppleCoordinateIsNormalizedForMapLibre() {
+        let appleCoordinate = CLLocationCoordinate2D(
+            latitude: 27.8250397,
+            longitude: 99.7036914
+        )
+
+        let displayCoordinate = MapLibreCoordinateTransform.displayCoordinate(for: appleCoordinate)
+
+        XCTAssertEqual(displayCoordinate.latitude, 27.8285362177, accuracy: 0.0000001)
+        XCTAssertEqual(displayCoordinate.longitude, 99.7025975337, accuracy: 0.0000001)
+    }
+
+    func testCoordinatesOutsideMainlandChinaAreNotChangedForMapLibre() {
+        let overseasCoordinates = [
+            CLLocationCoordinate2D(latitude: -7.25747, longitude: 112.75209),
+            CLLocationCoordinate2D(latitude: 13.7563, longitude: 100.5018),
+            CLLocationCoordinate2D(latitude: 34.6937, longitude: 135.5023),
+            CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780)
+        ]
+
+        for coordinate in overseasCoordinates {
+            let displayCoordinate = MapLibreCoordinateTransform.displayCoordinate(for: coordinate)
+
+            XCTAssertEqual(displayCoordinate.latitude, coordinate.latitude, accuracy: 0.0000001)
+            XCTAssertEqual(displayCoordinate.longitude, coordinate.longitude, accuracy: 0.0000001)
+        }
+    }
+
     func testRouteCacheEntryExpiresAfterFifteenMinutes() {
         let estimate = RouteEstimate(distanceMeters: 1200, durationSeconds: 600, mode: .walking, updatedAt: .now, source: "Apple 地图")
         let cachedAt = Date(timeIntervalSince1970: 1_000)

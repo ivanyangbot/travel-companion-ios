@@ -147,8 +147,11 @@ struct ContentView: View {
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.white)
-                .frame(width: navigationItemSize, height: navigationItemSize)
+                .frame(width: navigationHighlightWidth, height: navigationItemSize)
                 .offset(x: navigationHighlightOffset)
+                // Keep the drag state tactile without changing the bar's
+                // layout: the selected white tile gently breathes outward.
+                .scaleEffect(x: 1, y: navigationHighlightVerticalScale)
 
             navigationIcons(tint: .white)
 
@@ -156,8 +159,9 @@ struct ContentView: View {
             navigationIcons(tint: .black)
                 .mask(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .frame(width: navigationItemSize, height: navigationItemSize)
+                        .frame(width: navigationHighlightWidth, height: navigationItemSize)
                         .offset(x: navigationHighlightOffset)
+                        .scaleEffect(x: 1, y: navigationHighlightVerticalScale)
                 }
 
         }
@@ -263,7 +267,29 @@ struct ContentView: View {
     }
 
     private var navigationHighlightOffset: CGFloat {
-        CGFloat(navigationSelectedIndex) * navigationItemStride + navigationDragTranslation
+        let rawOffset = CGFloat(navigationSelectedIndex) * navigationItemStride
+            + navigationDragTranslation
+            - (navigationHighlightWidth - navigationItemSize) / 2
+        return min(max(0, rawOffset), navigationContentWidth - navigationHighlightWidth)
+    }
+
+    /// The highlight grows only while the user is actively moving it. The
+    /// values stay deliberately small so the control retains its compact feel.
+    private var navigationDragProgress: CGFloat {
+        min(1, abs(navigationDragTranslation) / navigationItemStride)
+    }
+
+    private var navigationHighlightWidth: CGFloat {
+        navigationItemSize + 6 * navigationDragProgress
+    }
+
+    private var navigationHighlightVerticalScale: CGFloat {
+        1 + 0.025 * navigationDragProgress
+    }
+
+    private var navigationContentWidth: CGFloat {
+        CGFloat(MainSection.allCases.count) * navigationItemSize
+            + CGFloat(MainSection.allCases.count - 1) * navigationItemSpacing
     }
 
     private func clampedNavigationTranslation(_ translation: CGFloat) -> CGFloat {

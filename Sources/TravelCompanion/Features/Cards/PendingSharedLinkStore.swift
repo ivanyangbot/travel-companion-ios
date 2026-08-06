@@ -6,6 +6,7 @@ import Foundation
 final class PendingSharedLinkStore: ObservableObject {
     static let appGroup = "group.com.nuanxinban.indo"
     static let pendingURLKey = "pendingPublicTravelLink"
+    static let pendingInviteTokenKey = "pendingTripInviteToken"
     static let hostScheme = "travelcompanion"
 
     @Published private(set) var pendingURL: URL?
@@ -13,6 +14,7 @@ final class PendingSharedLinkStore: ObservableObject {
 
     init() {
         consumeStoredURL()
+        consumeStoredInviteToken()
     }
 
     func receiveHostURL(_ url: URL) {
@@ -24,6 +26,7 @@ final class PendingSharedLinkStore: ObservableObject {
                   let token = components?.queryItems?.first(where: { $0.name == "token" })?.value,
                   !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             pendingInviteToken = token
+            UserDefaults(suiteName: Self.appGroup)?.set(token, forKey: Self.pendingInviteTokenKey)
         }
     }
 
@@ -40,9 +43,16 @@ final class PendingSharedLinkStore: ObservableObject {
 
     func markInviteDelivered() {
         pendingInviteToken = nil
+        UserDefaults(suiteName: Self.appGroup)?.removeObject(forKey: Self.pendingInviteTokenKey)
     }
 
     private func clearStoredURL() {
         UserDefaults(suiteName: Self.appGroup)?.removeObject(forKey: Self.pendingURLKey)
+    }
+
+    private func consumeStoredInviteToken() {
+        guard let token = UserDefaults(suiteName: Self.appGroup)?.string(forKey: Self.pendingInviteTokenKey),
+              !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        pendingInviteToken = token
     }
 }

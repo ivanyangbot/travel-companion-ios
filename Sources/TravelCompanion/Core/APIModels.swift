@@ -57,6 +57,25 @@ struct TripJoinRequest: Encodable, Sendable {
     let token: String
 }
 
+struct TripMemberSummary: Decodable, Sendable, Identifiable, Equatable {
+    let userId: Int
+    let displayName: String?
+    let email: String?
+    let role: String
+    let joinedAt: Date
+
+    var id: Int { userId }
+    var isOwner: Bool { role == "owner" }
+
+    var visibleName: String {
+        let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, !name.isEmpty { return name }
+        let email = email?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let email, !email.isEmpty { return email }
+        return isOwner ? "旅程创建者" : "同行成员"
+    }
+}
+
 struct TripSummary: Decodable, Sendable, Identifiable, Equatable {
     let id: Int
     let destination: String?

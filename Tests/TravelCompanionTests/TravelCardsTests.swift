@@ -26,6 +26,37 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(TravelCardSnapshot.Kind.activity.title, "活动")
     }
 
+    func testInviteUsesHTTPSLandingPageAndPreservesToken() async throws {
+        let client = APIClient(baseURL: try XCTUnwrap(URL(string: "https://indo.example.test")))
+        let url = try await client.inviteLandingURL(token: "invite_token-123")
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.scheme, "https")
+        XCTAssertEqual(components.host, "indo.example.test")
+        XCTAssertEqual(components.path, "/join")
+        XCTAssertEqual(components.queryItems?.first(where: { $0.name == "token" })?.value, "invite_token-123")
+    }
+
+    @MainActor
+    func testBrowserDeepLinkTokenIsRecognizedByApp() throws {
+        let store = PendingSharedLinkStore()
+        store.receiveHostURL(try XCTUnwrap(URL(string: "travelcompanion://join?token=invite_token-123")))
+        XCTAssertEqual(store.pendingInviteToken, "invite_token-123")
+        let restoredStore = PendingSharedLinkStore()
+        XCTAssertEqual(restoredStore.pendingInviteToken, "invite_token-123")
+        restoredStore.markInviteDelivered()
+        XCTAssertNil(restoredStore.pendingInviteToken)
+    }
+
+    func testTripMembersDecodeForSharingSheet() throws {
+        let data = Data("""
+        {"userId":1,"displayName":"创建者","email":null,"role":"owner","joinedAt":"2026-10-01T00:00:00Z"}
+        """.utf8)
+        let member = try JSONDecoder.sharedTrip.decode(TripMemberSummary.self, from: data)
+        XCTAssertEqual(member.visibleName, "创建者")
+        XCTAssertTrue(member.isOwner)
+    }
+
     func testCardPatchEncodesExplicitPlaceClearOnly() throws {
         let request = CardRequest(position: 1, fieldsToClear: ["place"])
         let data = try JSONEncoder().encode(request)

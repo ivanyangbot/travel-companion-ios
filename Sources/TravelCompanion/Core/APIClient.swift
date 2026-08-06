@@ -111,6 +111,27 @@ actor APIClient {
         return try decoder.decode(APIEnvelope<TripInvite>.self, from: data).data
     }
 
+    func fetchTripMembers(for tripID: Int) async throws -> [TripMemberSummary] {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/trips/\(tripID)/members"))
+        request.httpMethod = "GET"
+        authorize(&request, tripID: tripID)
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<[TripMemberSummary]>.self, from: data).data
+    }
+
+    func inviteLandingURL(token: String) throws -> URL {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        guard var components = URLComponents(
+            url: baseURL.appending(path: "/join"),
+            resolvingAgainstBaseURL: false
+        ) else { throw URLError(.badURL) }
+        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        return try requiredURL(components)
+    }
+
     func joinTrip(inviteToken: String) async throws -> TripSummary {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: "/v1/trips/join"))

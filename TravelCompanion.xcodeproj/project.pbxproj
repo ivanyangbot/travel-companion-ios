@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		01CF842454052FCA56C9E53F /* MemoListEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */; };
+		031F69F3FAA8CCDE6D3B1751 /* TripSharingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30369EF50639AA58432D5AF7 /* TripSharingSheet.swift */; };
 		038861FECCE58D3B9FD8B931 /* MapLibreTodayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */; };
 		0554718E10121E7B104D9B3A /* MemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052363166F7B2BC56DBDB352 /* MemoTests.swift */; };
 		0708992FBBEE91B48EE542ED /* AgentV2StreamParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5842942547DFB60B2B196D /* AgentV2StreamParserTests.swift */; };
@@ -133,6 +134,7 @@
 		297971AD9DCBEA57F1F1D5F7 /* CardLegPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLegPreference.swift; sourceTree = "<group>"; };
 		2FACC90B0B873713F42DB22E /* PendingSharedLinkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingSharedLinkStore.swift; sourceTree = "<group>"; };
 		2FEC5E8543BD6BF4F183C617 /* CameraPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPicker.swift; sourceTree = "<group>"; };
+		30369EF50639AA58432D5AF7 /* TripSharingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripSharingSheet.swift; sourceTree = "<group>"; };
 		31021ED5F6FCDAC6E05BE906 /* AgentWorkbenchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentWorkbenchView.swift; sourceTree = "<group>"; };
 		3198C4E39AD5226C2AABD9E3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		39F5D705DE2E7F9662C9A578 /* TravelCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCompanionApp.swift; sourceTree = "<group>"; };
@@ -239,6 +241,7 @@
 				9B71738D5B59EDD1B741EFD6 /* ItineraryView.swift */,
 				1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */,
 				76C42CC5E8251F33492311AC /* TripSetupSheet.swift */,
+				30369EF50639AA58432D5AF7 /* TripSharingSheet.swift */,
 			);
 			path = Itinerary;
 			sourceTree = "<group>";
@@ -647,6 +650,7 @@
 				41684B84A0670660E575A95E /* TravelCardView.swift in Sources */,
 				B0F43F3DFD03ED20D7B2CE48 /* TravelCompanionApp.swift in Sources */,
 				A92FD3B481DD54A4B24F93B3 /* TripSetupSheet.swift in Sources */,
+				031F69F3FAA8CCDE6D3B1751 /* TripSharingSheet.swift in Sources */,
 				9E02493F9FA3FFBA908A6202 /* WalletCardArtwork.swift in Sources */,
 				F965CC59DA0BA2ED1C5A87EB /* WalletCardScanModels.swift in Sources */,
 				E670704D79E281B974DC5128 /* WalletCrypto.swift in Sources */,
@@ -762,7 +766,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 17;
+				CURRENT_PROJECT_VERSION = 23;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -774,7 +778,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.14;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -825,7 +829,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.yangzhiyuan.travelcompanion.share;
 				PRODUCT_NAME = TravelCompanionShareExtension;
-				PROVISIONING_PROFILE_SPECIFIER = "TravelCompanion Share App Store";
+				PROVISIONING_PROFILE_SPECIFIER = "Indo Share App Store A3E2";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -865,7 +869,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 17;
+				CURRENT_PROJECT_VERSION = 23;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -883,7 +887,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.14;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

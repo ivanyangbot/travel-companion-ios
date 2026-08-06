@@ -17,14 +17,18 @@ struct TodayView: View {
     /// 相对于排序后 days 的当前选中索引；nil 表示跟随“今日”基准。
     @State private var selectedDayIndex: Int?
     @State private var weatherEntries: [TodayWeatherEntry] = []
-    @State private var inviteURL: URL?
+    @State private var showsSharingSheet = false
     @State private var showsTripPicker = false
-    @State private var inviteErrorMessage: String?
     @State private var activeQuickAction: TodayQuickAction?
     @State private var isQuickActionsExpanded = false
     @State private var isReloading = false
     @State private var isRouteLoading = false
     @State private var routeRefreshID = 0
+    @State private var expandedPOICardID: UUID?
+    @State private var poiSwipeStartIndex: Int?
+    @State private var isMapViewportMoving = false
+    @State private var hasVisiblePOIInMap = true
+    @State private var isTimelineSwitching = false
 
     var body: some View {
         Group {
@@ -68,22 +72,13 @@ struct TodayView: View {
             TodayCardDetailSheet(card: card, linkHandler: linkHandler)
         }
         .sheet(isPresented: Binding(
-            get: { inviteURL != nil },
+            get: { showsSharingSheet },
             set: {
-                if !$0 {
-                    inviteURL = nil
-                    clearQuickAction(.addCompanion)
-                }
+                showsSharingSheet = $0
+                if !$0 { clearQuickAction(.addCompanion) }
             }
         )) {
-            if let inviteURL {
-                ShareLink(item: inviteURL, message: Text("邀请你共同编辑我的旅行行程")) {
-                    Label("分享共同编辑邀请", systemImage: "person.badge.plus")
-                        .font(.headline)
-                }
-                .padding()
-                .presentationDetents([.height(140)])
-            }
+            TripSharingSheet(syncEngine: syncEngine)
         }
         .confirmationDialog("选择行程", isPresented: Binding(
             get: { showsTripPicker },
@@ -111,22 +106,6 @@ struct TodayView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("选择要在首页显示的旅行行程。")
-        }
-        .alert("无法分享邀请", isPresented: Binding(
-            get: { inviteErrorMessage != nil },
-            set: {
-                if !$0 {
-                    inviteErrorMessage = nil
-                    clearQuickAction(.addCompanion)
-                }
-            }
-        )) {
-            Button("好", role: .cancel) {
-                inviteErrorMessage = nil
-                clearQuickAction(.addCompanion)
-            }
-        } message: {
-            Text(inviteErrorMessage ?? "")
         }
         .sheet(isPresented: Binding(
             get: { linkHandler.browserURL != nil },
@@ -161,6 +140,10 @@ struct TodayView: View {
     private func mapContent(days: [TripDaySnapshot], currentIndex: Int, baseIndex: Int) -> some View {
         let day = days[currentIndex]
         let pois = poiCards(in: day)
+        let showsPOIOverlay = !pois.isEmpty
+            && !isQuickActionsExpanded
+            && (!isMapViewportMoving || isTimelineSwitching)
+            && hasVisiblePOIInMap
         ZStack {
             MapLibreTodayMapCanvas(
                 points: mapPoints(pois: pois),
@@ -177,9 +160,17 @@ struct TodayView: View {
                 DispatchQueue.main.async {
                     updateRouteLoading(isLoading)
                 }
+            } onViewportStateChanged: { isMoving, hasVisiblePOI in
+                // MapLibre's delegate runs during UIKit layout and gestures;
+                // defer the SwiftUI state write to the next run-loop turn.
+                DispatchQueue.main.async {
+                    updatePOIOverlayVisibility(
+                        isMapMoving: isMoving,
+                        hasVisiblePOI: hasVisiblePOI
+                    )
+                }
             }
             .ignoresSafeArea()
-            .simultaneousGesture(daySwipeGesture(days: days, currentIndex: currentIndex))
 
             VStack(spacing: 0) {
                 LinearGradient(
@@ -198,12 +189,37 @@ struct TodayView: View {
             .allowsHitTesting(false)
 
             VStack {
-                mapHeader(for: day, pois: pois, currentIndex: currentIndex, baseIndex: baseIndex)
+                mapHeader(
+                    days: days,
+                    for: day,
+                    pois: pois,
+                    currentIndex: currentIndex,
+                    baseIndex: baseIndex
+                )
                 Spacer()
-                if !pois.isEmpty && !isQuickActionsExpanded {
-                    poiSwiper(pois: pois)
-                        .padding(.bottom, 112)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                if showsPOIOverlay {
+                    let timelineWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
+                    VStack(spacing: 8) {
+                        TodayDateTimeline(
+                            days: days,
+                            selectedIndex: currentIndex,
+                            todayIndex: baseIndex,
+                            width: timelineWidth,
+                            label: { day, isToday in
+                                timelineLabel(for: day, isToday: isToday)
+                            }
+                        ) { index in
+                            selectDay(days: days, index: index, keepsPOIOverlayVisible: true)
+                        }
+
+                        poiSwiper(
+                            pois: pois,
+                            days: days,
+                            currentDayIndex: currentIndex
+                        )
+                    }
+                    .padding(.bottom, 112)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .padding(.top, 2)
@@ -231,6 +247,7 @@ struct TodayView: View {
     }
 
     private func mapHeader(
+        days: [TripDaySnapshot],
         for day: TripDaySnapshot,
         pois: [TravelCardSnapshot],
         currentIndex: Int,
@@ -240,8 +257,10 @@ struct TodayView: View {
             Text(mapHeaderTitle(for: day, currentIndex: currentIndex, baseIndex: baseIndex))
                 .font(.custom("PingFangTC-Semibold", size: 24))
                 .tracking(0.024)
-                .frame(height: 36)
+                .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36)
                 .foregroundStyle(.white)
+                .contentShape(Rectangle())
+                .simultaneousGesture(daySwipeGesture(days: days, currentIndex: currentIndex))
 
             HStack {
                 Spacer()
@@ -295,12 +314,7 @@ struct TodayView: View {
         switch action {
         case .addCompanion:
             activeQuickAction = .addCompanion
-            Task {
-                inviteURL = await syncEngine.createShareInvite()
-                if inviteURL == nil {
-                    inviteErrorMessage = "当前旅程暂时无法创建共同编辑邀请。"
-                }
-            }
+            showsSharingSheet = true
         case .tripSelection:
             activeQuickAction = .tripSelection
             showsTripPicker = true
@@ -333,24 +347,38 @@ struct TodayView: View {
         }
     }
 
+    private func updatePOIOverlayVisibility(
+        isMapMoving: Bool,
+        hasVisiblePOI: Bool
+    ) {
+        guard !isTimelineSwitching else { return }
+        guard isMapViewportMoving != isMapMoving || hasVisiblePOIInMap != hasVisiblePOI else {
+            return
+        }
+        withAnimation(.easeOut(duration: 0.16)) {
+            isMapViewportMoving = isMapMoving
+            hasVisiblePOIInMap = hasVisiblePOI
+        }
+    }
+
     private func clearQuickAction(_ action: TodayQuickAction) {
         guard activeQuickAction == action else { return }
         activeQuickAction = nil
     }
 
     private func mapHeaderTitle(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> String {
-        let dateText: String
-        if let date = Self.dayFormatter.date(from: day.date) {
-            let components = Self.utcCalendar.dateComponents([.month, .day], from: date)
-            if let month = components.month, let dayNumber = components.day {
-                dateText = "\(chineseNumber(month))月\(chineseNumber(dayNumber))"
-            } else {
-                dateText = day.date
+        if let dateText = monthDayChineseLabel(for: day) {
+            if currentIndex == baseIndex, let weekday = weekdayLabel(for: day), !weekday.isEmpty {
+                return "今日 \(weekday)"
             }
-        } else {
-            dateText = day.date
+            return dateText
         }
-        return currentIndex == baseIndex ? "今日 \(dateText)" : dateText
+        guard let date = Self.dayFormatter.date(from: day.date) else { return day.date }
+        let fallback = Self.displayFormatter.string(from: date)
+        if currentIndex == baseIndex, let weekday = weekdayLabel(for: day), !weekday.isEmpty {
+            return "今日 \(weekday)"
+        }
+        return fallback
     }
 
     private func chineseNumber(_ value: Int) -> String {
@@ -428,10 +456,22 @@ struct TodayView: View {
         )
     }
 
-    private func selectDay(days: [TripDaySnapshot], index: Int) {
+    private func selectDay(
+        days: [TripDaySnapshot],
+        index: Int,
+        keepsPOIOverlayVisible: Bool = false
+    ) {
         guard days.indices.contains(index) else { return }
+        if keepsPOIOverlayVisible {
+            isTimelineSwitching = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                isTimelineSwitching = false
+                isMapViewportMoving = false
+            }
+        }
         hasCenteredOnPOIs = false
         selectedPOIIndex = 0
+        expandedPOICardID = nil
         weatherEntries = []
         withAnimation(.easeInOut(duration: 0.25)) {
             selectedDayIndex = index
@@ -455,7 +495,20 @@ struct TodayView: View {
     }
 
     @ViewBuilder
-    private func poiSwiper(pois: [TravelCardSnapshot]) -> some View {
+    private func poiSwiper(
+        pois: [TravelCardSnapshot],
+        days: [TripDaySnapshot],
+        currentDayIndex: Int
+    ) -> some View {
+        let fallbackCardWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
+        // Each page retains a small trailing gutter. Besides visually
+        // separating adjacent cards while swiping, this keeps the resting
+        // card aligned with the 20pt screen margin.
+        let itemSpacing: CGFloat = 12
+        let itemWidth = max(0, fallbackCardWidth - itemSpacing)
+        let currentCard = pois.indices.contains(clampedIndex(pois: pois)) ? pois[clampedIndex(pois: pois)] : nil
+        let isExpanded = currentCard.map { expandedPOICardID == $0.id } ?? false
+        let swiperHeight = POICard.height(for: itemWidth, card: currentCard, isExpanded: isExpanded)
         let selection = Binding<Int>(
             get: { clampedIndex(pois: pois) },
             set: { index in
@@ -464,24 +517,45 @@ struct TodayView: View {
                 focus(pois: pois, index: index)
             }
         )
-        GeometryReader { proxy in
-            let cardWidth = min(390, max(0, proxy.size.width - 40))
-            TabView(selection: selection) {
-                ForEach(Array(pois.enumerated()), id: \.element.id) { index, card in
-                    POICard(
-                        card: card,
-                        index: index,
-                        width: cardWidth
+        TabView(selection: selection) {
+            ForEach(Array(pois.enumerated()), id: \.element.id) { index, card in
+                POICard(
+                    card: card,
+                    index: index,
+                    width: itemWidth,
+                    isExpanded: expandedPOICardID == card.id,
+                    onToggleExpanded: {
+                        withAnimation(.snappy(duration: 0.28)) {
+                            expandedPOICardID = expandedPOICardID == card.id ? nil : card.id
+                        }
+                    }
+                )
+                    .contentShape(Rectangle())
+                .onTapGesture { detailCard = card }
+                    .frame(
+                        width: fallbackCardWidth,
+                        height: swiperHeight,
+                        alignment: .center
                     )
-                        .contentShape(Rectangle())
-                        .onTapGesture { detailCard = card }
-                        .tag(index)
-                }
+                    .tag(index)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(width: proxy.size.width, height: 248)
         }
-        .frame(height: 248)
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(width: fallbackCardWidth, height: swiperHeight)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onChanged { value in
+                    guard abs(value.translation.width) > abs(value.translation.height),
+                          poiSwipeStartIndex == nil else { return }
+                    poiSwipeStartIndex = clampedIndex(pois: pois)
+                }
+                .onEnded { value in
+                    defer { poiSwipeStartIndex = nil }
+                    guard value.translation.width < -50,
+                          poiSwipeStartIndex == pois.count - 1 else { return }
+                    selectDay(days: days, index: currentDayIndex + 1)
+                }
+        )
     }
 
     private func sortedDays(in trip: SharedTripSnapshot) -> [TripDaySnapshot] {
@@ -560,6 +634,50 @@ struct TodayView: View {
         return Self.displayFormatter.string(from: date)
     }
 
+    private func timelineLabel(for day: TripDaySnapshot, isToday: Bool) -> String {
+        guard let date = Self.dayFormatter.date(from: day.date) else { return day.date }
+        guard let weekday = weekdayLabel(from: date), !weekday.isEmpty else { return day.date }
+        if isToday { return "今日 \(weekday)" }
+        return "\(Self.timelineNumericFormatter.string(from: date)) \(weekday)"
+    }
+
+    private func weekdayLabel(for day: TripDaySnapshot) -> String? {
+        guard let date = Self.dayFormatter.date(from: day.date) else { return nil }
+        return weekdayLabel(from: date)
+    }
+
+    private func weekdayLabel(from date: Date) -> String? {
+        let symbol = Self.weekdaySymbols[
+            max(0, min(6, Self.utcCalendar.component(.weekday, from: date) - 1))
+        ]
+        return symbol
+    }
+
+    private func monthDayChineseLabel(for day: TripDaySnapshot) -> String? {
+        guard let date = Self.dayFormatter.date(from: day.date) else { return nil }
+        return monthDayChineseLabel(for: date)
+    }
+
+    private func monthDayChineseLabel(for date: Date) -> String? {
+        let components = Self.utcCalendar.dateComponents([.month, .day], from: date)
+        guard let month = components.month, let day = components.day else { return nil }
+        return "\(chineseNumber(month))月\(chineseDayWithLeadingZero(day))"
+    }
+
+    private func chineseDayWithLeadingZero(_ value: Int) -> String {
+        guard (1...31).contains(value) else { return String(value) }
+        let digits = ["〇", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+        if value < 10 { return "〇\(digits[value])" }
+        if value < 20 { return "十\(value == 10 ? "" : digits[value % 10])" }
+        if value == 20 { return "廿" }
+        if value < 30 {
+            return "廿\(digits[value - 20])"
+        }
+        if value == 30 { return "三十" }
+        if value == 31 { return "三十一" }
+        return String(value)
+    }
+
     private func fitAll(pois: [TravelCardSnapshot]) {
         guard !pois.isEmpty else { return }
         if pois.count == 1, let coordinate = coordinate(of: pois[0]) {
@@ -594,6 +712,17 @@ struct TodayView: View {
         formatter.dateFormat = "M月d日 EEE"
         return formatter
     }()
+
+    private static let timelineNumericFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "MM.dd"
+        return formatter
+    }()
+
+    private static let weekdaySymbols = ["日", "一", "二", "三", "四", "五", "六"]
 
     private static var utcCalendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
@@ -755,37 +884,401 @@ private struct TodayGlassBackdrop: View {
     }
 }
 
+/// Horizontally scrollable day rail placed directly above the POI swiper. It
+/// deliberately shares the swiper's visibility condition, so expanding the
+/// action drawer moves both pieces away together.
+private struct TodayDateTimeline: View {
+    private enum PinnedTodaySide {
+        case leading
+        case trailing
+    }
+
+    let days: [TripDaySnapshot]
+    let selectedIndex: Int
+    let todayIndex: Int
+    let width: CGFloat
+    let label: (TripDaySnapshot, Bool) -> String
+    let onSelect: (Int) -> Void
+    @State private var todayFrame: CGRect = .null
+    @State private var chipFrames: [UUID: CGRect] = [:]
+    /// Local visual selection is updated at the exact moment the rail
+    /// settles, rather than waiting for the parent map/card view to redraw.
+    @State private var anchoredIndex: Int?
+    /// `ScrollView` also emits idle phases for `scrollTo` during creation.
+    /// Only a preceding direct drag is allowed to choose a new day.
+    @State private var isUserDraggingTimeline = false
+    @State private var hasSettledCurrentTimelineDrag = false
+
+    private let coordinateSpaceName = "today-date-timeline-viewport"
+
+    var body: some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
+                        let isSelected = index == (anchoredIndex ?? selectedIndex)
+                        let isToday = index == todayIndex
+                        Button {
+                            onSelect(index)
+                        } label: {
+                            timelineChip(for: day, index: index, isSelected: isSelected)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(label(day, isToday))
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                        .id(day.id)
+                    }
+                }
+                // Extra end room lets the first and last date snap to the
+                // central anchor as well, instead of stopping at a side edge.
+                .padding(.horizontal, max(8, width / 2))
+            }
+            .coordinateSpace(name: coordinateSpaceName)
+            .onScrollPhaseChange { _, phase in
+                switch phase {
+                case .tracking, .interacting:
+                    isUserDraggingTimeline = true
+                    hasSettledCurrentTimelineDrag = false
+                case .decelerating:
+                    // Intercept real inertial scrolling as soon as the finger
+                    // lifts, rather than waiting for a long coast.
+                    guard isUserDraggingTimeline, !hasSettledCurrentTimelineDrag else { return }
+                    hasSettledCurrentTimelineDrag = true
+                    settleDateUnderAnchor(using: scrollProxy, settlesImmediately: true)
+                case .idle:
+                    guard isUserDraggingTimeline else { return }
+                    if !hasSettledCurrentTimelineDrag {
+                        settleDateUnderAnchor(using: scrollProxy)
+                    }
+                    isUserDraggingTimeline = false
+                    hasSettledCurrentTimelineDrag = false
+                case .animating:
+                    // Programmatic centering must not write a date selection.
+                    break
+                }
+            }
+            // The white point is a stable anchor; the selected date scrolls
+            // beneath it instead of carrying the point along.
+            .overlay(alignment: .bottom) {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 5, height: 5)
+                    .padding(.bottom, 4)
+            }
+            .overlay(alignment: .leading) {
+                if pinnedTodaySide == .leading {
+                    leadingPinnedTodayOverlay
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if pinnedTodaySide == .trailing {
+                    pinnedTodayButton(hasLeadingShadow: false)
+                        .padding(.trailing, 7)
+                }
+            }
+            .onAppear {
+                anchoredIndex = selectedIndex
+                centerDate(at: selectedIndex, using: scrollProxy, animated: false)
+            }
+            .onChange(of: selectedIndex) {
+                anchoredIndex = selectedIndex
+                centerDate(at: selectedIndex, using: scrollProxy, animated: true)
+            }
+        }
+        .onPreferenceChange(TodayTimelineTodayFramePreferenceKey.self) {
+            todayFrame = $0
+        }
+        .onPreferenceChange(TodayTimelineChipFramesPreferenceKey.self) {
+            chipFrames = $0
+        }
+        .frame(width: width, height: 47)
+        .background {
+            ZStack {
+                AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.12)
+                Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0.72)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(.white.opacity(0.05), lineWidth: 1)
+            }
+    }
+
+    private var pinnedTodaySide: PinnedTodaySide? {
+        guard todayFrame != .null else { return nil }
+        // Swap into the fixed button before the whole chip disappears, so
+        // there is no moment where the way back to today is lost.
+        let edgeThreshold: CGFloat = 48
+        if todayFrame.maxX < edgeThreshold { return .leading }
+        if todayFrame.minX > width - edgeThreshold { return .trailing }
+        return nil
+    }
+
+    private var leadingPinnedTodayOverlay: some View {
+        ZStack(alignment: .leading) {
+            // The fixed button owns the rail's leading area. Do not let
+            // scrolling labels show through the gap before the button.
+            LinearGradient(
+                stops: [
+                    .init(color: Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0.98), location: 0),
+                    .init(color: Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0.98), location: 0.74),
+                    .init(color: Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0), location: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 132, height: 47)
+
+            pinnedTodayButton(hasLeadingShadow: true)
+                .padding(.leading, 7)
+        }
+        .frame(width: 132, height: 47, alignment: .leading)
+    }
+
+    private func pinnedTodayButton(hasLeadingShadow: Bool) -> some View {
+        Button {
+            onSelect(todayIndex)
+        } label: {
+            Text(label(days[todayIndex], true))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .frame(height: 31)
+                .background(Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0.92))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white, lineWidth: 1.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .shadow(
+            color: hasLeadingShadow
+                ? Color.black.opacity(0.5)
+                : .clear,
+            radius: 12,
+            y: 8
+        )
+        .accessibilityLabel("返回今天")
+    }
+
+    private func centerDate(
+        at index: Int,
+        using scrollProxy: ScrollViewProxy,
+        animated: Bool,
+        settlesImmediately: Bool = false
+    ) {
+        guard days.indices.contains(index) else { return }
+        let scroll = {
+            scrollProxy.scrollTo(days[index].id, anchor: .center)
+        }
+        if animated {
+            if settlesImmediately {
+                withAnimation(.easeOut(duration: 0.18)) { scroll() }
+            } else {
+                withAnimation(.spring(response: 0.46, dampingFraction: 0.92)) { scroll() }
+            }
+        } else {
+            DispatchQueue.main.async { scroll() }
+        }
+    }
+
+    private func settleDateUnderAnchor(
+        using scrollProxy: ScrollViewProxy,
+        settlesImmediately: Bool = false
+    ) {
+        guard days.allSatisfy({ chipFrames[$0.id] != nil }) else { return }
+        let anchorX = width / 2
+        let candidates = days.compactMap { day -> (day: TripDaySnapshot, frame: CGRect)? in
+            guard let frame = chipFrames[day.id] else { return nil }
+            return (day, frame)
+        }
+        guard let closest = candidates.min(by: {
+            abs($0.frame.midX - anchorX) < abs($1.frame.midX - anchorX)
+        }), let index = days.firstIndex(where: { $0.id == closest.day.id }) else { return }
+
+        anchoredIndex = index
+        if index != selectedIndex {
+            onSelect(index)
+            centerDate(
+                at: index,
+                using: scrollProxy,
+                animated: true,
+                settlesImmediately: settlesImmediately
+            )
+        } else if abs(closest.frame.midX - anchorX) > 1 {
+            // `scrollTo` makes the visual anchoring deterministic even when
+            // the drag ends between two labels.
+            centerDate(
+                at: index,
+                using: scrollProxy,
+                animated: true,
+                settlesImmediately: settlesImmediately
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func timelineChip(for day: TripDaySnapshot, index: Int, isSelected: Bool) -> some View {
+        let isToday = index == todayIndex
+        let activeTextColor = isSelected ? Color.white : Color.white.opacity(0.64)
+
+        Text(label(day, isToday))
+            .font(.system(size: 16, weight: .medium))
+            .lineSpacing(0)
+            .lineLimit(1)
+            .frame(height: 16)
+            .foregroundStyle(activeTextColor)
+            .padding(.horizontal, 12)
+            .frame(height: 39)
+            .background {
+                GeometryReader { proxy in
+                    let frame = proxy.frame(in: .named(coordinateSpaceName))
+                    Color.clear
+                        .preference(
+                            key: TodayTimelineChipFramesPreferenceKey.self,
+                            value: [day.id: frame]
+                        )
+                        .preference(
+                            key: TodayTimelineTodayFramePreferenceKey.self,
+                            value: isToday ? frame : .null
+                        )
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+    }
+}
+
+private struct TodayTimelineTodayFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect { .null }
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .null { value = next }
+    }
+}
+
+private struct TodayTimelineChipFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] { [:] }
+
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
 private struct POICard: View {
     let card: TravelCardSnapshot
     let index: Int
     let width: CGFloat
+    let isExpanded: Bool
+    let onToggleExpanded: () -> Void
+    private static let summaryHeight: CGFloat = 78
+    private static let imageAspectRatio: CGFloat = 16.0 / 9.0
+    private static let horizontalPadding: CGFloat = 12
+    private static let summarySpacing: CGFloat = 4
+    private static let verticalPadding: CGFloat = 12
+    private static let expandedTopPadding: CGFloat = 12
+    private static let expandedBottomPadding: CGFloat = 10
+    private static let detailRowSpacing: CGFloat = 14
+    private static let detailRowHeight: CGFloat = 34
+    private static let detailLocationHeight: CGFloat = 74
+    private static let detailActionHeight: CGFloat = 30
+    private static let detailActionWidth: CGFloat = 114
+    private static let detailActionTopSpacing: CGFloat = 8
+    private static let detailActionColor = Color(
+        red: 180 / 255,
+        green: 180 / 255,
+        blue: 180 / 255
+    )
+
+    static func height(for cardWidth: CGFloat, card: TravelCardSnapshot?, isExpanded: Bool) -> CGFloat {
+        let contentWidth = max(0, cardWidth - horizontalPadding)
+        let baseHeight = (contentWidth / imageAspectRatio) + summaryHeight + summarySpacing + verticalPadding
+        guard isExpanded else { return baseHeight }
+        return baseHeight + detailSectionHeight(for: card)
+    }
+
+    private var imageHeight: CGFloat {
+        max(0, (width - Self.horizontalPadding) / Self.imageAspectRatio)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             coverImage
                 .frame(maxWidth: .infinity)
-                .frame(height: 154)
+                .frame(height: imageHeight)
+                .aspectRatio(Self.imageAspectRatio, contentMode: .fill)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             poiSummary
                 .padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, minHeight: 78, maxHeight: 78)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: Self.summaryHeight,
+                    maxHeight: Self.summaryHeight
+                )
+
+            if isExpanded {
+                expandedDetails
+                    .padding(.horizontal, 8)
+                    .padding(.top, Self.expandedTopPadding)
+                    .padding(.bottom, Self.expandedBottomPadding)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(width: width, height: 248, alignment: .topLeading)
+        .frame(width: width, height: Self.height(for: width, card: card, isExpanded: isExpanded), alignment: .topLeading)
         .background {
             ZStack {
-                AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.18)
-                Color(red: 67 / 255, green: 67 / 255, blue: 67 / 255).opacity(0.25)
+                AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.12)
+                Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0.72)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                .strokeBorder(.white.opacity(0.05), lineWidth: 1)
+        }
+        // Keep one persistent action at the card's bottom-right corner. The
+        // card grows upward from its bottom edge, so its label can morph
+        // between expand/collapse without jumping to a different row.
+        .overlay(alignment: .bottomTrailing) {
+            detailAction
+                .padding(.trailing, 8)
+                .padding(.bottom, Self.detailActionTopSpacing)
         }
         .accessibilityLabel("第 \(index + 1) 个地点，\(card.title)，\(timeText)")
+    }
+
+    private static func detailSectionHeight(for card: TravelCardSnapshot?) -> CGFloat {
+        var rowHeights: [CGFloat] = [detailRowHeight]
+        if let location = locationText(for: card), !location.isEmpty {
+            rowHeights.append(detailLocationHeight)
+        }
+        if let phone = phoneText(for: card), !phone.isEmpty {
+            rowHeights.append(detailRowHeight)
+        }
+        return expandedTopPadding
+            + expandedBottomPadding
+            + summarySpacing
+            + rowHeights.reduce(0, +)
+            + detailRowSpacing * CGFloat(max(0, rowHeights.count - 1))
+            + detailActionTopSpacing
+            + detailActionHeight
+    }
+
+    private static func locationText(for card: TravelCardSnapshot?) -> String? {
+        let value = card?.place?.address?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value, !value.isEmpty { return value }
+        let name = card?.place?.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name?.isEmpty == false ? name : nil
+    }
+
+    private static func phoneText(for card: TravelCardSnapshot?) -> String? {
+        let value = card?.bookingCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
     }
 
     private var poiSummary: some View {
@@ -795,6 +1288,10 @@ private struct POICard: View {
                 .foregroundStyle(.black)
                 .frame(width: 30, height: 30)
                 .background(Circle().fill(.white))
+                .overlay(
+                    Circle()
+                        .stroke(Color(red: 1, green: 110 / 255, blue: 0), lineWidth: 2)
+                )
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -804,10 +1301,6 @@ private struct POICard: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .lineSpacing(0)
-
-                    Circle()
-                        .fill(Color(red: 48 / 255, green: 214 / 255, blue: 76 / 255))
-                        .frame(width: 8, height: 8)
                 }
 
                 HStack(spacing: 8) {
@@ -817,14 +1310,102 @@ private struct POICard: View {
                         .lineSpacing(0)
 
                     Spacer(minLength: 8)
-
-                    Text("詳細資訊")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
                 }
+                // Reserve the persistent bottom-right action's footprint
+                // while the card is collapsed.
+                .padding(.trailing, 116)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var expandedDetails: some View {
+        VStack(alignment: .leading, spacing: Self.detailRowSpacing) {
+            detailRow(
+                iconName: "icon-poi-time-outline",
+                text: timeText
+            )
+
+            if let locationText = Self.locationText(for: card) {
+                detailRow(
+                    iconName: "icon-poi-location-outline",
+                    text: locationText,
+                    lineLimit: 2,
+                    rowHeight: Self.detailLocationHeight
+                )
+            }
+
+            if let phoneText = Self.phoneText(for: card) {
+                detailRow(
+                    iconName: "icon-poi-phone-outline",
+                    text: phoneText
+                )
+            }
+
+        }
+    }
+
+    private var detailAction: some View {
+        Button(action: onToggleExpanded) {
+            ZStack(alignment: .leading) {
+                HStack(spacing: 6) {
+                    Image(systemName: "minus")
+                        .font(.system(size: 16, weight: .medium))
+                    Text("收起资讯")
+                        .font(.system(size: 16, weight: .medium))
+                        .lineSpacing(0)
+                }
+                .foregroundStyle(Self.detailActionColor)
+                .frame(height: Self.detailActionHeight)
+                .frame(width: Self.detailActionWidth, alignment: .leading)
+                .opacity(isExpanded ? 1 : 0)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .medium))
+                    Text("展开资讯")
+                        .font(.system(size: 16, weight: .medium))
+                        .lineSpacing(0)
+                }
+                .foregroundStyle(Self.detailActionColor)
+                .frame(height: Self.detailActionHeight)
+                .frame(width: Self.detailActionWidth, alignment: .leading)
+                .opacity(isExpanded ? 0 : 1)
+            }
+            .animation(.easeInOut(duration: 0.18), value: isExpanded)
+        }
+        .frame(width: Self.detailActionWidth, height: Self.detailActionHeight, alignment: .leading)
+        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .accessibilityLabel(isExpanded ? "收起资讯" : "展开资讯")
+    }
+
+    private func detailRow(
+        iconName: String,
+        text: String,
+        lineLimit: Int = 1,
+        rowHeight: CGFloat = Self.detailRowHeight
+    ) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(iconName)
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+
+            Text(text)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(.white)
+                .lineLimit(lineLimit)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: rowHeight, alignment: .center)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: rowHeight, alignment: .center)
     }
 
     @ViewBuilder

@@ -359,13 +359,18 @@ final class SyncEngine: ObservableObject {
         }
         do {
             let invite = try await apiClient.createInvite(for: selectedTripID)
-            guard var components = URLComponents(string: "\(PendingSharedLinkStore.hostScheme)://join") else { return nil }
-            components.queryItems = [URLQueryItem(name: "token", value: invite.token)]
-            return components.url
+            return try await apiClient.inviteLandingURL(token: invite.token)
         } catch {
             status = .failed("无法创建共享邀请。")
             return nil
         }
+    }
+
+    func fetchTripMembers() async throws -> [TripMemberSummary] {
+        guard !localOnly, let selectedTripID else {
+            throw TripSharingError.requiresSignIn
+        }
+        return try await apiClient.fetchTripMembers(for: selectedTripID)
     }
 
     func joinTrip(inviteToken: String) async -> Bool {
@@ -1375,6 +1380,16 @@ private func resolvedPlace(from placeData: Data?) async -> PlaceRequest? {
 }
 
 private struct EmptyRequest: Encodable, Sendable {}
+
+enum TripSharingError: LocalizedError {
+    case requiresSignIn
+
+    var errorDescription: String? {
+        switch self {
+        case .requiresSignIn: "请先使用 Apple 登录，再查看共享成员。"
+        }
+    }
+}
 
 struct PendingLocalTripMigration: Codable {
     let source: SharedTripSnapshot
