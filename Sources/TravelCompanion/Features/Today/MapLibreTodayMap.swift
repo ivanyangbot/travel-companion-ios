@@ -367,6 +367,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     let selectedIndex: Int?
     let cameraFocus: CLLocationCoordinate2D?
     let cameraRequestID: Int
+    /// POI 聚焦时，顶部与底部浮层所占据的屏幕空间。
+    let focusTopInset: CGFloat
+    let focusBottomInset: CGFloat
     /// The card occupies the lower map area only while the POI swiper is visible.
     let overviewBottomInset: CGFloat
     let routeRefreshID: Int
@@ -418,6 +421,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: points,
             focus: cameraFocus,
             requestID: cameraRequestID,
+            focusTopInset: focusTopInset,
+            focusBottomInset: focusBottomInset,
             bottomInset: overviewBottomInset
         )
     }
@@ -800,6 +805,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: [TodayMapPoint],
             focus: CLLocationCoordinate2D?,
             requestID: Int,
+            focusTopInset: CGFloat,
+            focusBottomInset: CGFloat,
             bottomInset: CGFloat
         ) {
             if points.isEmpty {
@@ -835,7 +842,26 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 mapView.setCenter(
                     MapLibreCoordinateTransform.displayCoordinate(for: focus),
                     zoomLevel: points.count == 1 ? 12 : poiSwiperFocusZoomLevel,
-                    animated: animated
+                    direction: mapView.direction,
+                    animated: false,
+                    completionHandler: nil
+                )
+                // `setCenter` puts the marker at the physical viewport center.
+                // Translate by the overlay imbalance so it is centered in the
+                // usable area between the top controls and POI card instead.
+                let verticalOffset = (focusBottomInset - focusTopInset) / 2
+                guard abs(verticalOffset) > 0.5 else { return }
+                let screenCenter = CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY)
+                let adjustedCenter = mapView.convert(
+                    CGPoint(x: screenCenter.x, y: screenCenter.y - verticalOffset),
+                    toCoordinateFrom: mapView
+                )
+                mapView.setCenter(
+                    adjustedCenter,
+                    zoomLevel: mapView.zoomLevel,
+                    direction: mapView.direction,
+                    animated: animated,
+                    completionHandler: nil
                 )
                 return
             }

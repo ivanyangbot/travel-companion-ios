@@ -29,6 +29,7 @@ struct TodayView: View {
     @State private var isMapViewportMoving = false
     @State private var hasVisiblePOIInMap = true
     @State private var isTimelineSwitching = false
+    @StateObject private var userLocationProvider = TodayUserLocationProvider()
 
     var body: some View {
         Group {
@@ -67,6 +68,9 @@ struct TodayView: View {
             } else {
                 ProgressView("正在打开共享行程…")
             }
+        }
+        .onAppear {
+            userLocationProvider.start()
         }
         .sheet(item: $detailCard) { card in
             TodayCardDetailSheet(card: card, linkHandler: linkHandler)
@@ -144,6 +148,7 @@ struct TodayView: View {
             && !isQuickActionsExpanded
             && (!isMapViewportMoving || isTimelineSwitching)
             && hasVisiblePOIInMap
+        let focusBottomInset = poiFocusBottomInset(for: pois, showsPOIOverlay: showsPOIOverlay)
         ZStack {
             MapLibreTodayMapCanvas(
                 points: mapPoints(pois: pois),
@@ -153,6 +158,8 @@ struct TodayView: View {
                 selectedIndex: isQuickActionsExpanded ? nil : clampedIndex(pois: pois),
                 cameraFocus: cameraFocus,
                 cameraRequestID: cameraRequestID,
+                focusTopInset: 94,
+                focusBottomInset: focusBottomInset,
                 overviewBottomInset: isQuickActionsExpanded ? 112 : 240,
                 routeRefreshID: routeRefreshID
             ) { isLoading in
@@ -215,7 +222,8 @@ struct TodayView: View {
                         poiSwiper(
                             pois: pois,
                             days: days,
-                            currentDayIndex: currentIndex
+                            currentDayIndex: currentIndex,
+                            userLocation: userLocationProvider.coordinate
                         )
                     }
                     .padding(.bottom, 112)
@@ -498,7 +506,8 @@ struct TodayView: View {
     private func poiSwiper(
         pois: [TravelCardSnapshot],
         days: [TripDaySnapshot],
-        currentDayIndex: Int
+        currentDayIndex: Int,
+        userLocation: CLLocationCoordinate2D?
     ) -> some View {
         let fallbackCardWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
         // Each page retains a small trailing gutter. Besides visually
@@ -523,6 +532,7 @@ struct TodayView: View {
                     card: card,
                     index: index,
                     width: itemWidth,
+                    userLocation: userLocation,
                     isExpanded: expandedPOICardID == card.id,
                     onToggleExpanded: {
                         withAnimation(.snappy(duration: 0.28)) {
@@ -531,7 +541,9 @@ struct TodayView: View {
                     }
                 )
                     .contentShape(Rectangle())
-                .onTapGesture { detailCard = card }
+                    .onTapGesture {
+                        focus(pois: pois, index: index)
+                    }
                     .frame(
                         width: fallbackCardWidth,
                         height: swiperHeight,
@@ -555,6 +567,24 @@ struct TodayView: View {
                           poiSwipeStartIndex == pois.count - 1 else { return }
                     selectDay(days: days, index: currentDayIndex + 1)
                 }
+        )
+    }
+
+    /// 将 POI 定锚在地图顶部控件与底部日期/景点卡之间的可见区域中点。
+    private func poiFocusBottomInset(
+        for pois: [TravelCardSnapshot],
+        showsPOIOverlay: Bool
+    ) -> CGFloat {
+        guard showsPOIOverlay else { return 112 }
+        let cardWidth = min(390, max(0, UIScreen.main.bounds.width - 40)) - 12
+        let selectedCard = pois.indices.contains(clampedIndex(pois: pois))
+            ? pois[clampedIndex(pois: pois)]
+            : nil
+        let isExpanded = selectedCard.map { expandedPOICardID == $0.id } ?? false
+        return 112 + 8 + 39 + POICard.height(
+            for: cardWidth,
+            card: selectedCard,
+            isExpanded: isExpanded
         )
     }
 
@@ -1150,6 +1180,49 @@ private struct TodayDateTimeline: View {
     }
 }
 
+@MainActor
+private final class TodayUserLocationProvider: NSObject, ObservableObject, @preconcurrency CLLocationManagerDelegate {
+    @Published private(set) var coordinate: CLLocationCoordinate2D?
+
+    private let locationManager = CLLocationManager()
+    private var hasStarted = false
+
+    override init() {
+        super.init()
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        locationManager.distanceFilter = 100
+    }
+
+    func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
+
+        switch locationManager.authorizationStatus {
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+        case .authorizedAlways, .authorizedWhenInUse:
+            locationManager.startUpdatingLocation()
+        default:
+            break
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard manager.authorizationStatus == .authorizedAlways
+                || manager.authorizationStatus == .authorizedWhenInUse else {
+            return
+        }
+        manager.startUpdatingLocation()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        coordinate = locations.last?.coordinate
+        // 距离展示无需持续高频定位；获得一条可用位置即可停止。
+        manager.stopUpdatingLocation()
+    }
+}
+
 private struct TodayTimelineTodayFramePreferenceKey: PreferenceKey {
     static var defaultValue: CGRect { .null }
 
@@ -1171,6 +1244,7 @@ private struct POICard: View {
     let card: TravelCardSnapshot
     let index: Int
     let width: CGFloat
+    let userLocation: CLLocationCoordinate2D?
     let isExpanded: Bool
     let onToggleExpanded: () -> Void
     private static let summaryHeight: CGFloat = 78
@@ -1253,7 +1327,10 @@ private struct POICard: View {
     }
 
     private static func detailSectionHeight(for card: TravelCardSnapshot?) -> CGFloat {
-        var rowHeights: [CGFloat] = [detailRowHeight]
+        var rowHeights: [CGFloat] = []
+        if let businessHours = businessHoursText(for: card), !businessHours.isEmpty {
+            rowHeights.append(detailRowHeight)
+        }
         if let location = locationText(for: card), !location.isEmpty {
             rowHeights.append(detailLocationHeight)
         }
@@ -1278,6 +1355,11 @@ private struct POICard: View {
 
     private static func phoneText(for card: TravelCardSnapshot?) -> String? {
         let value = card?.bookingCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
+    }
+
+    private static func businessHoursText(for card: TravelCardSnapshot?) -> String? {
+        let value = card?.place?.businessHours?.trimmingCharacters(in: .whitespacesAndNewlines)
         return value?.isEmpty == false ? value : nil
     }
 
@@ -1322,28 +1404,92 @@ private struct POICard: View {
     @ViewBuilder
     private var expandedDetails: some View {
         VStack(alignment: .leading, spacing: Self.detailRowSpacing) {
-            detailRow(
-                iconName: "icon-poi-time-outline",
-                text: timeText
-            )
-
-            if let locationText = Self.locationText(for: card) {
+            if let businessHours = Self.businessHoursText(for: card) {
+                // 展开态展示的是 POI 营业时间，不复用收起态的行程到达/离开时间。
                 detailRow(
-                    iconName: "icon-poi-location-outline",
-                    text: locationText,
-                    lineLimit: 2,
-                    rowHeight: Self.detailLocationHeight
+                    iconName: "icon-poi-time-outline",
+                    text: businessHours
                 )
             }
 
+            if let locationText = Self.locationText(for: card) {
+                locationDetailRow(locationText)
+            }
+
             if let phoneText = Self.phoneText(for: card) {
+                phoneDetailRow(phoneText)
+            }
+
+        }
+    }
+
+    private func locationDetailRow(_ locationText: String) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image("icon-poi-location-outline")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(locationText)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                if let distanceText {
+                    Text(distanceText)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(red: 180 / 255, green: 180 / 255, blue: 180 / 255))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, minHeight: Self.detailLocationHeight, alignment: .leading)
+    }
+
+    private var distanceText: String? {
+        guard let userLocation,
+              let latitude = card.place?.latitude,
+              let longitude = card.place?.longitude else {
+            return nil
+        }
+        let distance = CLLocation(
+            latitude: userLocation.latitude,
+            longitude: userLocation.longitude
+        ).distance(from: CLLocation(latitude: latitude, longitude: longitude))
+        return distance >= 1_000
+            ? String(format: "距你 %.1f km", distance / 1_000)
+            : "距你 %.0f m"
+    }
+
+    @ViewBuilder
+    private func phoneDetailRow(_ phoneText: String) -> some View {
+        if let phoneURL = Self.phoneURL(for: phoneText) {
+            Link(destination: phoneURL) {
                 detailRow(
                     iconName: "icon-poi-phone-outline",
                     text: phoneText
                 )
             }
-
+            .buttonStyle(.plain)
+            .accessibilityHint("点击拨打商家电话")
+        } else {
+            detailRow(
+                iconName: "icon-poi-phone-outline",
+                text: phoneText
+            )
         }
+    }
+
+    private static func phoneURL(for phoneText: String) -> URL? {
+        let allowedCharacters = CharacterSet.decimalDigits
+            .union(CharacterSet(charactersIn: "+*#,"))
+        let dialString = String(phoneText.unicodeScalars.filter(allowedCharacters.contains))
+        guard !dialString.isEmpty else { return nil }
+        return URL(string: "tel://\(dialString)")
     }
 
     private var detailAction: some View {

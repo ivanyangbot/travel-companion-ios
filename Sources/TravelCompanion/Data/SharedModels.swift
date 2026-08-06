@@ -156,6 +156,8 @@ struct PlaceSnapshot: Codable, Sendable, Equatable, Identifiable {
     var placeId: String?
     /// Optional so snapshots cached before cityCode was introduced still decode.
     var cityCode: String?
+    /// POI 营业时间；没有可靠数据时保持为空，页面不展示该行。
+    var businessHours: String? = nil
     var updatedAt: Date
 }
 
