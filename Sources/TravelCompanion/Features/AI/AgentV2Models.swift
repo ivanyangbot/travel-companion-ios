@@ -94,6 +94,7 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var description: String?
     var notes: String?
     var url: String?
+    var sourceProof: String? = nil
     var priceMinor: Int64?
     var ticketPriceMinor: Int64?
     var stayDurationMinutes: Int?

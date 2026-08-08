@@ -11,24 +11,22 @@ struct TodayView: View {
     @StateObject private var linkHandler = ExternalLinkHandler()
     @State private var selectedPOIIndex = 0
     @State private var cameraFocus: CLLocationCoordinate2D?
+    @State private var cameraFocusPointID: UUID?
     @State private var cameraRequestID = 0
     @State private var detailCard: TravelCardSnapshot?
     @State private var hasCenteredOnPOIs = false
     /// 相对于排序后 days 的当前选中索引；nil 表示跟随“今日”基准。
     @State private var selectedDayIndex: Int?
     @State private var weatherEntries: [TodayWeatherEntry] = []
-    @State private var showsSharingSheet = false
-    @State private var showsTripPicker = false
-    @State private var activeQuickAction: TodayQuickAction?
-    @State private var isQuickActionsExpanded = false
-    @State private var isReloading = false
-    @State private var isRouteLoading = false
-    @State private var routeRefreshID = 0
+    @State private var isPOIOverlayExpanded = true
     @State private var expandedPOICardID: UUID?
+    @State private var poiExpansionProgress: CGFloat = 0
     @State private var poiSwipeStartIndex: Int?
-    @State private var isMapViewportMoving = false
-    @State private var hasVisiblePOIInMap = true
-    @State private var isTimelineSwitching = false
+    @State private var poiSwipeStartExpansionProgress: CGFloat?
+    @State private var poiSwipeTranslation: CGFloat = 0
+    /// Window/global Y of the timeline's upper edge, used to keep map edge
+    /// pins above the persistent timeline and POI card overlay.
+    @State private var lastTimelineTopInGlobal: CGFloat?
     @StateObject private var userLocationProvider = TodayUserLocationProvider()
 
     var body: some View {
@@ -76,42 +74,6 @@ struct TodayView: View {
             TodayCardDetailSheet(card: card, linkHandler: linkHandler)
         }
         .sheet(isPresented: Binding(
-            get: { showsSharingSheet },
-            set: {
-                showsSharingSheet = $0
-                if !$0 { clearQuickAction(.addCompanion) }
-            }
-        )) {
-            TripSharingSheet(syncEngine: syncEngine)
-        }
-        .confirmationDialog("选择行程", isPresented: Binding(
-            get: { showsTripPicker },
-            set: {
-                showsTripPicker = $0
-                if !$0 { clearQuickAction(.tripSelection) }
-            }
-        ), titleVisibility: .visible) {
-            ForEach(syncEngine.trips) { summary in
-                Button {
-                    guard summary.id != syncEngine.selectedTripID else { return }
-                    selectedDayIndex = nil
-                    selectedPOIIndex = 0
-                    cameraFocus = nil
-                    weatherEntries = []
-                    Task { await syncEngine.selectTrip(summary.id) }
-                } label: {
-                    if summary.id == syncEngine.selectedTripID {
-                        Label(summary.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(summary.displayName)
-                    }
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("选择要在首页显示的旅行行程。")
-        }
-        .sheet(isPresented: Binding(
             get: { linkHandler.browserURL != nil },
             set: { if !$0 { linkHandler.browserURL = nil } }
         )) {
@@ -144,38 +106,26 @@ struct TodayView: View {
     private func mapContent(days: [TripDaySnapshot], currentIndex: Int, baseIndex: Int) -> some View {
         let day = days[currentIndex]
         let pois = poiCards(in: day)
-        let showsPOIOverlay = !pois.isEmpty
-            && !isQuickActionsExpanded
-            && (!isMapViewportMoving || isTimelineSwitching)
-            && hasVisiblePOIInMap
-        let focusBottomInset = poiFocusBottomInset(for: pois, showsPOIOverlay: showsPOIOverlay)
+        let showsPOIOverlay = !pois.isEmpty && isPOIOverlayExpanded
         ZStack {
             MapLibreTodayMapCanvas(
                 points: mapPoints(pois: pois),
                 // A selected map marker is the visual counterpart of the
-                // visible POI card. When the action drawer covers that card,
-                // keep every marker compact and neutral instead.
-                selectedIndex: isQuickActionsExpanded ? nil : clampedIndex(pois: pois),
+                // visible POI card. Keep every marker compact and neutral
+                // while the user has collapsed the bottom overlay.
+                selectedIndex: isPOIOverlayExpanded ? clampedIndex(pois: pois) : nil,
                 cameraFocus: cameraFocus,
+                cameraFocusPointID: cameraFocusPointID,
                 cameraRequestID: cameraRequestID,
-                focusTopInset: 94,
-                focusBottomInset: focusBottomInset,
-                overviewBottomInset: isQuickActionsExpanded ? 112 : 240,
-                routeRefreshID: routeRefreshID
-            ) { isLoading in
-                // UIViewRepresentable 更新期间不能同步写入 SwiftUI 状态。
-                DispatchQueue.main.async {
-                    updateRouteLoading(isLoading)
-                }
-            } onViewportStateChanged: { isMoving, hasVisiblePOI in
-                // MapLibre's delegate runs during UIKit layout and gestures;
-                // defer the SwiftUI state write to the next run-loop turn.
-                DispatchQueue.main.async {
-                    updatePOIOverlayVisibility(
-                        isMapMoving: isMoving,
-                        hasVisiblePOI: hasVisiblePOI
-                    )
-                }
+                // While the overlay is visible, its live timeline frame is
+                // the bottom pin boundary and follows card expansion. Once
+                // the header button hides the entire overlay, `nil` switches
+                // the map to the floating tab bar's upper edge.
+                timelineTopInGlobal: showsPOIOverlay ? lastTimelineTopInGlobal : nil,
+                overviewBottomInset: isPOIOverlayExpanded ? 240 : 112,
+                routeRefreshID: 0
+            ) { _ in
+            } onViewportStateChanged: { _, _ in
             }
             .ignoresSafeArea()
 
@@ -216,7 +166,15 @@ struct TodayView: View {
                                 timelineLabel(for: day, isToday: isToday)
                             }
                         ) { index in
-                            selectDay(days: days, index: index, keepsPOIOverlayVisible: true)
+                            selectDay(days: days, index: index)
+                        }
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: TodayTimelineTopInGlobalPreferenceKey.self,
+                                    value: geometry.frame(in: .global).minY
+                                )
+                            }
                         }
 
                         poiSwiper(
@@ -231,6 +189,12 @@ struct TodayView: View {
                 }
             }
             .padding(.top, 2)
+        }
+        .onPreferenceChange(TodayTimelineTopInGlobalPreferenceKey.self) { top in
+            guard let top, top.isFinite, top > 0 else { return }
+            if lastTimelineTopInGlobal.map({ abs($0 - top) > 0.5 }) ?? true {
+                lastTimelineTopInGlobal = top
+            }
         }
         .task(id: "\(day.id)-\(poisKey(pois))") {
             hasCenteredOnPOIs = false
@@ -270,108 +234,45 @@ struct TodayView: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(daySwipeGesture(days: days, currentIndex: currentIndex))
 
-            HStack {
-                Spacer()
-                VStack(spacing: 16) {
-                    Button {
-                        withAnimation(.snappy(duration: 0.28)) { section = .itinerary }
-                    } label: {
-                        Image("icon-timeview-outline")
-                            .resizable()
-                            .renderingMode(.template)
-                            .scaledToFit()
-                            .foregroundStyle(.white)
-                            .frame(width: 24, height: 24)
-                            .frame(width: 40, height: 40)
-                    }
-                    .buttonStyle(.plain)
-                    .frame(width: 48, height: 48)
-                    .background { TodayGlassBackdrop() }
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .shadow(
-                        color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
-                        radius: 12,
-                        y: 12
-                    )
-                    .accessibilityLabel("查看旅程计划")
-
-                    TodayQuickActionsBar(
-                        isExpanded: $isQuickActionsExpanded,
-                        activeAction: activeQuickAction,
-                        isReloading: isReloading || isRouteLoading,
-                        onAction: { action in
-                            handleQuickAction(action, pois: pois)
-                        },
-                        onExpansionChanged: { isExpanded in
-                            guard isExpanded else { return }
-                            fitAll(pois: pois)
-                        }
-                    )
+            HStack(spacing: 0) {
+                Button {
+                    withAnimation(.snappy(duration: 0.28)) { section = .itinerary }
+                } label: {
+                    Image("icon-timeview-outline")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .frame(width: 40, height: 40)
                 }
+                .buttonStyle(.plain)
+                .frame(width: 48, height: 48)
+                .background { TodayGlassBackdrop() }
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(
+                    color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+                    radius: 12,
+                    y: 12
+                )
+                .accessibilityLabel("查看旅程计划")
+
+                Spacer(minLength: 0)
+
+                TodayPOIOverlayToggleButton(isExpanded: $isPOIOverlayExpanded) { isExpanded in
+                    guard isExpanded else { return }
+                    fitAll(pois: pois)
+                }
+                .disabled(pois.isEmpty)
+                .opacity(pois.isEmpty ? 0.45 : 1)
             }
         }
         .padding(.horizontal, 20)
-    }
-
-    private func handleQuickAction(_ action: TodayQuickAction, pois: [TravelCardSnapshot]) {
-        switch action {
-        case .addCompanion:
-            activeQuickAction = .addCompanion
-            showsSharingSheet = true
-        case .tripSelection:
-            activeQuickAction = .tripSelection
-            showsTripPicker = true
-        case .reload:
-            guard !isReloading else { return }
-            activeQuickAction = .reload
-            isReloading = true
-            routeRefreshID &+= 1
-            Task {
-                async let retry: Void = syncEngine.retry()
-                // 本地数据已是最新时，retry() 会立即返回；至少显示一整圈旋转，避免动画只闪动一帧。
-                try? await Task.sleep(for: .seconds(0.75))
-                await retry
-                fitAll(pois: pois)
-                isReloading = false
-                if !isRouteLoading {
-                    clearQuickAction(.reload)
-                }
-            }
-        }
-    }
-
-    private func updateRouteLoading(_ isLoading: Bool) {
-        guard isRouteLoading != isLoading else { return }
-        isRouteLoading = isLoading
-        if isLoading {
-            activeQuickAction = .reload
-        } else if !isReloading {
-            clearQuickAction(.reload)
-        }
-    }
-
-    private func updatePOIOverlayVisibility(
-        isMapMoving: Bool,
-        hasVisiblePOI: Bool
-    ) {
-        guard !isTimelineSwitching else { return }
-        guard isMapViewportMoving != isMapMoving || hasVisiblePOIInMap != hasVisiblePOI else {
-            return
-        }
-        withAnimation(.easeOut(duration: 0.16)) {
-            isMapViewportMoving = isMapMoving
-            hasVisiblePOIInMap = hasVisiblePOI
-        }
-    }
-
-    private func clearQuickAction(_ action: TodayQuickAction) {
-        guard activeQuickAction == action else { return }
-        activeQuickAction = nil
     }
 
     private func mapHeaderTitle(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> String {
@@ -464,22 +365,15 @@ struct TodayView: View {
         )
     }
 
-    private func selectDay(
-        days: [TripDaySnapshot],
-        index: Int,
-        keepsPOIOverlayVisible: Bool = false
-    ) {
+    private func selectDay(days: [TripDaySnapshot], index: Int) {
         guard days.indices.contains(index) else { return }
-        if keepsPOIOverlayVisible {
-            isTimelineSwitching = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                isTimelineSwitching = false
-                isMapViewportMoving = false
-            }
-        }
         hasCenteredOnPOIs = false
         selectedPOIIndex = 0
         expandedPOICardID = nil
+        poiExpansionProgress = 0
+        poiSwipeStartIndex = nil
+        poiSwipeStartExpansionProgress = nil
+        poiSwipeTranslation = 0
         weatherEntries = []
         withAnimation(.easeInOut(duration: 0.25)) {
             selectedDayIndex = index
@@ -509,82 +403,157 @@ struct TodayView: View {
         currentDayIndex: Int,
         userLocation: CLLocationCoordinate2D?
     ) -> some View {
-        let fallbackCardWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
-        // Each page retains a small trailing gutter. Besides visually
-        // separating adjacent cards while swiping, this keeps the resting
-        // card aligned with the 20pt screen margin.
-        let itemSpacing: CGFloat = 12
-        let itemWidth = max(0, fallbackCardWidth - itemSpacing)
+        // Match the timeline's visible width exactly. Card-to-card spacing is
+        // part of the paging stride instead of being subtracted from the card.
+        let cardWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
+        let pageSpacing: CGFloat = 12
+        let pageStride = cardWidth + pageSpacing
         let currentCard = pois.indices.contains(clampedIndex(pois: pois)) ? pois[clampedIndex(pois: pois)] : nil
-        let isExpanded = currentCard.map { expandedPOICardID == $0.id } ?? false
-        let swiperHeight = POICard.height(for: itemWidth, card: currentCard, isExpanded: isExpanded)
-        let selection = Binding<Int>(
-            get: { clampedIndex(pois: pois) },
-            set: { index in
-                guard pois.indices.contains(index), selectedPOIIndex != index else { return }
-                selectedPOIIndex = index
-                focus(pois: pois, index: index)
-            }
+        let currentExpansionProgress = currentCard.map {
+            expandedPOICardID == $0.id ? poiExpansionProgress : 0
+        } ?? 0
+        // Keep the underlying paging container at its starting height while
+        // the finger is down. Only the card itself follows the interactive
+        // progress, preventing UIKit's paging scroll view from being resized
+        // on every horizontal-drag frame.
+        let containerExpansionProgress = poiSwipeStartExpansionProgress ?? currentExpansionProgress
+        let containerCard = poiSwipeStartIndex.flatMap { startIndex in
+            pois.indices.contains(startIndex) ? pois[startIndex] : nil
+        } ?? currentCard
+        let swiperHeight = POICard.height(
+            for: cardWidth,
+            card: containerCard,
+            expansionProgress: containerExpansionProgress
         )
-        TabView(selection: selection) {
+        let settledIndex = clampedIndex(pois: pois)
+        HStack(spacing: 0) {
             ForEach(Array(pois.enumerated()), id: \.element.id) { index, card in
                 POICard(
                     card: card,
                     index: index,
-                    width: itemWidth,
+                    width: cardWidth,
                     userLocation: userLocation,
-                    isExpanded: expandedPOICardID == card.id,
+                    expansionProgress: expandedPOICardID == card.id ? poiExpansionProgress : 0,
                     onToggleExpanded: {
-                        withAnimation(.snappy(duration: 0.28)) {
-                            expandedPOICardID = expandedPOICardID == card.id ? nil : card.id
+                        let willExpand = expandedPOICardID != card.id || poiExpansionProgress < 0.5
+                        withAnimation(.smooth(duration: 0.28)) {
+                            expandedPOICardID = willExpand ? card.id : nil
+                            poiExpansionProgress = willExpand ? 1 : 0
                         }
                     }
                 )
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        focus(pois: pois, index: index)
-                    }
+                    // Buttons and links inside POICard keep their own actions;
+                    // tapping the remaining card surface recenters the map.
+                    .onTapGesture { focus(pois: pois, index: index) }
                     .frame(
-                        width: fallbackCardWidth,
+                        width: pageStride,
                         height: swiperHeight,
-                        alignment: .center
+                        // Expanded and collapsed cards share one stable
+                        // baseline while the page transition is interactive.
+                        // Center alignment made the shorter destination card
+                        // jump downward when the swiper height collapsed.
+                        alignment: .bottomLeading
                     )
-                    .tag(index)
             }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(width: fallbackCardWidth, height: swiperHeight)
-        .simultaneousGesture(
+        .frame(
+            width: pageStride * CGFloat(pois.count),
+            height: swiperHeight,
+            alignment: .leading
+        )
+        .offset(x: -CGFloat(settledIndex) * pageStride + poiSwipeTranslation)
+        .frame(width: cardWidth, height: swiperHeight, alignment: .leading)
+        .clipped()
+        .contentShape(Rectangle())
+        // The pager keeps a stable height while the finger is down. Its
+        // vertical settling animation starts only after the gesture ends.
+        .animation(
+            poiSwipeStartIndex == nil ? .smooth(duration: 0.28) : nil,
+            value: swiperHeight
+        )
+        .gesture(
             DragGesture(minimumDistance: 20)
                 .onChanged { value in
-                    guard abs(value.translation.width) > abs(value.translation.height),
-                          poiSwipeStartIndex == nil else { return }
-                    poiSwipeStartIndex = clampedIndex(pois: pois)
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+
+                    if poiSwipeStartIndex == nil {
+                        let startIndex = clampedIndex(pois: pois)
+                        poiSwipeStartIndex = startIndex
+                        if pois.indices.contains(startIndex),
+                           expandedPOICardID == pois[startIndex].id {
+                            poiSwipeStartExpansionProgress = poiExpansionProgress
+                        } else {
+                            poiSwipeStartExpansionProgress = nil
+                        }
+                    }
+
+                    let startIndex = poiSwipeStartIndex ?? settledIndex
+                    var translation = value.translation.width
+                    if (startIndex == 0 && translation > 0)
+                        || (startIndex == pois.count - 1 && translation < 0) {
+                        translation *= 0.38
+                    }
+
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) {
+                        poiSwipeTranslation = translation
+                        if let startProgress = poiSwipeStartExpansionProgress {
+                            let pageProgress = min(
+                                1,
+                                abs(value.translation.width) / max(1, pageStride)
+                            )
+                            poiExpansionProgress = startProgress * (1 - pageProgress)
+                        }
+                    }
                 }
                 .onEnded { value in
-                    defer { poiSwipeStartIndex = nil }
-                    guard value.translation.width < -50,
-                          poiSwipeStartIndex == pois.count - 1 else { return }
-                    selectDay(days: days, index: currentDayIndex + 1)
-                }
-        )
-    }
+                    let startIndex = poiSwipeStartIndex ?? settledIndex
+                    let startProgress = poiSwipeStartExpansionProgress
+                    let actualTranslation = value.translation.width
+                    let projectedTranslation = value.predictedEndTranslation.width
+                    let movesForward = actualTranslation < -pageStride * 0.22
+                        || projectedTranslation < -pageStride * 0.5
+                    let movesBackward = actualTranslation > pageStride * 0.22
+                        || projectedTranslation > pageStride * 0.5
 
-    /// 将 POI 定锚在地图顶部控件与底部日期/景点卡之间的可见区域中点。
-    private func poiFocusBottomInset(
-        for pois: [TravelCardSnapshot],
-        showsPOIOverlay: Bool
-    ) -> CGFloat {
-        guard showsPOIOverlay else { return 112 }
-        let cardWidth = min(390, max(0, UIScreen.main.bounds.width - 40)) - 12
-        let selectedCard = pois.indices.contains(clampedIndex(pois: pois))
-            ? pois[clampedIndex(pois: pois)]
-            : nil
-        let isExpanded = selectedCard.map { expandedPOICardID == $0.id } ?? false
-        return 112 + 8 + 39 + POICard.height(
-            for: cardWidth,
-            card: selectedCard,
-            isExpanded: isExpanded
+                    var targetIndex = startIndex
+                    if movesForward, startIndex < pois.count - 1 {
+                        targetIndex += 1
+                    } else if movesBackward, startIndex > 0 {
+                        targetIndex -= 1
+                    }
+
+                    if targetIndex != startIndex {
+                        withAnimation(.smooth(duration: 0.28)) {
+                            selectedPOIIndex = targetIndex
+                            poiSwipeTranslation = 0
+                            poiSwipeStartIndex = nil
+                            poiSwipeStartExpansionProgress = nil
+                            expandedPOICardID = nil
+                            poiExpansionProgress = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                            guard selectedPOIIndex == targetIndex else { return }
+                            focus(pois: pois, index: targetIndex)
+                        }
+                    } else if movesForward,
+                              startIndex == pois.count - 1,
+                              currentDayIndex < days.count - 1 {
+                        poiSwipeTranslation = 0
+                        poiSwipeStartIndex = nil
+                        poiSwipeStartExpansionProgress = nil
+                        selectDay(days: days, index: currentDayIndex + 1)
+                    } else {
+                        withAnimation(.smooth(duration: 0.22)) {
+                            poiSwipeTranslation = 0
+                            poiSwipeStartIndex = nil
+                            poiSwipeStartExpansionProgress = nil
+                            poiExpansionProgress = startProgress ?? poiExpansionProgress
+                        }
+                    }
+                }
         )
     }
 
@@ -712,8 +681,10 @@ struct TodayView: View {
         guard !pois.isEmpty else { return }
         if pois.count == 1, let coordinate = coordinate(of: pois[0]) {
             cameraFocus = coordinate
+            cameraFocusPointID = pois[0].id
         } else {
             cameraFocus = nil
+            cameraFocusPointID = nil
         }
         cameraRequestID &+= 1
     }
@@ -722,6 +693,7 @@ struct TodayView: View {
         guard pois.indices.contains(index), let coordinate = coordinate(of: pois[index]) else { return }
         withAnimation(.easeInOut(duration: 0.4)) {
             cameraFocus = coordinate
+            cameraFocusPointID = pois[index].id
             cameraRequestID &+= 1
         }
     }
@@ -761,67 +733,11 @@ struct TodayView: View {
     }()
 }
 
-private enum TodayQuickAction: String, CaseIterable {
-    case addCompanion
-    case tripSelection
-    case reload
-
-    var iconName: String {
-        switch self {
-        case .addCompanion: "icon-adduser-outline"
-        case .tripSelection: "icon-plan-outline"
-        case .reload: "icon-reload-outline"
-        }
-    }
-
-    var accessibilityLabel: String {
-        switch self {
-        case .addCompanion: "邀请同行人"
-        case .tripSelection: "选择行程"
-        case .reload: "重新同步"
-        }
-    }
-}
-
-private struct TodayQuickActionsBar: View {
+private struct TodayPOIOverlayToggleButton: View {
     @Binding var isExpanded: Bool
-    let activeAction: TodayQuickAction?
-    let isReloading: Bool
-    let onAction: (TodayQuickAction) -> Void
     let onExpansionChanged: (Bool) -> Void
 
     var body: some View {
-        VStack(spacing: isExpanded ? 8 : 0) {
-            expandButton
-
-            if isExpanded {
-                VStack(spacing: 12) {
-                    ForEach(TodayQuickAction.allCases, id: \.self) { action in
-                        actionButton(action)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                }
-                .padding(.bottom, 4)
-            }
-        }
-        .frame(width: 48, height: isExpanded ? 204 : 48, alignment: .top)
-        .background {
-            TodayGlassBackdrop()
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
-                }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .animation(.snappy(duration: 0.3), value: isExpanded)
-        .shadow(
-            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
-            radius: 12,
-            y: 12
-        )
-    }
-
-    private var expandButton: some View {
         Button {
             let willExpand = !isExpanded
             withAnimation(.snappy(duration: 0.3)) {
@@ -835,71 +751,27 @@ private struct TodayQuickActionsBar: View {
                 .scaledToFit()
                 .foregroundStyle(.white)
                 .frame(width: 24, height: 24)
-                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .rotationEffect(.degrees(isExpanded ? 0 : 180))
                 .frame(width: 40, height: 40)
-                .background(
-                    isExpanded ? Color.white.opacity(0.32) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                )
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .frame(width: 48, height: 48)
-        .background {
-            if isExpanded {
-                TodayGlassBackdrop()
-            }
-        }
+        .background { TodayGlassBackdrop() }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
-            if isExpanded {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
-            }
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
         }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(
-            color: isExpanded
-                ? Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1)
-                : .clear,
+            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
             radius: 12,
             y: 12
         )
-        .zIndex(1)
-        .accessibilityLabel(isExpanded ? "收起功能栏" : "展开功能栏")
+        .animation(.snappy(duration: 0.3), value: isExpanded)
+        .accessibilityLabel(isExpanded ? "收起时间轴与地点卡片" : "展开时间轴与地点卡片")
         .accessibilityValue(isExpanded ? "已展开" : "已收起")
-    }
-
-    private func actionButton(_ action: TodayQuickAction) -> some View {
-        Button {
-            guard action != .reload || !isReloading else { return }
-            onAction(action)
-        } label: {
-            Image(action.iconName)
-                .resizable()
-                .renderingMode(.template)
-                .scaledToFit()
-                .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
-                .rotationEffect(.degrees(action == .reload && isReloading ? 360 : 0))
-                .animation(
-                    action == .reload && isReloading
-                        ? .linear(duration: 0.75).repeatForever(autoreverses: false)
-                        : .easeOut(duration: 0.2),
-                    value: isReloading
-                )
-                .frame(width: 40, height: 40)
-                .background(
-                    Circle()
-                        .fill(Color(red: 1, green: 110 / 255, blue: 0))
-                        .opacity(activeAction == action ? 1 : 0)
-                )
-                .animation(.easeInOut(duration: 0.2), value: activeAction)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .frame(width: 40, height: 40)
-        .accessibilityLabel(action.accessibilityLabel)
-        .accessibilityAddTraits(activeAction == action ? .isSelected : [])
     }
 }
 
@@ -915,8 +787,8 @@ private struct TodayGlassBackdrop: View {
 }
 
 /// Horizontally scrollable day rail placed directly above the POI swiper. It
-/// deliberately shares the swiper's visibility condition, so expanding the
-/// action drawer moves both pieces away together.
+/// deliberately shares the swiper's visibility condition, so the dedicated
+/// header toggle expands and collapses both pieces together.
 private struct TodayDateTimeline: View {
     private enum PinnedTodaySide {
         case leading
@@ -1223,6 +1095,16 @@ private final class TodayUserLocationProvider: NSObject, ObservableObject, @prec
     }
 }
 
+private struct TodayTimelineTopInGlobalPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat? { nil }
+
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        if let next = nextValue(), next.isFinite, next > 0 {
+            value = next
+        }
+    }
+}
+
 private struct TodayTimelineTodayFramePreferenceKey: PreferenceKey {
     static var defaultValue: CGRect { .null }
 
@@ -1245,10 +1127,8 @@ private struct POICard: View {
     let index: Int
     let width: CGFloat
     let userLocation: CLLocationCoordinate2D?
-    let isExpanded: Bool
+    let expansionProgress: CGFloat
     let onToggleExpanded: () -> Void
-    private static let summaryHeight: CGFloat = 78
-    private static let imageAspectRatio: CGFloat = 16.0 / 9.0
     private static let horizontalPadding: CGFloat = 12
     private static let summarySpacing: CGFloat = 4
     private static let verticalPadding: CGFloat = 12
@@ -1257,53 +1137,72 @@ private struct POICard: View {
     private static let detailRowSpacing: CGFloat = 14
     private static let detailRowHeight: CGFloat = 34
     private static let detailLocationHeight: CGFloat = 74
-    private static let detailActionHeight: CGFloat = 30
-    private static let detailActionWidth: CGFloat = 114
-    private static let detailActionTopSpacing: CGFloat = 8
-    private static let detailActionColor = Color(
-        red: 180 / 255,
-        green: 180 / 255,
-        blue: 180 / 255
-    )
 
-    static func height(for cardWidth: CGFloat, card: TravelCardSnapshot?, isExpanded: Bool) -> CGFloat {
+    static func height(
+        for cardWidth: CGFloat,
+        card: TravelCardSnapshot?,
+        expansionProgress: CGFloat
+    ) -> CGFloat {
+        let progress = min(1, max(0, expansionProgress))
         let contentWidth = max(0, cardWidth - horizontalPadding)
-        let baseHeight = (contentWidth / imageAspectRatio) + summaryHeight + summarySpacing + verticalPadding
-        guard isExpanded else { return baseHeight }
-        return baseHeight + detailSectionHeight(for: card)
+        let imageHeight = interpolatedImageHeight(
+            contentWidth: contentWidth,
+            expansionProgress: progress
+        )
+        return imageHeight + verticalPadding + detailSectionHeight(for: card) * progress
+    }
+
+    private static func interpolatedImageHeight(
+        contentWidth: CGFloat,
+        expansionProgress: CGFloat
+    ) -> CGFloat {
+        let collapsedHeight = contentWidth / 2
+        let expandedHeight = contentWidth / (16.0 / 9.0)
+        return collapsedHeight + (expandedHeight - collapsedHeight) * expansionProgress
+    }
+
+    private var normalizedExpansionProgress: CGFloat {
+        min(1, max(0, expansionProgress))
     }
 
     private var imageHeight: CGFloat {
-        max(0, (width - Self.horizontalPadding) / Self.imageAspectRatio)
+        Self.interpolatedImageHeight(
+            contentWidth: max(0, width - Self.horizontalPadding),
+            expansionProgress: normalizedExpansionProgress
+        )
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            coverImage
+        VStack(alignment: .leading, spacing: 0) {
+            coverContent
                 .frame(maxWidth: .infinity)
                 .frame(height: imageHeight)
-                .aspectRatio(Self.imageAspectRatio, contentMode: .fill)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            poiSummary
+            expandedDetails
                 .padding(.horizontal, 8)
+                .padding(.top, Self.expandedTopPadding + Self.summarySpacing)
+                .padding(.bottom, Self.expandedBottomPadding)
                 .frame(
-                    maxWidth: .infinity,
-                    minHeight: Self.summaryHeight,
-                    maxHeight: Self.summaryHeight
+                    height: Self.detailSectionHeight(for: card) * normalizedExpansionProgress,
+                    alignment: .top
                 )
-
-            if isExpanded {
-                expandedDetails
-                    .padding(.horizontal, 8)
-                    .padding(.top, Self.expandedTopPadding)
-                    .padding(.bottom, Self.expandedBottomPadding)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+                .opacity(normalizedExpansionProgress)
+                .clipped()
+                .allowsHitTesting(normalizedExpansionProgress > 0.99)
+                .accessibilityHidden(normalizedExpansionProgress < 0.99)
         }
         .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(width: width, height: Self.height(for: width, card: card, isExpanded: isExpanded), alignment: .topLeading)
+        .frame(
+            width: width,
+            height: Self.height(
+                for: width,
+                card: card,
+                expansionProgress: normalizedExpansionProgress
+            ),
+            alignment: .topLeading
+        )
         .background {
             ZStack {
                 AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.12)
@@ -1315,13 +1214,10 @@ private struct POICard: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(.white.opacity(0.05), lineWidth: 1)
         }
-        // Keep one persistent action at the card's bottom-right corner. The
-        // card grows upward from its bottom edge, so its label can morph
-        // between expand/collapse without jumping to a different row.
         .overlay(alignment: .bottomTrailing) {
-            detailAction
-                .padding(.trailing, 8)
-                .padding(.bottom, Self.detailActionTopSpacing)
+            expansionButton
+                .padding(.trailing, 6)
+                .padding(.bottom, 6)
         }
         .accessibilityLabel("第 \(index + 1) 个地点，\(card.title)，\(timeText)")
     }
@@ -1342,8 +1238,6 @@ private struct POICard: View {
             + summarySpacing
             + rowHeights.reduce(0, +)
             + detailRowSpacing * CGFloat(max(0, rowHeights.count - 1))
-            + detailActionTopSpacing
-            + detailActionHeight
     }
 
     private static func locationText(for card: TravelCardSnapshot?) -> String? {
@@ -1361,44 +1255,6 @@ private struct POICard: View {
     private static func businessHoursText(for card: TravelCardSnapshot?) -> String? {
         let value = card?.place?.businessHours?.trimmingCharacters(in: .whitespacesAndNewlines)
         return value?.isEmpty == false ? value : nil
-    }
-
-    private var poiSummary: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text("\(index + 1)")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.black)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(.white))
-                .overlay(
-                    Circle()
-                        .stroke(Color(red: 1, green: 110 / 255, blue: 0), lineWidth: 2)
-                )
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(card.title)
-                        .font(.system(size: 22, weight: .medium))
-                        .tracking(0)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .lineSpacing(0)
-                }
-
-                HStack(spacing: 8) {
-                    Text(timeText)
-                        .font(.custom("Inter", size: 14).weight(.medium))
-                        .foregroundStyle(Color(red: 180 / 255, green: 180 / 255, blue: 180 / 255))
-                        .lineSpacing(0)
-
-                    Spacer(minLength: 8)
-                }
-                // Reserve the persistent bottom-right action's footprint
-                // while the card is collapsed.
-                .padding(.trailing, 116)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -1461,8 +1317,8 @@ private struct POICard: View {
             longitude: userLocation.longitude
         ).distance(from: CLLocation(latitude: latitude, longitude: longitude))
         return distance >= 1_000
-            ? String(format: "距你 %.1f km", distance / 1_000)
-            : "距你 %.0f m"
+            ? String(format: "距我 %.1f km", distance / 1_000)
+            : String(format: "距我 %.0f m", distance)
     }
 
     @ViewBuilder
@@ -1490,41 +1346,6 @@ private struct POICard: View {
         let dialString = String(phoneText.unicodeScalars.filter(allowedCharacters.contains))
         guard !dialString.isEmpty else { return nil }
         return URL(string: "tel://\(dialString)")
-    }
-
-    private var detailAction: some View {
-        Button(action: onToggleExpanded) {
-            ZStack(alignment: .leading) {
-                HStack(spacing: 6) {
-                    Image(systemName: "minus")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("收起资讯")
-                        .font(.system(size: 16, weight: .medium))
-                        .lineSpacing(0)
-                }
-                .foregroundStyle(Self.detailActionColor)
-                .frame(height: Self.detailActionHeight)
-                .frame(width: Self.detailActionWidth, alignment: .leading)
-                .opacity(isExpanded ? 1 : 0)
-
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("展开资讯")
-                        .font(.system(size: 16, weight: .medium))
-                        .lineSpacing(0)
-                }
-                .foregroundStyle(Self.detailActionColor)
-                .frame(height: Self.detailActionHeight)
-                .frame(width: Self.detailActionWidth, alignment: .leading)
-                .opacity(isExpanded ? 0 : 1)
-            }
-            .animation(.easeInOut(duration: 0.18), value: isExpanded)
-        }
-        .frame(width: Self.detailActionWidth, height: Self.detailActionHeight, alignment: .leading)
-        .contentShape(Rectangle())
-        .buttonStyle(.plain)
-        .accessibilityLabel(isExpanded ? "收起资讯" : "展开资讯")
     }
 
     private func detailRow(
@@ -1571,6 +1392,107 @@ private struct POICard: View {
         } else {
             coverPlaceholder
         }
+    }
+
+    private var coverContent: some View {
+        ZStack {
+            coverImage
+
+            // Matches the product gradient: transparent through 48.37%,
+            // reaching 52% black at 79.94% and remaining dark to the bottom.
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .clear, location: 0.4837),
+                    .init(color: .black.opacity(0.52), location: 0.7994),
+                    .init(color: .black.opacity(0.52), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+
+            Image("icon-poi-more-vertical")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 4, height: 18)
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Spacer(minLength: 0)
+
+                Text("\(index + 1). \(card.title)")
+                    .font(.system(size: 22, weight: .semibold))
+                    .tracking(0)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    metadataItem(
+                        iconName: "icon-poi-pin-outline",
+                        iconSize: CGSize(width: 12, height: 12),
+                        text: timeText
+                    )
+
+                    if let distanceText {
+                        metadataItem(
+                            iconName: "icon-poi-distance-outline",
+                            iconSize: CGSize(width: 12, height: 14),
+                            text: distanceText
+                        )
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.trailing, 44)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private var expansionButton: some View {
+        Button(action: onToggleExpanded) {
+            ZStack {
+                Image("icon-poi-info-outline")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 24, height: 24)
+                    .opacity(1 - normalizedExpansionProgress)
+                    .scaleEffect(1 - 0.2 * normalizedExpansionProgress)
+                    .rotationEffect(.degrees(-90 * Double(normalizedExpansionProgress)))
+
+                Image("icon-poi-close-filled")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 20, height: 20)
+                    .opacity(normalizedExpansionProgress)
+                    .scaleEffect(0.8 + 0.2 * normalizedExpansionProgress)
+                    .rotationEffect(.degrees(90 * Double(1 - normalizedExpansionProgress)))
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(normalizedExpansionProgress > 0.5 ? "收起资讯" : "展开资讯")
+    }
+
+    private func metadataItem(iconName: String, iconSize: CGSize, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(iconName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: iconSize.width, height: iconSize.height)
+
+            Text(text)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(red: 216 / 255, green: 216 / 255, blue: 216 / 255))
+                .lineLimit(1)
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var coverPlaceholder: some View {

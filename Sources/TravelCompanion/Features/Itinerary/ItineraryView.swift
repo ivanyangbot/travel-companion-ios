@@ -14,7 +14,6 @@ struct ItineraryView: View {
     @State private var dayPendingDeletion: TripDaySnapshot?
     @State private var activeCardEditor: CardEditorTarget?
     @State private var detailCard: TravelCardSnapshot?
-    @State private var aiItinerarySeed: String?
     @State private var cardPendingDeletion: TravelCardSnapshot?
     @State private var expenseEditorDate: Date?
     @State private var showsSharingSheet = false
@@ -75,9 +74,6 @@ struct ItineraryView: View {
             } message: {
                 Text(linkHandler.alertMessage ?? "")
             }
-            .onChange(of: sharedLinkStore.pendingURL) { _, _ in
-                presentSharedLinkIfPossible()
-            }
             .onChange(of: sharedLinkStore.pendingInviteToken) { _, token in
                 guard token != nil else { return }
                 joinPendingInviteIfPossible()
@@ -85,11 +81,7 @@ struct ItineraryView: View {
             .sheet(isPresented: $showsSharingSheet) {
                 TripSharingSheet(syncEngine: syncEngine)
             }
-            .onChange(of: syncEngine.trip?.version) { _, _ in
-                presentSharedLinkIfPossible()
-            }
             .task {
-                presentSharedLinkIfPossible()
                 joinPendingInviteIfPossible()
             }
             .onChange(of: syncEngine.isUserAuthenticated) { _, isAuthenticated in
@@ -130,7 +122,7 @@ struct ItineraryView: View {
                     Task { await syncEngine.createTrip(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
                 }
             }
-            .sheet(isPresented: $showsAIItinerary, onDismiss: { aiItinerarySeed = nil }) {
+            .sheet(isPresented: $showsAIItinerary) {
                 AgentWorkbenchView(syncEngine: syncEngine)
             }
             .sheet(item: $detailCard) { card in
@@ -292,7 +284,6 @@ struct ItineraryView: View {
             .accessibilityLabel("退出登录")
 
             Button {
-                aiItinerarySeed = nil
                 showsAIItinerary = true
             } label: {
                 Image("icon-ai-outline")
@@ -649,16 +640,6 @@ struct ItineraryView: View {
             if case .create(_, let initialURL) = self { return initialURL }
             return nil
         }
-    }
-
-    private func presentSharedLinkIfPossible() {
-        guard !showsAIItinerary,
-              activeCardEditor == nil,
-              let url = sharedLinkStore.pendingURL,
-              syncEngine.trip?.isConfigured == true else { return }
-        aiItinerarySeed = url.absoluteString
-        showsAIItinerary = true
-        sharedLinkStore.markDelivered()
     }
 
     @ViewBuilder

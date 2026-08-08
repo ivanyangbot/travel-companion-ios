@@ -5,6 +5,8 @@ import SwiftUI
 /// user explicitly selects and commits candidate cards.
 struct AgentWorkbenchView: View {
     @ObservedObject var syncEngine: SyncEngine
+    let initialMessage: String?
+    let onInitialMessageSubmitted: (() -> Void)?
     @EnvironmentObject private var store: AgentV2SessionStore
     @EnvironmentObject private var runState: AgentV2RunState
     @FocusState private var isComposerFocused: Bool
@@ -12,6 +14,18 @@ struct AgentWorkbenchView: View {
     @State private var photo: PhotosPickerItem?
     @State private var isShowingContext = false
     @State private var isConfirmingClear = false
+    @State private var didConsumeInitialMessage = false
+    @State private var didSubmitInitialMessage = false
+
+    init(
+        syncEngine: SyncEngine,
+        initialMessage: String? = nil,
+        onInitialMessageSubmitted: (() -> Void)? = nil
+    ) {
+        self.syncEngine = syncEngine
+        self.initialMessage = initialMessage
+        self.onInitialMessageSubmitted = onInitialMessageSubmitted
+    }
 
     var body: some View {
         NavigationStack {
@@ -52,6 +66,13 @@ struct AgentWorkbenchView: View {
             .alert("无法完成操作", isPresented: Binding(get: { runState.error != nil }, set: { if !$0 { runState.error = nil } })) {
                 Button("知道了", role: .cancel) {}
             } message: { Text(runState.error ?? "") }
+            .onAppear { consumeInitialMessageIfNeeded() }
+            .onChange(of: initialMessage) { _, newValue in
+                guard newValue != nil else { return }
+                didConsumeInitialMessage = false
+                didSubmitInitialMessage = false
+                consumeInitialMessageIfNeeded()
+            }
         }
     }
 
@@ -387,6 +408,8 @@ struct AgentWorkbenchView: View {
 
     private var quickPrompts: [String] {
         [
+            "粘贴小红书分享内容，整理成行程卡。",
+            "去小红书找目的地攻略，并核对可定位的地点。",
             "帮我安排明天，带父母、少走路。",
             "第二天下午换成室内活动。",
             "按人均 500 元补齐空白日。",
@@ -395,6 +418,8 @@ struct AgentWorkbenchView: View {
     }
 
     private func promptIcon(_ prompt: String) -> String {
+        if prompt.contains("粘贴小红书") { return "link" }
+        if prompt.contains("去小红书找") { return "magnifyingglass" }
         if prompt.contains("父母") { return "figure.2.and.child.holdinghands" }
         if prompt.contains("室内") { return "cloud.rain" }
         if prompt.contains("500") { return "banknote" }
@@ -403,6 +428,16 @@ struct AgentWorkbenchView: View {
 
     private func usePrompt(_ prompt: String) {
         message = prompt
+        isComposerFocused = true
+    }
+
+    private func consumeInitialMessageIfNeeded() {
+        guard !didConsumeInitialMessage,
+              message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let initialMessage,
+              !initialMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        didConsumeInitialMessage = true
+        message = initialMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         isComposerFocused = true
     }
 
@@ -443,6 +478,7 @@ struct AgentWorkbenchView: View {
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: message, createdAt: .now)
         store.beginTurn()
         store.append(userMessage)
+        acknowledgeInitialMessageSubmissionIfNeeded(userMessage.content)
         message = ""
         runState.prepareForTurn()
         isComposerFocused = false
@@ -493,6 +529,17 @@ struct AgentWorkbenchView: View {
             state.finishGeneration(id: generationID)
         }
         runState.attach(task, id: generationID)
+    }
+
+    private func acknowledgeInitialMessageSubmissionIfNeeded(_ submittedMessage: String) {
+        guard !didSubmitInitialMessage,
+              let initialURL = initialMessage?
+                .split(whereSeparator: { $0.isWhitespace })
+                .map(String.init)
+                .first(where: { $0.hasPrefix("https://") }),
+              submittedMessage.contains(initialURL) else { return }
+        didSubmitInitialMessage = true
+        onInitialMessageSubmitted?()
     }
 
     private func makeRequest() -> AgentV2TurnRequest? {
@@ -611,53 +658,73 @@ private struct AgentV2CandidateCard: View {
     let selection: (Bool) -> Void
 
     var body: some View {
-        Button { if candidate.isCommitReady { selection(!candidate.selected) } } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: candidate.selected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(candidate.selected ? .indigo : .secondary)
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.indigo)
-                        Spacer()
-                        Text(candidate.startAt).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            Button { if candidate.isCommitReady { selection(!candidate.selected) } } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: candidate.selected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(candidate.selected ? .indigo : .secondary)
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.indigo)
+                            Spacer()
+                            Text(candidate.startAt).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        Text(candidate.title).font(.headline).foregroundStyle(.primary)
+                        Text(candidate.date + (candidate.place.map { " · \($0.name)" } ?? ""))
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                        if let address = candidate.place?.address, !address.isEmpty {
+                            Text(address).font(.caption).foregroundStyle(.secondary)
+                        }
+                        if let reason = candidate.reason {
+                            Text(reason).font(.footnote).foregroundStyle(.secondary)
+                        }
+                        if !candidate.risks.isEmpty {
+                            Label(candidate.risks.joined(separator: "、"), systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        HStack(spacing: 5) {
+                            Image(systemName: candidate.placeStatus == .verified ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                            Text(candidate.placeStatus.title)
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(candidate.placeStatus == .verified ? .green : .orange)
                     }
-                    Text(candidate.title).font(.headline).foregroundStyle(.primary)
-                    Text(candidate.date + (candidate.place.map { " · \($0.name)" } ?? ""))
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                    if let address = candidate.place?.address, !address.isEmpty {
-                        Text(address).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let reason = candidate.reason {
-                        Text(reason).font(.footnote).foregroundStyle(.secondary)
-                    }
-                    if !candidate.risks.isEmpty {
-                        Label(candidate.risks.joined(separator: "、"), systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-                    HStack(spacing: 5) {
-                        Image(systemName: candidate.placeStatus == .verified ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                        Text(candidate.placeStatus.title)
-                    }
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(candidate.placeStatus == .verified ? .green : .orange)
                 }
             }
-            .padding(13)
-            .background(candidate.selected ? Color.indigo.opacity(0.09) : Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(candidate.selected ? Color.indigo.opacity(0.45) : Color.clear, lineWidth: 1)
+            .buttonStyle(.plain)
+            .accessibilityValue(candidate.selected ? "已选择" : "未选择")
+            .accessibilityHint(candidate.isCommitReady ? "轻点切换选择" : "信息完整后才可选择")
+
+            if let sourceURL {
+                Link(destination: sourceURL) {
+                    Label("小红书来源 · 打开原笔记", systemImage: "arrow.up.right.square")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red)
+                }
+                .padding(.leading, 34)
             }
         }
-        .buttonStyle(.plain)
+        .padding(13)
+        .background(candidate.selected ? Color.indigo.opacity(0.09) : Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(candidate.selected ? Color.indigo.opacity(0.45) : Color.clear, lineWidth: 1)
+        }
         .opacity(candidate.isCommitReady ? 1 : 0.72)
-        .accessibilityValue(candidate.selected ? "已选择" : "未选择")
-        .accessibilityHint(candidate.isCommitReady ? "轻点切换选择" : "信息完整后才可选择")
+    }
+
+    private var sourceURL: URL? {
+        guard let value = candidate.url,
+              let url = URL(string: value),
+              let host = url.host?.lowercased(),
+              host == "xiaohongshu.com" || host.hasSuffix(".xiaohongshu.com") ||
+              host == "xhslink.com" || host.hasSuffix(".xhslink.com") else { return nil }
+        return url
     }
 }
 

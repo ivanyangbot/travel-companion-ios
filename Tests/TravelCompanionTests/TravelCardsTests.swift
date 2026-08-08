@@ -48,6 +48,25 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertNil(restoredStore.pendingInviteToken)
     }
 
+    @MainActor
+    func testSharedLinkRemainsPersistedUntilAgentSubmissionIsAcknowledged() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: PendingSharedLinkStore.appGroup))
+        let url = "https://xhslink.com/a/test-share"
+        defaults.set(url, forKey: PendingSharedLinkStore.pendingURLKey)
+        defer { defaults.removeObject(forKey: PendingSharedLinkStore.pendingURLKey) }
+
+        let firstStore = PendingSharedLinkStore()
+        XCTAssertEqual(firstStore.pendingURL?.absoluteString, url)
+        XCTAssertEqual(defaults.string(forKey: PendingSharedLinkStore.pendingURLKey), url)
+
+        let restoredBeforeDelivery = PendingSharedLinkStore()
+        XCTAssertEqual(restoredBeforeDelivery.pendingURL?.absoluteString, url)
+        restoredBeforeDelivery.markDelivered()
+
+        XCTAssertNil(restoredBeforeDelivery.pendingURL)
+        XCTAssertNil(defaults.string(forKey: PendingSharedLinkStore.pendingURLKey))
+    }
+
     func testTripMembersDecodeForSharingSheet() throws {
         let data = Data("""
         {"userId":1,"displayName":"创建者","email":null,"role":"owner","joinedAt":"2026-10-01T00:00:00Z"}

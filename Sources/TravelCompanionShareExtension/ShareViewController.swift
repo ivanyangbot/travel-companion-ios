@@ -2,7 +2,7 @@ import UIKit
 import UniformTypeIdentifiers
 import Network
 
-/// Receives one public web URL, persists it in the shared App Group, and asks
+/// Receives one public web URL or share-text link, persists it in the shared App Group, and asks
 /// iOS to open the host's registered `travelcompanion://import` scheme.
 /// `NSExtensionContext.open` is public API; the persisted value is the safe
 /// fallback if iOS declines the open request or the host is not running.
@@ -26,24 +26,44 @@ final class ShareViewController: UIViewController {
     }
 
     private func loadSharedURL() {
-        guard let item = extensionContext?.inputItems.first as? NSExtensionItem,
-              let provider = item.attachments?.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.url.identifier) }) else {
+        guard let item = extensionContext?.inputItems.first as? NSExtensionItem else {
             cancel(with: "未找到可添加的网页链接。")
             return
         }
-        provider.loadObject(ofClass: NSURL.self) { [weak self] object, _ in
-            let rawURL = (object as? NSURL)?.absoluteString
-            DispatchQueue.main.async {
-                guard let self,
-                      let rawURL,
-                      let url = URL(string: rawURL),
-                      self.isPublicHTTPSURL(url) else {
-                    self?.cancel(with: "只能添加有效的 HTTPS 网页链接。")
-                    return
-                }
-                self.handoff(url)
+        if let provider = item.attachments?.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.url.identifier) }) {
+            provider.loadObject(ofClass: NSURL.self) { [weak self] object, _ in
+                let rawURL = (object as? NSURL)?.absoluteString
+                Task { @MainActor [weak self] in self?.finishLoading(rawURL: rawURL) }
             }
+            return
         }
+        if let provider = item.attachments?.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) }) {
+            provider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
+                let text = object as? String ?? (object as? NSString).map(String.init)
+                let rawURL = text.flatMap(Self.firstHTTPSURL(in:))
+                Task { @MainActor [weak self] in self?.finishLoading(rawURL: rawURL) }
+            }
+            return
+        }
+        cancel(with: "未找到可添加的网页链接。")
+    }
+
+    private func finishLoading(rawURL: String?) {
+        guard let rawURL,
+              let url = URL(string: rawURL),
+              isPublicHTTPSURL(url) else {
+            cancel(with: "只能添加有效的 HTTPS 网页链接。")
+            return
+        }
+        handoff(url)
+    }
+
+    nonisolated private static func firstHTTPSURL(in text: String) -> String? {
+        guard let range = text.range(
+            of: #"https://[^\s<>\"'，。；：！？、）】》〉」』”’]+"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) else { return nil }
+        return String(text[range]).trimmingCharacters(in: CharacterSet(charactersIn: "。．，,；;：:！!？?、）)]}】》〉」』”’\"'"))
     }
 
     private func handoff(_ url: URL) {
@@ -53,7 +73,9 @@ final class ShareViewController: UIViewController {
             return
         }
         extensionContext?.open(hostURL) { [weak self] _ in
-            self?.extensionContext?.completeRequest(returningItems: nil)
+            Task { @MainActor [weak self] in
+                self?.extensionContext?.completeRequest(returningItems: nil)
+            }
         }
     }
 

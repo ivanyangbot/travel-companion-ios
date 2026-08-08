@@ -14,21 +14,27 @@
 
 ## Execution Checklist
 - [x] Record assumptions: 数据归现有用户/行程所有；仅处理 `activity`/`hotel` 且 `images`、`image_url` 均为空的卡片；不覆盖已有图片；目标为现有生产 PostgreSQL；交付为幂等任务回填、首轮运行观察和健康验证。
-- [ ] Write a complete PRD and create it only by copying `assets/prd-template.md`.
-- [ ] Clarify product-level features and create feature docs only by copying `assets/product-feature-template.md`.
-- [ ] Move PRD and feature docs into `docs/product/` once the project folder exists.
+- [x] Write the scoped product requirements in the copied feature template; a separate greenfield PRD is N/A for this existing backend operation.
+- [x] Clarify product-level behavior in `docs/product/features/poi-image-existing-backfill.md`.
+- [x] Keep the product feature document under `docs/product/features/`.
 - [x] Confirm architecture and technology stack before writing project files.
-- [ ] Run `env-auditor` and resolve required blockers.
-- [ ] Create project folders, initialize version control, and start the execution log.
-- [ ] Prepare local/server development environments.
-- [ ] Run frontend and backend skeleton smoke checks as applicable.
-- [ ] Create technical design files only by copying the technical templates.
-- [ ] Present the technical design summary and get confirmation before coding unless autonomous implementation is already granted.
-- [ ] Run `api-contract-agent` before broad full-stack work.
-- [ ] Run `icon-asset-agent` once to create `docs/design/ICON_MANIFEST.md`.
-- [ ] Build primary navigation, API contracts, persistence, and entry points.
-- [ ] Develop features with implementer, spec-reviewer, and quality-reviewer subagents when available.
-- [ ] Verify there are no unimplemented entry buttons, mock data, or incomplete features unless explicitly requested.
-- [ ] Run integration QA, builds/tests, release checks, deployment, DNS, and publication as applicable.
-- [ ] Run completion audit and resolve or explicitly defer every missing item.
-- [ ] Run `final-review-agent`, append final status/manual actions to the log, and create intentional commits.
+- [x] Run environment audit and resolve the OpenCC production dependency before restart.
+- [x] Reuse the existing repositories and append to `.codex/rapid-project-dev.log`; no new repository was needed.
+- [x] Verify local venv, production SSH, PostgreSQL, sidecar login/search, and service health.
+- [x] Run backend import and test-suite smoke checks; frontend is N/A.
+- [x] Create `docs/design/features/poi-image-existing-backfill.md` from the technical feature template.
+- [x] Record the technical design; the user granted autonomous implementation and deployment.
+- [x] API contract and icon agents are N/A because no external HTTP API or UI/icon changed.
+- [x] Preserve the existing scheduler, persistence model, and Flask entry points.
+- [x] Complete implementer, specification-reviewer, and quality-reviewer cycles; final reviews PASS.
+- [x] Verify no UI entry points or mock data are introduced.
+- [x] Run 49 focused tests, 317 full backend tests, production backups, staged deployment, health checks, canary, and live-model checks.
+- [x] Start the durable first production pass and audit every success produced before handoff; 64 unclaimed cards remain and continue automatically under the production scheduler.
+- [x] Run the final release audit, append the asynchronous handoff, and explicitly record that no commit was made in the dirty worktrees.
+
+## Production Outcome
+- 94 activity/hotel POIs audited; no pre-existing user image was overwritten.
+- Final-rule audit retains 6 cards and 10 valid referenced JPEGs; all were visually reviewed, and invalid/missing file count is 0.
+- The full no-image queue is active under the deployed scheduler. At handoff: 2 running, 64 awaiting first claim, 24 already attempted or explicitly deferred for retry.
+- Strict accuracy is intentional: Commons/Wikidata remain unreachable from the production host, and XHS candidates that are generic, non-representative, people-led, collage-like, or uncertain stay empty.
+- No commit or push was created because both repositories already contain unrelated user changes.

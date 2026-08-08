@@ -358,6 +358,1023 @@ private extension Array where Element == CLLocationCoordinate2D {
     }
 }
 
+enum MapLibreEdgePinEdge: Int, CaseIterable {
+    case top
+    case right
+    case bottom
+    case left
+
+    var isHorizontal: Bool { self == .top || self == .bottom }
+}
+
+enum MapLibreEdgePinPointingCorner: Hashable {
+    case topLeft
+    case topRight
+    case bottomLeft
+    case bottomRight
+}
+
+struct MapLibreEdgePinGroupMember: Equatable {
+    let id: UUID
+    /// Stable relative label order inherited from the current edge queue.
+    let displayOrder: Int
+    let edge: MapLibreEdgePinEdge
+    /// Direction from the physical screen center to the original POI point.
+    let directionAngle: CGFloat
+    let projectedPosition: CGFloat
+    let isHighlighted: Bool
+}
+
+/// Pure complete-link clustering used by both the renderer and geometry tests.
+/// Pairwise maxima prevent the classic 0°/20°/40° chain from becoming one
+/// group merely because every neighboring pair is close.
+enum MapLibreEdgePinGrouping {
+    static let mergeAngle = 24 * CGFloat.pi / 180
+    static let splitAngle = 30 * CGFloat.pi / 180
+    static let mergeProjectedSpan: CGFloat = 42
+    static let splitProjectedSpan: CGFloat = 56
+
+    static func circularAngularDistance(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+        let fullTurn = 2 * CGFloat.pi
+        var delta = abs(lhs - rhs).truncatingRemainder(dividingBy: fullTurn)
+        if delta > CGFloat.pi { delta = fullTurn - delta }
+        return delta
+    }
+
+    static func maximumAngularSpan(_ members: [MapLibreEdgePinGroupMember]) -> CGFloat {
+        guard members.count > 1 else { return 0 }
+        var maximum: CGFloat = 0
+        for first in members.indices {
+            for second in members.indices where second > first {
+                maximum = max(
+                    maximum,
+                    circularAngularDistance(
+                        members[first].directionAngle,
+                        members[second].directionAngle
+                    )
+                )
+            }
+        }
+        return maximum
+    }
+
+    static func maximumProjectedSpan(_ members: [MapLibreEdgePinGroupMember]) -> CGFloat {
+        guard let minimum = members.map(\.projectedPosition).min(),
+              let maximum = members.map(\.projectedPosition).max() else {
+            return 0
+        }
+        return maximum - minimum
+    }
+
+    static func groups(
+        members input: [MapLibreEdgePinGroupMember],
+        previousGroups: [[UUID]]
+    ) -> [[MapLibreEdgePinGroupMember]] {
+        var seen: Set<UUID> = []
+        let members = input.filter { seen.insert($0.id).inserted }
+        let previousMembership: [UUID: Set<UUID>] = previousGroups.reduce(into: [:]) {
+            result, group in
+            let set = Set(group)
+            guard set.count > 1 else { return }
+            for id in set { result[id] = set }
+        }
+
+        var clusters = members.map { [$0] }
+        while clusters.count > 1 {
+            var best: (first: Int, second: Int, score: CGFloat)?
+            for first in clusters.indices {
+                for second in clusters.indices where second > first {
+                    let combined = clusters[first] + clusters[second]
+                    guard let edge = combined.first?.edge,
+                          combined.allSatisfy({ $0.edge == edge && !$0.isHighlighted }) else {
+                        continue
+                    }
+
+                    let priorSet = previousMembership[combined[0].id]
+                    let staysInPreviousGroup = priorSet != nil
+                        && combined.allSatisfy { previousMembership[$0.id] == priorSet }
+                    let angleLimit = staysInPreviousGroup ? splitAngle : mergeAngle
+                    let spanLimit = staysInPreviousGroup
+                        ? splitProjectedSpan
+                        : mergeProjectedSpan
+                    let angle = maximumAngularSpan(combined)
+                    let span = maximumProjectedSpan(combined)
+                    guard angle <= angleLimit, span <= spanLimit else { continue }
+
+                    let score = max(angle / max(angleLimit, 0.0001), span / max(spanLimit, 0.0001))
+                    if best == nil || score < best!.score - 0.0001
+                        || (abs(score - best!.score) <= 0.0001
+                            && deterministicOrder(clusters[first])
+                                < deterministicOrder(clusters[best!.first])) {
+                        best = (first, second, score)
+                    }
+                }
+            }
+            guard let best else { break }
+            clusters[best.first].append(contentsOf: clusters[best.second])
+            clusters.remove(at: best.second)
+        }
+
+        return clusters
+            .map { $0.sorted { $0.displayOrder < $1.displayOrder } }
+            .sorted {
+                guard let lhs = $0.first, let rhs = $1.first else { return !$0.isEmpty }
+                if lhs.edge.rawValue != rhs.edge.rawValue {
+                    return lhs.edge.rawValue < rhs.edge.rawValue
+                }
+                let lhsPosition = $0.map(\.projectedPosition).min() ?? 0
+                let rhsPosition = $1.map(\.projectedPosition).min() ?? 0
+                if lhsPosition != rhsPosition { return lhsPosition < rhsPosition }
+                return deterministicOrder($0) < deterministicOrder($1)
+            }
+    }
+
+    private static func deterministicOrder(_ members: [MapLibreEdgePinGroupMember]) -> Int {
+        members.map(\.displayOrder).min() ?? .max
+    }
+}
+
+enum MapLibrePinLabelGeometry {
+    static let bubbleSize: CGFloat = 32
+
+    static func size(for text: String) -> CGSize {
+        let font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        let measuredWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        return CGSize(width: max(bubbleSize, measuredWidth + 20), height: bubbleSize)
+    }
+
+    /// Preserve every represented member while keeping the visible edge pill
+    /// inside the available width. Large groups use a stable prefix plus a
+    /// `+N` remainder instead of producing an unprojectable, disappearing pin.
+    static func fittingText(displayOrders: [Int], maximumWidth: CGFloat) -> String {
+        let labels = displayOrders.map { String($0 + 1) }
+        guard !labels.isEmpty else { return "" }
+        let fullText = labels.joined(separator: ".")
+        guard size(for: fullText).width > maximumWidth else { return fullText }
+
+        if labels.count > 1 {
+            for prefixCount in stride(from: labels.count - 1, through: 1, by: -1) {
+                let candidate = labels.prefix(prefixCount).joined(separator: ".")
+                    + ".+\(labels.count - prefixCount)"
+                if size(for: candidate).width <= maximumWidth { return candidate }
+            }
+        }
+        return "+\(labels.count)"
+    }
+}
+
+struct MapLibreRegularPinMember: Equatable {
+    let id: UUID
+    let displayOrder: Int
+    let numberCenter: CGPoint
+    let renderedFrame: CGRect
+    let isHighlighted: Bool
+}
+
+struct MapLibreRegularPinCluster: Equatable {
+    let members: [MapLibreRegularPinMember]
+    let numberCenter: CGPoint
+    let labelText: String?
+    let labelSize: CGSize
+    let renderedFrame: CGRect
+
+    var representativeID: UUID { members[0].id }
+    var isHighlighted: Bool { members.contains(where: \.isHighlighted) }
+}
+
+/// Stable collision closure for ordinary on-map pins. Original member-frame
+/// overlap is transitive, and every newly widened numeric pill is checked
+/// again so it can absorb another nearby cluster.
+enum MapLibreRegularPinGrouping {
+    static func clusters(
+        members input: [MapLibreRegularPinMember]
+    ) -> [MapLibreRegularPinCluster] {
+        var seen: Set<UUID> = []
+        var groups = input
+            .filter { seen.insert($0.id).inserted }
+            .sorted { $0.displayOrder < $1.displayOrder }
+            .map { [$0] }
+
+        while groups.count > 1 {
+            var pairToMerge: (Int, Int)?
+            for first in groups.indices {
+                for second in groups.indices where second > first {
+                    guard groupsOverlap(groups[first], groups[second]) else {
+                        continue
+                    }
+                    pairToMerge = (first, second)
+                    break
+                }
+                if pairToMerge != nil { break }
+            }
+            guard let pairToMerge else { break }
+            groups[pairToMerge.0].append(contentsOf: groups[pairToMerge.1])
+            groups[pairToMerge.0].sort { $0.displayOrder < $1.displayOrder }
+            groups.remove(at: pairToMerge.1)
+            groups.sort {
+                ($0.first?.displayOrder ?? .max) < ($1.first?.displayOrder ?? .max)
+            }
+        }
+        return groups.map(cluster(for:))
+    }
+
+    private static func groupsOverlap(
+        _ first: [MapLibreRegularPinMember],
+        _ second: [MapLibreRegularPinMember]
+    ) -> Bool {
+        let originalOverlap = first.contains { lhs in
+            second.contains { rhs in strictlyOverlaps(lhs.renderedFrame, rhs.renderedFrame) }
+        }
+        return originalOverlap
+            || strictlyOverlaps(cluster(for: first).renderedFrame, cluster(for: second).renderedFrame)
+    }
+
+    private static func cluster(
+        for unsortedMembers: [MapLibreRegularPinMember]
+    ) -> MapLibreRegularPinCluster {
+        let members = unsortedMembers.sorted { $0.displayOrder < $1.displayOrder }
+        let center = CGPoint(
+            x: (members.map(\.numberCenter.x).min()! + members.map(\.numberCenter.x).max()!) / 2,
+            y: (members.map(\.numberCenter.y).min()! + members.map(\.numberCenter.y).max()!) / 2
+        )
+        let labelText = members.count > 1
+            ? members.map { String($0.displayOrder + 1) }.joined(separator: ".")
+            : nil
+        let labelSize = labelText.map(MapLibrePinLabelGeometry.size(for:))
+            ?? CGSize(
+                width: members[0].renderedFrame.width,
+                height: MapLibrePinLabelGeometry.bubbleSize
+            )
+        let renderedFrame: CGRect
+        if members.count == 1 {
+            renderedFrame = members[0].renderedFrame
+        } else {
+            renderedFrame = MapLibreEdgePinGeometry.renderedOuterFrame(
+                numberCenter: center,
+                labelSize: labelSize,
+                // A merged pill keeps the orange selected border but does not
+                // render the separate category bubble above it.
+                topExtent: labelSize.height / 2,
+                bottomExtent: labelSize.height / 2
+            )
+        }
+        return MapLibreRegularPinCluster(
+            members: members,
+            numberCenter: center,
+            labelText: labelText,
+            labelSize: labelSize,
+            renderedFrame: renderedFrame
+        )
+    }
+
+    private static func strictlyOverlaps(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        let intersection = lhs.intersection(rhs)
+        return !intersection.isNull && intersection.width > 0 && intersection.height > 0
+    }
+}
+
+enum MapLibreEdgePinGeometry {
+    static let horizontalMargin: CGFloat = 20
+    static let topMargin: CGFloat = 160
+    static let timelineGap: CGFloat = 20
+    /// The floating bottom navigation is 60pt tall and 32pt above the screen.
+    static let bottomTabBarTopInset: CGFloat = 92
+
+    /// Returns the complete-rendered-frame safe rect in the same coordinate
+    /// space as `screenBounds`. `.null` means even a compact pin cannot fit.
+    static func safeOuterRect(
+        screenBounds: CGRect,
+        timelineTop: CGFloat?,
+        minimumSize: CGSize = CGSize(width: 32, height: 32)
+    ) -> CGRect {
+        let minimumX = screenBounds.minX + horizontalMargin
+        let maximumX = screenBounds.maxX - horizontalMargin
+        let minimumY = screenBounds.minY + topMargin
+        let currentObstructionTop = timelineTop
+            ?? (screenBounds.maxY - bottomTabBarTopInset)
+        let measuredBottom = currentObstructionTop - timelineGap
+        let maximumY = min(screenBounds.maxY - timelineGap, measuredBottom)
+        guard maximumX - minimumX >= minimumSize.width,
+              maximumY - minimumY >= minimumSize.height else {
+            return .null
+        }
+        return CGRect(
+            x: minimumX,
+            y: minimumY,
+            width: maximumX - minimumX,
+            height: maximumY - minimumY
+        )
+    }
+
+    static func nearlyEqual(_ lhs: CGFloat?, _ rhs: CGFloat?, accuracy: CGFloat = 0.5) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return abs(lhs - rhs) <= accuracy
+        default:
+            return false
+        }
+    }
+
+    static func renderedOuterFrame(
+        numberCenter: CGPoint,
+        labelSize: CGSize,
+        topExtent: CGFloat,
+        bottomExtent: CGFloat
+    ) -> CGRect {
+        CGRect(
+            x: numberCenter.x - labelSize.width / 2,
+            y: numberCenter.y - topExtent,
+            width: labelSize.width,
+            height: topExtent + bottomExtent
+        )
+    }
+
+    static func containsRenderedOuterFrame(
+        safeRect: CGRect,
+        numberCenter: CGPoint,
+        labelSize: CGSize,
+        topExtent: CGFloat,
+        bottomExtent: CGFloat,
+        tolerance: CGFloat = 0.001
+    ) -> Bool {
+        let frame = renderedOuterFrame(
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent
+        )
+        return frame.minX >= safeRect.minX - tolerance
+            && frame.maxX <= safeRect.maxX + tolerance
+            && frame.minY >= safeRect.minY - tolerance
+            && frame.maxY <= safeRect.maxY + tolerance
+    }
+
+    struct BoundaryProjection: Equatable {
+        let point: CGPoint
+        let edge: MapLibreEdgePinEdge
+    }
+
+    /// The landing safe rect is also the attraction trigger. A POI remains a
+    /// regular pin only while its complete rendered frame fits; the POI center
+    /// itself may still be well inside both the map viewport and `safeRect`.
+    static func overflowProjection(
+        safeRect: CGRect,
+        numberCenter: CGPoint,
+        labelSize: CGSize,
+        topExtent: CGFloat,
+        bottomExtent: CGFloat,
+        rayOrigin: CGPoint? = nil
+    ) -> BoundaryProjection? {
+        guard !safeRect.isNull,
+              safeRect.width > 0,
+              safeRect.height > 0 else {
+            return nil
+        }
+        let outerFrame = renderedOuterFrame(
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent
+        )
+        guard !containsRenderedOuterFrame(
+            safeRect: safeRect,
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent
+        ) else {
+            return nil
+        }
+
+        let projection = boundaryProjection(
+            safeRect: safeRect,
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent,
+            rayOrigin: rayOrigin
+        ) ?? dominantOverflowProjection(
+            outerFrame: outerFrame,
+            safeRect: safeRect,
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent
+        )
+        guard let projection else { return nil }
+        let centerRect = centerSafeRect(
+            safeRect: safeRect,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent
+        )
+        guard !centerRect.isNull else { return nil }
+        return snapHorizontalProjectionToEndpoint(
+            projection,
+            centerRect: centerRect,
+            sourcePoint: numberCenter,
+            screenCenter: rayOrigin ?? CGPoint(x: centerRect.midX, y: centerRect.midY)
+        )
+    }
+
+    /// Intersects the ray from the physical screen center through the source
+    /// point with the center-safe boundary for this pin's actual rendered
+    /// size. Unlike `overflowProjection`, this also projects a source whose
+    /// own compact frame fits, which is needed after a widened regular cluster
+    /// is promoted into edge layout.
+    static func boundaryProjection(
+        safeRect: CGRect,
+        numberCenter: CGPoint,
+        labelSize: CGSize,
+        topExtent: CGFloat,
+        bottomExtent: CGFloat,
+        rayOrigin: CGPoint
+    ) -> BoundaryProjection? {
+        guard !safeRect.isNull,
+              safeRect.width > 0,
+              safeRect.height > 0 else {
+            return nil
+        }
+        let centerRect = CGRect(
+            x: safeRect.minX + labelSize.width / 2,
+            y: safeRect.minY + topExtent,
+            width: safeRect.width - labelSize.width,
+            height: safeRect.height - topExtent - bottomExtent
+        )
+        guard centerRect.width >= 0, centerRect.height >= 0 else { return nil }
+
+        let dx = numberCenter.x - rayOrigin.x
+        let dy = numberCenter.y - rayOrigin.y
+        guard abs(dx) > 0.000_001 || abs(dy) > 0.000_001 else { return nil }
+
+        let tolerance: CGFloat = 0.001
+        var intersections: [(scale: CGFloat, edge: MapLibreEdgePinEdge, point: CGPoint)] = []
+        func appendVertical(x: CGFloat, edge: MapLibreEdgePinEdge) {
+            guard abs(dx) > 0.000_001 else { return }
+            let scale = (x - rayOrigin.x) / dx
+            let y = rayOrigin.y + dy * scale
+            guard scale >= 0,
+                  y >= centerRect.minY - tolerance,
+                  y <= centerRect.maxY + tolerance else { return }
+            intersections.append((scale, edge, CGPoint(x: x, y: y)))
+        }
+        func appendHorizontal(y: CGFloat, edge: MapLibreEdgePinEdge) {
+            guard abs(dy) > 0.000_001 else { return }
+            let scale = (y - rayOrigin.y) / dy
+            let x = rayOrigin.x + dx * scale
+            guard scale >= 0,
+                  x >= centerRect.minX - tolerance,
+                  x <= centerRect.maxX + tolerance else { return }
+            intersections.append((scale, edge, CGPoint(x: x, y: y)))
+        }
+        appendVertical(x: centerRect.minX, edge: .left)
+        appendVertical(x: centerRect.maxX, edge: .right)
+        appendHorizontal(y: centerRect.minY, edge: .top)
+        appendHorizontal(y: centerRect.maxY, edge: .bottom)
+
+        guard let farthest = intersections.max(by: {
+            if abs($0.scale - $1.scale) > 0.000_001 { return $0.scale < $1.scale }
+            let lhsPriority = $0.edge.isHorizontal ? 1 : 0
+            let rhsPriority = $1.edge.isHorizontal ? 1 : 0
+            return lhsPriority == rhsPriority
+                ? $0.edge.rawValue > $1.edge.rawValue
+                : lhsPriority > rhsPriority
+        }) else {
+            // A dynamically raised timeline can put the whole center-safe
+            // rect above the physical screen center. Rays pointing farther
+            // away then never cross the rect, so choose the semantically
+            // matching directional edge instead of dropping the member.
+            let horizontalScore = abs(dx) / max(centerRect.width, 1)
+            let verticalScore = abs(dy) / max(centerRect.height, 1)
+            let edge: MapLibreEdgePinEdge
+            if horizontalScore > verticalScore {
+                edge = dx < 0 ? .left : .right
+            } else {
+                edge = dy < 0 ? .top : .bottom
+            }
+            let point: CGPoint
+            switch edge {
+            case .left:
+                point = CGPoint(
+                    x: centerRect.minX,
+                    y: min(centerRect.maxY, max(centerRect.minY, numberCenter.y))
+                )
+            case .right:
+                point = CGPoint(
+                    x: centerRect.maxX,
+                    y: min(centerRect.maxY, max(centerRect.minY, numberCenter.y))
+                )
+            case .top:
+                point = CGPoint(
+                    x: min(centerRect.maxX, max(centerRect.minX, numberCenter.x)),
+                    y: centerRect.minY
+                )
+            case .bottom:
+                point = CGPoint(
+                    x: min(centerRect.maxX, max(centerRect.minX, numberCenter.x)),
+                    y: centerRect.maxY
+                )
+            }
+            return BoundaryProjection(point: point, edge: edge)
+        }
+        return BoundaryProjection(point: farthest.point, edge: farthest.edge)
+    }
+
+    /// Top and bottom pins intentionally have only two stable positions. The
+    /// source's horizontal side of the physical screen center chooses the
+    /// left or right endpoint; left/right-edge pins keep their true ray
+    /// intersection. This prevents a top/bottom pill from drifting through
+    /// misleading intermediate positions.
+    static func landingProjection(
+        safeRect: CGRect,
+        numberCenter: CGPoint,
+        labelSize: CGSize,
+        topExtent: CGFloat,
+        bottomExtent: CGFloat,
+        rayOrigin: CGPoint
+    ) -> BoundaryProjection? {
+        guard let projection = boundaryProjection(
+            safeRect: safeRect,
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent,
+            rayOrigin: rayOrigin
+        ) else { return nil }
+        let centerRect = centerSafeRect(
+            safeRect: safeRect,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent
+        )
+        guard !centerRect.isNull else { return nil }
+        return snapHorizontalProjectionToEndpoint(
+            projection,
+            centerRect: centerRect,
+            sourcePoint: numberCenter,
+            screenCenter: rayOrigin
+        )
+    }
+
+    static func pointingCorner(
+        for projection: BoundaryProjection,
+        safeRect: CGRect
+    ) -> MapLibreEdgePinPointingCorner? {
+        switch projection.edge {
+        case .top:
+            return projection.point.x <= safeRect.midX ? .topLeft : .topRight
+        case .bottom:
+            return projection.point.x <= safeRect.midX ? .bottomLeft : .bottomRight
+        case .left, .right:
+            return nil
+        }
+    }
+
+    private static func boundaryProjection(
+        safeRect: CGRect,
+        numberCenter: CGPoint,
+        labelSize: CGSize,
+        topExtent: CGFloat,
+        bottomExtent: CGFloat,
+        rayOrigin: CGPoint?
+    ) -> BoundaryProjection? {
+        let centerRect = CGRect(
+            x: safeRect.minX + labelSize.width / 2,
+            y: safeRect.minY + topExtent,
+            width: safeRect.width - labelSize.width,
+            height: safeRect.height - topExtent - bottomExtent
+        )
+        guard centerRect.width >= 0, centerRect.height >= 0 else { return nil }
+        return boundaryProjection(
+            safeRect: safeRect,
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent,
+            rayOrigin: rayOrigin ?? CGPoint(x: centerRect.midX, y: centerRect.midY)
+        )
+    }
+
+    private static func centerSafeRect(
+        safeRect: CGRect,
+        labelSize: CGSize,
+        topExtent: CGFloat,
+        bottomExtent: CGFloat
+    ) -> CGRect {
+        let rect = CGRect(
+            x: safeRect.minX + labelSize.width / 2,
+            y: safeRect.minY + topExtent,
+            width: safeRect.width - labelSize.width,
+            height: safeRect.height - topExtent - bottomExtent
+        )
+        return rect.width >= 0 && rect.height >= 0 ? rect : .null
+    }
+
+    private static func snapHorizontalProjectionToEndpoint(
+        _ projection: BoundaryProjection,
+        centerRect: CGRect,
+        sourcePoint: CGPoint,
+        screenCenter: CGPoint
+    ) -> BoundaryProjection {
+        guard projection.edge.isHorizontal else { return projection }
+        let endpointX = sourcePoint.x < screenCenter.x
+            ? centerRect.minX
+            : centerRect.maxX
+        let endpointY = projection.edge == .top
+            ? centerRect.minY
+            : centerRect.maxY
+        return BoundaryProjection(
+            point: CGPoint(x: endpointX, y: endpointY),
+            edge: projection.edge
+        )
+    }
+
+    private static func dominantOverflowProjection(
+        outerFrame: CGRect,
+        safeRect: CGRect,
+        numberCenter: CGPoint,
+        labelSize: CGSize,
+        topExtent: CGFloat,
+        bottomExtent: CGFloat
+    ) -> BoundaryProjection? {
+        let overflows: [(MapLibreEdgePinEdge, CGFloat)] = [
+            (.left, max(0, safeRect.minX - outerFrame.minX) / max(1, labelSize.width / 2)),
+            (.right, max(0, outerFrame.maxX - safeRect.maxX) / max(1, labelSize.width / 2)),
+            (.top, max(0, safeRect.minY - outerFrame.minY) / max(1, topExtent)),
+            (.bottom, max(0, outerFrame.maxY - safeRect.maxY) / max(1, bottomExtent))
+        ]
+        guard let dominant = overflows
+            .filter({ $0.1 > 0 })
+            .max(by: {
+                $0.1 == $1.1 ? $0.0.rawValue > $1.0.rawValue : $0.1 < $1.1
+            }) else {
+            return nil
+        }
+        let point: CGPoint
+        switch dominant.0 {
+        case .left:
+            point = CGPoint(
+                x: safeRect.minX + labelSize.width / 2,
+                y: min(safeRect.maxY - bottomExtent, max(safeRect.minY + topExtent, numberCenter.y))
+            )
+        case .right:
+            point = CGPoint(
+                x: safeRect.maxX - labelSize.width / 2,
+                y: min(safeRect.maxY - bottomExtent, max(safeRect.minY + topExtent, numberCenter.y))
+            )
+        case .top:
+            point = CGPoint(
+                x: min(safeRect.maxX - labelSize.width / 2, max(safeRect.minX + labelSize.width / 2, numberCenter.x)),
+                y: safeRect.minY + topExtent
+            )
+        case .bottom:
+            point = CGPoint(
+                x: min(safeRect.maxX - labelSize.width / 2, max(safeRect.minX + labelSize.width / 2, numberCenter.x)),
+                y: safeRect.maxY - bottomExtent
+            )
+        }
+        return BoundaryProjection(point: point, edge: dominant.0)
+    }
+}
+
+enum MapLibreEdgePinTrigger {
+    /// Edge attraction starts only after the POI anchor has genuinely crossed
+    /// the physical screen. The 20/160/timeline insets are landing positions,
+    /// not an inner trigger zone.
+    static func isOutsideScreen(_ point: CGPoint, screenBounds: CGRect) -> Bool {
+        point.x < screenBounds.minX
+            || point.x > screenBounds.maxX
+            || point.y < screenBounds.minY
+            || point.y > screenBounds.maxY
+    }
+}
+
+struct MapLibreProjectedEdgePinMember: Equatable {
+    let id: UUID
+    let displayOrder: Int
+    let sourcePoint: CGPoint
+    let isHighlighted: Bool
+}
+
+struct MapLibreProjectedEdgePinCluster: Equatable {
+    let members: [MapLibreProjectedEdgePinMember]
+    let edge: MapLibreEdgePinEdge
+    let pointingCorner: MapLibreEdgePinPointingCorner?
+    /// Whether the cluster contains the active POI. This always drives the
+    /// orange border, including for merged numeric pills.
+    let containsHighlighted: Bool
+    /// Only an unmerged active POI adds the category bubble above the number.
+    /// A tight dynamic obstruction may also suppress that bubble.
+    let rendersHighlighted: Bool
+    let directionAngle: CGFloat
+    let numberCenter: CGPoint
+    let labelText: String
+    let labelSize: CGSize
+    let renderedFrame: CGRect
+
+    var representativeID: UUID { members[0].id }
+}
+
+/// Left/right clusters project on their own center ray; top/bottom clusters
+/// snap to one of two endpoint slots. Threshold clustering provides
+/// merge/split hysteresis, while rendered-frame collision closure is the final
+/// authority: pins are merged rather than displaced along the boundary.
+enum MapLibreProjectedEdgePinGrouping {
+    static func clusters(
+        members input: [MapLibreProjectedEdgePinMember],
+        safeRect: CGRect,
+        screenCenter: CGPoint,
+        previousGroups: [[UUID]]
+    ) -> [MapLibreProjectedEdgePinCluster] {
+        var seen: Set<UUID> = []
+        let members = input
+            .filter { seen.insert($0.id).inserted }
+            .sorted { $0.displayOrder < $1.displayOrder }
+        guard !members.isEmpty else { return [] }
+
+        let memberByID = Dictionary(uniqueKeysWithValues: members.map { ($0.id, $0) })
+        let thresholdMembers = members.compactMap { member -> MapLibreEdgePinGroupMember? in
+            let angle = directionAngle(for: member.sourcePoint, from: screenCenter)
+            let target = rayTarget(angle: angle, origin: screenCenter, safeRect: safeRect)
+            let labelText = MapLibrePinLabelGeometry.fittingText(
+                displayOrders: [member.displayOrder],
+                maximumWidth: safeRect.width
+            )
+            let measuredLabelSize = MapLibrePinLabelGeometry.size(for: labelText)
+            let labelSize = CGSize(
+                width: min(measuredLabelSize.width, safeRect.width),
+                height: measuredLabelSize.height
+            )
+            let topExtent = member.isHighlighted && canRenderHighlighted(in: safeRect)
+                ? MapLibrePinPlacement.highlightedTopExtent
+                : labelSize.height / 2
+            guard let projection = MapLibreEdgePinGeometry.landingProjection(
+                safeRect: safeRect,
+                numberCenter: target,
+                labelSize: labelSize,
+                topExtent: topExtent,
+                bottomExtent: labelSize.height / 2,
+                rayOrigin: screenCenter
+            ) else { return nil }
+            return MapLibreEdgePinGroupMember(
+                id: member.id,
+                displayOrder: member.displayOrder,
+                edge: projection.edge,
+                directionAngle: angle,
+                projectedPosition: projection.edge.isHorizontal
+                    ? projection.point.x
+                    : projection.point.y,
+                isHighlighted: member.isHighlighted
+            )
+        }
+        let thresholdGroups = MapLibreEdgePinGrouping.groups(
+            members: thresholdMembers,
+            previousGroups: previousGroups
+        )
+        var clusters = thresholdGroups.compactMap { group in
+            projectedCluster(
+                members: group.compactMap { memberByID[$0.id] },
+                safeRect: safeRect,
+                screenCenter: screenCenter
+            )
+        }
+
+        // A threshold split is accepted only when the resulting rendered
+        // rectangles are disjoint. Widening a merged pill can create another
+        // collision, so repeat until the geometry reaches a fixed point.
+        while clusters.count > 1 {
+            var pair: (Int, Int)?
+            for first in clusters.indices {
+                for second in clusters.indices where second > first {
+                    guard strictlyOverlaps(
+                            clusters[first].renderedFrame,
+                            clusters[second].renderedFrame
+                          ) else { continue }
+                    pair = (first, second)
+                    break
+                }
+                if pair != nil { break }
+            }
+            guard let pair else { break }
+            let mergedMembers = clusters[pair.0].members + clusters[pair.1].members
+            guard let merged = projectedCluster(
+                members: mergedMembers,
+                safeRect: safeRect,
+                screenCenter: screenCenter
+            ) else { break }
+            clusters[pair.0] = merged
+            clusters.remove(at: pair.1)
+            clusters.sort { minimumOrder($0.members) < minimumOrder($1.members) }
+        }
+
+        return clusters.sorted { minimumOrder($0.members) < minimumOrder($1.members) }
+    }
+
+    private static func projectedCluster(
+        members unsortedMembers: [MapLibreProjectedEdgePinMember],
+        safeRect: CGRect,
+        screenCenter: CGPoint
+    ) -> MapLibreProjectedEdgePinCluster? {
+        guard !unsortedMembers.isEmpty else { return nil }
+        let members = unsortedMembers.sorted { $0.displayOrder < $1.displayOrder }
+        let labelText = MapLibrePinLabelGeometry.fittingText(
+            displayOrders: members.map(\.displayOrder),
+            maximumWidth: safeRect.width
+        )
+        let measuredLabelSize = MapLibrePinLabelGeometry.size(for: labelText)
+        let labelSize = CGSize(
+            width: min(measuredLabelSize.width, safeRect.width),
+            height: measuredLabelSize.height
+        )
+        let directionAngle = circularMeanDirection(of: members, from: screenCenter)
+        let target = rayTarget(angle: directionAngle, origin: screenCenter, safeRect: safeRect)
+        let containsHighlighted = members.contains(where: \.isHighlighted)
+        let rendersHighlighted = members.count == 1
+            && containsHighlighted
+            && canRenderHighlighted(in: safeRect)
+        let topExtent = rendersHighlighted
+            ? MapLibrePinPlacement.highlightedTopExtent
+            : labelSize.height / 2
+        let bottomExtent = labelSize.height / 2
+        guard let projection = MapLibreEdgePinGeometry.landingProjection(
+            safeRect: safeRect,
+            numberCenter: target,
+            labelSize: labelSize,
+            topExtent: topExtent,
+            bottomExtent: bottomExtent,
+            rayOrigin: screenCenter
+        ) else { return nil }
+        return MapLibreProjectedEdgePinCluster(
+            members: members,
+            edge: projection.edge,
+            pointingCorner: MapLibreEdgePinGeometry.pointingCorner(
+                for: projection,
+                safeRect: safeRect
+            ),
+            containsHighlighted: containsHighlighted,
+            rendersHighlighted: rendersHighlighted,
+            directionAngle: directionAngle,
+            numberCenter: projection.point,
+            labelText: labelText,
+            labelSize: labelSize,
+            renderedFrame: MapLibreEdgePinGeometry.renderedOuterFrame(
+                numberCenter: projection.point,
+                labelSize: labelSize,
+                topExtent: topExtent,
+                bottomExtent: bottomExtent
+            )
+        )
+    }
+
+    private static func circularMeanDirection(
+        of members: [MapLibreProjectedEdgePinMember],
+        from origin: CGPoint
+    ) -> CGFloat {
+        var sumX: CGFloat = 0
+        var sumY: CGFloat = 0
+        for member in members {
+            let dx = member.sourcePoint.x - origin.x
+            let dy = member.sourcePoint.y - origin.y
+            let length = hypot(dx, dy)
+            guard length > 0.000_001 else { continue }
+            sumX += dx / length
+            sumY += dy / length
+        }
+        if hypot(sumX, sumY) > 0.000_001 {
+            return atan2(sumY, sumX)
+        }
+        let fallback = members.min { $0.displayOrder < $1.displayOrder }?.sourcePoint ?? origin
+        return directionAngle(for: fallback, from: origin)
+    }
+
+    private static func directionAngle(for point: CGPoint, from origin: CGPoint) -> CGFloat {
+        let dx = point.x - origin.x
+        let dy = point.y - origin.y
+        guard abs(dx) > 0.000_001 || abs(dy) > 0.000_001 else { return -.pi / 2 }
+        return atan2(dy, dx)
+    }
+
+    private static func rayTarget(
+        angle: CGFloat,
+        origin: CGPoint,
+        safeRect: CGRect
+    ) -> CGPoint {
+        let distance = max(10_000, hypot(safeRect.width, safeRect.height) * 4)
+        return CGPoint(
+            x: origin.x + cos(angle) * distance,
+            y: origin.y + sin(angle) * distance
+        )
+    }
+
+    private static func minimumOrder(_ members: [MapLibreProjectedEdgePinMember]) -> Int {
+        members.map(\.displayOrder).min() ?? .max
+    }
+
+    private static func canRenderHighlighted(in safeRect: CGRect) -> Bool {
+        safeRect.height >= MapLibrePinPlacement.highlightedTopExtent
+            + MapLibrePinPlacement.bubbleSize / 2
+    }
+
+    private static func strictlyOverlaps(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        let intersection = lhs.intersection(rhs)
+        return !intersection.isNull && intersection.width > 0 && intersection.height > 0
+    }
+}
+
+struct MapLibreResolvedPinClusters: Equatable {
+    let regular: [MapLibreRegularPinCluster]
+    let edge: [MapLibreProjectedEdgePinCluster]
+}
+
+/// Resolves the seam between on-map clusters and edge clusters. A regular
+/// pill can fit exactly within the safe rect yet overlap an edge pill that is
+/// anchored on that same boundary. Promote every member of such a pill into
+/// edge grouping and repeat because the widened edge result may collide with
+/// another remaining regular cluster.
+enum MapLibreFinalPinGrouping {
+    static func resolve(
+        regularClusters: [MapLibreRegularPinCluster],
+        initialEdgeMemberIDs: Set<UUID>,
+        allEdgeMembers: [MapLibreProjectedEdgePinMember],
+        safeRect: CGRect,
+        screenCenter: CGPoint,
+        previousEdgeGroups: [[UUID]]
+    ) -> MapLibreResolvedPinClusters {
+        var regular = regularClusters
+        var edgeMemberIDs = initialEdgeMemberIDs
+
+        while true {
+            let edge = MapLibreProjectedEdgePinGrouping.clusters(
+                members: allEdgeMembers.filter { edgeMemberIDs.contains($0.id) },
+                safeRect: safeRect,
+                screenCenter: screenCenter,
+                previousGroups: previousEdgeGroups
+            )
+            let promotedRepresentativeIDs = Set(regular.compactMap { cluster -> UUID? in
+                edge.contains(where: {
+                    strictlyOverlaps(cluster.renderedFrame, $0.renderedFrame)
+                }) ? cluster.representativeID : nil
+            })
+            guard !promotedRepresentativeIDs.isEmpty else {
+                return MapLibreResolvedPinClusters(regular: regular, edge: edge)
+            }
+
+            var didPromote = false
+            regular.removeAll { cluster in
+                guard promotedRepresentativeIDs.contains(cluster.representativeID) else {
+                    return false
+                }
+                for member in cluster.members {
+                    didPromote = edgeMemberIDs.insert(member.id).inserted || didPromote
+                }
+                return true
+            }
+            guard didPromote else {
+                return MapLibreResolvedPinClusters(regular: regular, edge: edge)
+            }
+        }
+    }
+
+    static func hasPairwiseOverlap(_ frames: [CGRect]) -> Bool {
+        guard frames.count > 1 else { return false }
+        for first in frames.indices {
+            for second in frames.indices where second > first {
+                if strictlyOverlaps(frames[first], frames[second]) { return true }
+            }
+        }
+        return false
+    }
+
+    private static func strictlyOverlaps(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        let intersection = lhs.intersection(rhs)
+        return !intersection.isNull && intersection.width > 0 && intersection.height > 0
+    }
+}
+
+struct MapLibreEdgePinViewportGeometry: Equatable {
+    let mapBounds: CGRect
+    let windowBounds: CGRect
+}
+
+@MainActor
+private final class MapLibreGeometryTrackingMapView: MLNMapView {
+    var onViewportGeometryChanged: ((MapLibreEdgePinViewportGeometry) -> Void)?
+    private var lastViewportGeometry: MapLibreEdgePinViewportGeometry?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let geometry = MapLibreEdgePinViewportGeometry(
+            mapBounds: bounds,
+            windowBounds: window?.bounds ?? .zero
+        )
+        guard geometry != lastViewportGeometry else { return }
+        lastViewportGeometry = geometry
+        onViewportGeometryChanged?(geometry)
+    }
+}
+
 /// Experimental vector-map renderer for the Today screen. Apple services still
 /// provide POI resolution and route geometry; MapLibre only draws the basemap.
 struct MapLibreTodayMapCanvas: UIViewRepresentable {
@@ -366,10 +1383,14 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     /// action drawer is open and the POI swiper is hidden.
     let selectedIndex: Int?
     let cameraFocus: CLLocationCoordinate2D?
+    /// Stable identity for auto-focus refinement. Coordinates alone are
+    /// ambiguous when two itinerary POIs share the same location.
+    let cameraFocusPointID: UUID?
     let cameraRequestID: Int
-    /// POI 聚焦时，顶部与底部浮层所占据的屏幕空间。
-    let focusTopInset: CGFloat
-    let focusBottomInset: CGFloat
+    /// SwiftUI's global/window coordinate for the live timeline upper edge.
+    /// `nil` means the overlay is hidden and the floating tab bar is the live
+    /// bottom obstruction instead.
+    let timelineTopInGlobal: CGFloat?
     /// The card occupies the lower map area only while the POI swiper is visible.
     let overviewBottomInset: CGFloat
     let routeRefreshID: Int
@@ -384,7 +1405,12 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MLNMapView {
         let styleURL = Bundle.main.url(forResource: "TodayMapStyle", withExtension: "json")
-        let mapView = MLNMapView(frame: .zero, styleURL: styleURL)
+        let mapView = MapLibreGeometryTrackingMapView(frame: .zero, styleURL: styleURL)
+        mapView.onViewportGeometryChanged = {
+            [weak coordinator = context.coordinator, weak mapView] geometry in
+            guard let coordinator, let mapView else { return }
+            coordinator.viewportGeometryDidChange(geometry, on: mapView)
+        }
         mapView.delegate = context.coordinator
         mapView.backgroundColor = UIColor(red: 25 / 255, green: 25 / 255, blue: 25 / 255, alpha: 1)
         mapView.minimumZoomLevel = 1
@@ -400,6 +1426,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on: mapView,
             points: points,
             selectedIndex: selectedIndex,
+            timelineTopInGlobal: timelineTopInGlobal,
             routeRefreshID: routeRefreshID,
             onRouteLoadingChanged: onRouteLoadingChanged,
             onViewportStateChanged: onViewportStateChanged
@@ -412,6 +1439,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on: mapView,
             points: points,
             selectedIndex: selectedIndex,
+            timelineTopInGlobal: timelineTopInGlobal,
             routeRefreshID: routeRefreshID,
             onRouteLoadingChanged: onRouteLoadingChanged,
             onViewportStateChanged: onViewportStateChanged
@@ -420,9 +1448,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on: mapView,
             points: points,
             focus: cameraFocus,
+            focusPointID: cameraFocusPointID,
             requestID: cameraRequestID,
-            focusTopInset: focusTopInset,
-            focusBottomInset: focusBottomInset,
             bottomInset: overviewBottomInset
         )
     }
@@ -456,38 +1483,85 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var draggingEdgePinIDs: Set<UUID> = []
         private var overviewBottomInset: CGFloat = 240
         private var pinPlacements: [UUID: MapLibrePinPlacement] = [:]
+        private var hasAppliedPinPlacements = false
+        private var timelineTopInGlobal: CGFloat?
+        private var lastPlacementGeometry: MapLibreEdgePinViewportGeometry?
+        private var previousEdgeGroups: [[UUID]] = []
+        private var pendingAutoFocusPointID: UUID?
+        private var pendingAutoFocusCoordinate: CLLocationCoordinate2D?
         /// Keep enough surrounding roads and nearby POIs in view while a
         /// bottom swiper card is selected; 16 was too close for this screen.
         private let poiSwiperFocusZoomLevel: Double = 13.8
+
+        fileprivate func viewportGeometryDidChange(
+            _ geometry: MapLibreEdgePinViewportGeometry,
+            on mapView: MLNMapView
+        ) {
+            guard geometry != lastPlacementGeometry else { return }
+            lastPlacementGeometry = geometry
+            guard geometry.mapBounds.width > 1, geometry.mapBounds.height > 1 else { return }
+            // Avoid changing annotation coordinates inside UIKit's active
+            // layout pass. The signature check also coalesces duplicate
+            // SwiftUI/updateUIView and layoutSubviews notifications.
+            DispatchQueue.main.async { [weak self, weak mapView] in
+                guard let self, let mapView,
+                      geometry == self.lastPlacementGeometry else { return }
+                self.updatePinPlacements(on: mapView)
+                self.reportViewportState(on: mapView, isMoving: self.isMapRegionChanging)
+            }
+        }
 
         fileprivate func updateContent(
             on mapView: MLNMapView,
             points: [TodayMapPoint],
             selectedIndex: Int?,
+            timelineTopInGlobal: CGFloat?,
             routeRefreshID: Int,
             onRouteLoadingChanged: @escaping (Bool) -> Void,
             onViewportStateChanged: @escaping (Bool, Bool) -> Void
         ) {
             self.onViewportStateChanged = onViewportStateChanged
             let refreshRequested = routeRefreshID != handledRouteRefreshID
-            guard points != renderedPoints || selectedIndex != renderedSelection || refreshRequested else {
+            let pointsChanged = points != renderedPoints
+            let selectionChanged = selectedIndex != renderedSelection
+            let contentChanged = pointsChanged || selectionChanged
+            let safeAreaChanged = !MapLibreEdgePinGeometry.nearlyEqual(
+                self.timelineTopInGlobal,
+                timelineTopInGlobal
+            )
+            let placementGeometry = MapLibreEdgePinViewportGeometry(
+                mapBounds: mapView.bounds,
+                windowBounds: mapView.window?.bounds ?? .zero
+            )
+            let placementGeometryChanged = placementGeometry != lastPlacementGeometry
+            self.timelineTopInGlobal = timelineTopInGlobal
+            lastPlacementGeometry = placementGeometry
+            guard contentChanged
+                    || refreshRequested
+                    || safeAreaChanged
+                    || placementGeometryChanged else {
                 reportViewportState(on: mapView, isMoving: isMapRegionChanging)
                 return
             }
-            let pointsChanged = points != renderedPoints
             let forceRouteRefresh = refreshRequested && routeRefreshID > 0
 
-            if !pointAnnotations.isEmpty {
-                mapView.removeAnnotations(pointAnnotations)
+            if pointsChanged {
+                if !pointAnnotations.isEmpty {
+                    mapView.removeAnnotations(pointAnnotations)
+                }
+                pointAnnotations = points.enumerated().map { index, point in
+                    MapLibreNumberedAnnotation(
+                        point: point,
+                        index: index,
+                        isHighlighted: selectedIndex == index
+                    )
+                }
+                mapView.addAnnotations(pointAnnotations)
+            } else if selectionChanged {
+                for annotation in pointAnnotations {
+                    annotation.isHighlighted = selectedIndex == annotation.index
+                }
             }
-            pointAnnotations = points.enumerated().map { index, point in
-                MapLibreNumberedAnnotation(
-                    point: point,
-                    index: index,
-                    isHighlighted: selectedIndex == index
-                )
-            }
-            mapView.addAnnotations(pointAnnotations)
 
             if pointsChanged || refreshRequested {
                 rebuildNavigationRoute(
@@ -501,7 +1575,11 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
 
             renderedPoints = points
             renderedSelection = selectedIndex
-            updatePinPlacements(on: mapView)
+            updatePinPlacements(
+                on: mapView,
+                animated: safeAreaChanged && !pointsChanged,
+                animatePointingCorner: !pointsChanged
+            )
             reportViewportState(on: mapView, isMoving: isMapRegionChanging)
         }
 
@@ -804,9 +1882,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on mapView: MLNMapView,
             points: [TodayMapPoint],
             focus: CLLocationCoordinate2D?,
+            focusPointID: UUID?,
             requestID: Int,
-            focusTopInset: CGFloat,
-            focusBottomInset: CGFloat,
             bottomInset: CGFloat
         ) {
             if points.isEmpty {
@@ -833,36 +1910,39 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
 
             guard requestID != handledCameraRequestID else { return }
             handledCameraRequestID = requestID
+            cancelAutoFocusRefinement()
             let animated = requestID > 0
             overviewBottomInset = bottomInset
 
             if let focus {
                 isShowingRouteOverview = false
+                let displayFocus = MapLibreCoordinateTransform.displayCoordinate(for: focus)
+                let targetZoom = points.count == 1 ? 12 : poiSwiperFocusZoomLevel
+                let cameraWillChange = abs(mapView.centerCoordinate.latitude - displayFocus.latitude)
+                        > 0.000_000_1
+                    || abs(mapView.centerCoordinate.longitude - displayFocus.longitude)
+                        > 0.000_000_1
+                    || abs(mapView.zoomLevel - targetZoom) > 0.001
+                if let focusPointID,
+                   points.contains(where: { $0.id == focusPointID }) {
+                    pendingAutoFocusPointID = focusPointID
+                    pendingAutoFocusCoordinate = displayFocus
+                }
                 if animated { isProgrammaticCameraChange = true }
                 mapView.setCenter(
-                    MapLibreCoordinateTransform.displayCoordinate(for: focus),
-                    zoomLevel: points.count == 1 ? 12 : poiSwiperFocusZoomLevel,
-                    direction: mapView.direction,
-                    animated: false,
-                    completionHandler: nil
+                    displayFocus,
+                    zoomLevel: targetZoom,
+                    animated: animated
                 )
-                // `setCenter` puts the marker at the physical viewport center.
-                // Translate by the overlay imbalance so it is centered in the
-                // usable area between the top controls and POI card instead.
-                let verticalOffset = (focusBottomInset - focusTopInset) / 2
-                guard abs(verticalOffset) > 0.5 else { return }
-                let screenCenter = CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY)
-                let adjustedCenter = mapView.convert(
-                    CGPoint(x: screenCenter.x, y: screenCenter.y - verticalOffset),
-                    toCoordinateFrom: mapView
-                )
-                mapView.setCenter(
-                    adjustedCenter,
-                    zoomLevel: mapView.zoomLevel,
-                    direction: mapView.direction,
-                    animated: animated,
-                    completionHandler: nil
-                )
+                // MapLibre may skip `regionDidChange` for a no-op camera
+                // request (for example tapping the already centered card).
+                // The current placement is already valid, so refine now.
+                if !cameraWillChange {
+                    updatePinPlacements(on: mapView)
+                    if !continueAutoFocusRefinementIfNeeded(on: mapView) {
+                        isProgrammaticCameraChange = false
+                    }
+                }
                 return
             }
 
@@ -925,11 +2005,13 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
                 as? MapLibreNumberedAnnotationView
                 ?? MapLibreNumberedAnnotationView(reuseIdentifier: identifier)
+            let placement = pinPlacements[annotation.pointID]
+                ?? regularPinPlacement(for: annotation, on: mapView)
             view.configure(
                 with: annotation,
-                placement: pinPlacements[annotation.pointID]
-                    ?? regularPinPlacement(for: annotation, on: mapView)
+                placement: placement
             )
+            view.isHidden = hasAppliedPinPlacements && pinPlacements[annotation.pointID] == nil
             return view
         }
 
@@ -937,7 +2019,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             isMapRegionChanging = false
             updatePinPlacements(on: mapView)
             reportViewportState(on: mapView, isMoving: false)
-            isProgrammaticCameraChange = false
+            if !continueAutoFocusRefinementIfNeeded(on: mapView) {
+                isProgrammaticCameraChange = false
+            }
         }
 
         /// `regionDidChangeAnimated` only fires after a pan/zoom settles. Keep
@@ -946,10 +2030,55 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         /// finger lifts.
         func mapViewRegionIsChanging(_ mapView: MLNMapView) {
             isMapRegionChanging = true
+            let userIsInteracting = mapView.gestureRecognizers?.contains {
+                $0.state == .began || $0.state == .changed
+            } == true
+            if userIsInteracting {
+                cancelAutoFocusRefinement()
+                isProgrammaticCameraChange = false
+            }
             if !isProgrammaticCameraChange {
                 reportViewportState(on: mapView, isMoving: true)
             }
             updateEdgePinPlacementsDuringGesture(on: mapView)
+        }
+
+        /// A selected POI can still be represented by a merged numeric pill
+        /// at the normal swiper zoom. Keep the same POI centered and step in
+        /// until its represented placement becomes a singleton. Exact
+        /// duplicate coordinates stop safely at MapLibre's maximum zoom.
+        private func continueAutoFocusRefinementIfNeeded(on mapView: MLNMapView) -> Bool {
+            guard let pointID = pendingAutoFocusPointID,
+                  let coordinate = pendingAutoFocusCoordinate else {
+                return false
+            }
+            guard let placement = pinPlacements.values.first(where: {
+                $0.representedMemberIDs.contains(pointID)
+            }) else {
+                cancelAutoFocusRefinement()
+                return false
+            }
+            guard placement.representedMemberIDs.count > 1,
+                  let nextZoom = MapLibreAutoFocusZoomPolicy.nextZoom(
+                    currentZoom: mapView.zoomLevel,
+                    maximumZoom: mapView.maximumZoomLevel
+                  ) else {
+                cancelAutoFocusRefinement()
+                return false
+            }
+
+            isProgrammaticCameraChange = true
+            mapView.setCenter(
+                coordinate,
+                zoomLevel: nextZoom,
+                animated: true
+            )
+            return true
+        }
+
+        private func cancelAutoFocusRefinement() {
+            pendingAutoFocusPointID = nil
+            pendingAutoFocusCoordinate = nil
         }
 
         private func reportViewportState(on mapView: MLNMapView, isMoving: Bool) {
@@ -968,83 +2097,61 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             onViewportStateChanged?(isMoving, hasVisiblePOI)
         }
 
-        private func updatePinPlacements(on mapView: MLNMapView) {
+        private func updatePinPlacements(
+            on mapView: MLNMapView,
+            animated: Bool = false,
+            animatePointingCorner: Bool = true
+        ) {
             let placements = calculatedPinPlacements(on: mapView)
             applyPinPlacements(
                 placements,
                 on: mapView,
-                refreshing: Set(pointAnnotations.map(\.pointID))
+                refreshing: Set(pointAnnotations.map(\.pointID)),
+                animated: animated,
+                animatePointingCorner: animatePointingCorner
             )
             draggingEdgePinIDs.removeAll()
         }
 
-        /// During a pan/zoom, only edge proxies are recomputed. On-screen
-        /// pins remain at their POI coordinates until the gesture ends.
+        /// Recompute both edge and ordinary collision clusters during a
+        /// gesture. Source points always come from `sourceCoordinate`, never
+        /// from proxy annotation coordinates, so this cannot feed back drift.
         private func updateEdgePinPlacementsDuringGesture(on mapView: MLNMapView) {
             guard !pointAnnotations.isEmpty else { return }
-            guard !pinPlacements.isEmpty else {
-                updatePinPlacements(on: mapView)
-                return
-            }
-
-            let edgeRect = edgePinBounds(on: mapView)
-            for annotation in pointAnnotations {
-                let sourcePoint = mapView.convert(annotation.sourceCoordinate, toPointTo: mapView)
-                if edgeRect.contains(sourcePoint) {
-                    draggingEdgePinIDs.remove(annotation.pointID)
-
-                    // Let a proxy return to the real POI as soon as the POI
-                    // enters the viewport, but do not re-layout its bubble
-                    // until the user releases the gesture.
-                    if annotation.coordinate.latitude != annotation.sourceCoordinate.latitude
-                        || annotation.coordinate.longitude != annotation.sourceCoordinate.longitude {
-                        annotation.coordinate = annotation.sourceCoordinate
-                    }
-                } else {
-                    draggingEdgePinIDs.insert(annotation.pointID)
-                }
-            }
-
-            let edgeAnnotations = pointAnnotations.filter {
-                draggingEdgePinIDs.contains($0.pointID)
-            }
-            guard !edgeAnnotations.isEmpty else { return }
-
-            let sourcePoints = Dictionary(uniqueKeysWithValues: pointAnnotations.map {
-                ($0.pointID, mapView.convert($0.sourceCoordinate, toPointTo: mapView))
-            })
-            let edgePlacements = arrangedEdgePinPlacements(
-                annotations: edgeAnnotations,
-                sourcePoints: sourcePoints,
-                safeRect: edgeRect
+            let placements = calculatedPinPlacements(on: mapView)
+            draggingEdgePinIDs = Set(placements.values
+                .filter(\.isEdgePinned)
+                .flatMap(\.representedMemberIDs))
+            applyPinPlacements(
+                placements,
+                on: mapView,
+                refreshing: Set(pointAnnotations.map(\.pointID)),
+                animated: false,
+                animatePointingCorner: true
             )
-            var placements = pinPlacements
-            // A previously visible edge proxy can become the farthest point
-            // while panning. Remove its old placement before adding the new
-            // queue so it really disappears instead of remaining at a stale
-            // screen-edge coordinate.
-            edgeAnnotations.forEach { placements.removeValue(forKey: $0.pointID) }
-            let refreshedIDs = Set(edgeAnnotations.map(\.pointID))
-            for annotation in edgeAnnotations {
-                guard let edgePlacement = edgePlacements[annotation.pointID] else { continue }
-                placements[annotation.pointID] = edgePlacement
-            }
-            applyPinPlacements(placements, on: mapView, refreshing: refreshedIDs)
         }
 
         private func applyPinPlacements(
             _ placements: [UUID: MapLibrePinPlacement],
             on mapView: MLNMapView,
-            refreshing refreshedIDs: Set<UUID>
+            refreshing refreshedIDs: Set<UUID>,
+            animated: Bool,
+            animatePointingCorner: Bool
         ) {
+            let previousPlacements = pinPlacements
+            let previousPlacementByMemberID = Dictionary(
+                uniqueKeysWithValues: previousPlacements.values.flatMap { placement in
+                    placement.representedMemberIDs.map { ($0, placement) }
+                }
+            )
             pinPlacements = placements
+            hasAppliedPinPlacements = true
 
             for annotation in pointAnnotations {
                 guard let placement = placements[annotation.pointID] else {
-                    // The queue on this screen edge is full. Restore the real
-                    // (off-screen) coordinate and hide any old proxy view.
-                    // This keeps an evicted POI from flashing at its prior
-                    // edge location until MapLibre has culled it.
+                    // A merged member is rendered only by its stable
+                    // representative. Restore its immutable source coordinate
+                    // and hide any old proxy view left from a prior layout.
                     if annotation.coordinate.latitude != annotation.sourceCoordinate.latitude
                         || annotation.coordinate.longitude != annotation.sourceCoordinate.longitude {
                         annotation.coordinate = annotation.sourceCoordinate
@@ -1055,12 +2162,14 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     continue
                 }
 
-                // MapLibre does not create an annotation view for a coordinate
-                // outside its viewport. Edge pins therefore use a temporary
-                // map coordinate under their screen-space number bubble while
-                // retaining `sourceCoordinate` as the real itinerary POI.
-                let displayedCoordinate = placement.isEdgePinned
-                    && (!isMapRegionChanging || draggingEdgePinIDs.contains(annotation.pointID))
+                // Both edge pins and ordinary merged pills need a temporary
+                // coordinate under their layout anchor. Geometry calculations
+                // still use the immutable `sourceCoordinate` above.
+                let usesProxyCoordinate = placement.representedMemberIDs.count > 1
+                    || (placement.isEdgePinned
+                        && (!isMapRegionChanging
+                            || draggingEdgePinIDs.contains(annotation.pointID)))
+                let displayedCoordinate = usesProxyCoordinate
                     ? mapView.convert(placement.anchorPoint, toCoordinateFrom: mapView)
                     : annotation.sourceCoordinate
                 if annotation.coordinate.latitude != displayedCoordinate.latitude
@@ -1077,6 +2186,19 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     with: annotation,
                     placement: placement
                 )
+                if let previousPlacement = previousPlacements[annotation.pointID]
+                    ?? previousPlacementByMemberID[annotation.pointID] {
+                    view.animateTransition(
+                        from: previousPlacement,
+                        to: placement,
+                        animateMovement: MapLibrePinTransitionGeometry.shouldAnimateMovement(
+                            requested: animated,
+                            wasEdgePinned: previousPlacement.isEdgePinned,
+                            isEdgePinned: placement.isEdgePinned
+                        ),
+                        animatePointingCorner: animatePointingCorner
+                    )
+                }
             }
         }
 
@@ -1085,6 +2207,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         ) -> [UUID: MapLibrePinPlacement] {
             guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return [:] }
             let edgeRect = edgePinBounds(on: mapView)
+            let screenBounds = physicalScreenBounds(on: mapView)
+            let screenCenter = physicalScreenCenter(on: mapView)
             let sourcePoints = Dictionary(uniqueKeysWithValues: pointAnnotations.map {
                 ($0.pointID, mapView.convert($0.sourceCoordinate, toPointTo: mapView))
             })
@@ -1093,43 +2217,137 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     let target = sourcePoints[annotation.pointID]!
                     return (
                         annotation.pointID,
-                        regularPinPlacement(
-                            for: annotation,
-                            target: target
-                        )
+                        regularPinPlacement(for: annotation, target: target)
                     )
                 }
             )
-            let edgeAnnotations = pointAnnotations.filter {
-                guard let point = sourcePoints[$0.pointID] else { return false }
-                // Only a POI outside the actual map viewport gets an edge
-                // proxy. A label being under the SwiftUI card/tab bar is not
-                // an offscreen POI and must not force its pin to the edge.
-                return !edgeRect.contains(point)
+
+            let edgeAnnotationIDs = Set(sourcePoints.compactMap { id, sourcePoint in
+                MapLibreEdgePinTrigger.isOutsideScreen(
+                    sourcePoint,
+                    screenBounds: screenBounds
+                ) ? id : nil
+            })
+            let regularMembers = pointAnnotations.compactMap { annotation -> MapLibreRegularPinMember? in
+                guard !edgeAnnotationIDs.contains(annotation.pointID),
+                      let placement = regularPlacements[annotation.pointID] else { return nil }
+                return MapLibreRegularPinMember(
+                    id: annotation.pointID,
+                    displayOrder: annotation.index,
+                    numberCenter: placement.numberCenter,
+                    renderedFrame: placement.labelRect,
+                    isHighlighted: annotation.isHighlighted
+                )
             }
-            let edgePlacements = arrangedEdgePinPlacements(
-                annotations: edgeAnnotations,
-                sourcePoints: sourcePoints,
-                safeRect: edgeRect
+            let fittingRegularClusters = MapLibreRegularPinGrouping.clusters(
+                members: regularMembers
             )
 
+            let allEdgeMembers = pointAnnotations.compactMap { annotation -> MapLibreProjectedEdgePinMember? in
+                guard let sourcePoint = sourcePoints[annotation.pointID] else { return nil }
+                return MapLibreProjectedEdgePinMember(
+                    id: annotation.pointID,
+                    displayOrder: annotation.index,
+                    sourcePoint: sourcePoint,
+                    isHighlighted: annotation.isHighlighted
+                )
+            }
+            let resolved = MapLibreFinalPinGrouping.resolve(
+                regularClusters: fittingRegularClusters,
+                initialEdgeMemberIDs: edgeAnnotationIDs,
+                allEdgeMembers: allEdgeMembers,
+                safeRect: edgeRect,
+                screenCenter: screenCenter,
+                previousEdgeGroups: previousEdgeGroups
+            )
+            previousEdgeGroups = resolved.edge.map { $0.members.map(\.id) }
+            let annotationByID = Dictionary(uniqueKeysWithValues: pointAnnotations.map {
+                ($0.pointID, $0)
+            })
+
             var result: [UUID: MapLibrePinPlacement] = [:]
-            for annotation in pointAnnotations {
-                if let edgePlacement = edgePlacements[annotation.pointID] {
-                    result[annotation.pointID] = edgePlacement
-                } else if !edgeAnnotations.contains(where: { $0.pointID == annotation.pointID }) {
-                    result[annotation.pointID] = regularPlacements[annotation.pointID]
+            for cluster in resolved.regular {
+                guard let representative = cluster.members.first,
+                      let originalPlacement = regularPlacements[representative.id] else { continue }
+                if cluster.members.count == 1 {
+                    result[representative.id] = originalPlacement
+                } else {
+                    let highlightedSymbol = cluster.members
+                        .first(where: \.isHighlighted)
+                        .flatMap { annotationByID[$0.id]?.categorySymbolName }
+                    result[representative.id] = MapLibrePinPlacement(
+                        anchorPoint: cluster.numberCenter,
+                        numberCenter: cluster.numberCenter,
+                        isHighlighted: cluster.isHighlighted,
+                        showsCategoryBubble: false,
+                        isEdgePinned: false,
+                        pointingCorner: nil,
+                        highlightedCategorySymbolName: highlightedSymbol,
+                        labelText: cluster.labelText,
+                        labelSize: cluster.labelSize,
+                        representedMemberIDs: cluster.members.map(\.id)
+                    )
                 }
+            }
+            for cluster in resolved.edge {
+                guard let annotation = annotationByID[cluster.representativeID] else { continue }
+                let highlightedSymbol = cluster.members
+                    .first(where: \.isHighlighted)
+                    .flatMap { annotationByID[$0.id]?.categorySymbolName }
+                result[annotation.pointID] = edgePinPlacement(
+                    for: annotation,
+                    numberCenter: cluster.numberCenter,
+                    pointingCorner: cluster.pointingCorner,
+                    isHighlighted: cluster.containsHighlighted,
+                    showsCategoryBubble: cluster.rendersHighlighted,
+                    highlightedCategorySymbolName: highlightedSymbol,
+                    labelText: cluster.labelText,
+                    labelSize: cluster.labelSize,
+                    representedMemberIDs: cluster.members.map(\.id)
+                )
             }
             return result
         }
 
-        /// The outer bounds for an edge bubble. The 3pt inset is measured
-        /// from the map/screen edge; the arrangement helper then accounts for
-        /// the bubble radius (and the highlighted category bubble) so the
-        /// rendered white pin never clips.
+        /// Safe bounds for the complete rendered outer frame. SwiftUI's
+        /// `.global` frame is in the hosting window coordinate space. Convert
+        /// that window rect into MapLibre local coordinates instead of
+        /// assuming the map's origin is the window origin.
         private func edgePinBounds(on mapView: MLNMapView) -> CGRect {
-            mapView.bounds.insetBy(dx: 3, dy: 3)
+            guard let window = mapView.window else {
+                return MapLibreEdgePinGeometry.safeOuterRect(
+                    screenBounds: mapView.bounds,
+                    timelineTop: nil
+                )
+            }
+            let safeWindowRect = MapLibreEdgePinGeometry.safeOuterRect(
+                screenBounds: window.bounds,
+                timelineTop: timelineTopInGlobal
+            )
+            guard !safeWindowRect.isNull else { return .null }
+            let localRect = mapView.convert(safeWindowRect, from: window)
+            let clipped = localRect.intersection(mapView.bounds)
+            guard !clipped.isNull,
+                  clipped.width >= MapLibrePinPlacement.bubbleSize,
+                  clipped.height >= MapLibrePinPlacement.bubbleSize else {
+                return .null
+            }
+            return clipped
+        }
+
+        private func physicalScreenCenter(on mapView: MLNMapView) -> CGPoint {
+            guard let window = mapView.window else {
+                return CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY)
+            }
+            return mapView.convert(
+                CGPoint(x: window.bounds.midX, y: window.bounds.midY),
+                from: window
+            )
+        }
+
+        private func physicalScreenBounds(on mapView: MLNMapView) -> CGRect {
+            guard let window = mapView.window else { return mapView.bounds }
+            return mapView.convert(window.bounds, from: window)
         }
 
         /// On-screen pins are centered directly on their POI coordinate.
@@ -1149,328 +2367,36 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         ) -> MapLibrePinPlacement {
             return MapLibrePinPlacement.regular(
                 target: target,
-                isHighlighted: annotation.isHighlighted
-            )
-        }
-
-        private struct EdgePinCandidate {
-            enum Edge {
-                case top
-                case right
-                case bottom
-                case left
-
-                var isHorizontal: Bool { self == .top || self == .bottom }
-            }
-
-            let annotation: MapLibreNumberedAnnotation
-            let edge: Edge
-            let desiredCenter: CGPoint
-            let axisMinimum: CGFloat
-            let axisMaximum: CGFloat
-            let extentBefore: CGFloat
-            let extentAfter: CGFloat
-            /// Screen-space distance from the POI to the edge queue. When an
-            /// edge is full, retain nearby POIs and evict the farthest ones.
-            let distanceToEdge: CGFloat
-        }
-
-        /// One visible edge pill may represent multiple POIs that project to
-        /// nearly the same point on the screen boundary.
-        private struct EdgePinGroupCandidate {
-            let annotations: [MapLibreNumberedAnnotation]
-            let edge: EdgePinCandidate.Edge
-            let desiredCenter: CGPoint
-            let axisMinimum: CGFloat
-            let axisMaximum: CGFloat
-            let extentBefore: CGFloat
-            let extentAfter: CGFloat
-            let distanceToEdge: CGFloat
-            let labelText: String
-            let labelSize: CGSize
-
-            var displayAnnotation: MapLibreNumberedAnnotation {
-                annotations.min {
-                    $0.index < $1.index
-                } ?? annotations[0]
-            }
-        }
-
-        /// Projects each unavailable POI onto the usable map boundary, then
-        /// spaces pins that share an edge so their white bubbles do not stack.
-        private func arrangedEdgePinPlacements(
-            annotations: [MapLibreNumberedAnnotation],
-            sourcePoints: [UUID: CGPoint],
-            safeRect: CGRect
-        ) -> [UUID: MapLibrePinPlacement] {
-            let candidates: [EdgePinCandidate] = annotations.compactMap { annotation in
-                guard let source = sourcePoints[annotation.pointID] else { return nil }
-                let topExtent = annotation.isHighlighted
-                    ? MapLibrePinPlacement.highlightedTopExtent
-                    : MapLibrePinPlacement.bubbleSize / 2
-                let bottomExtent = MapLibrePinPlacement.bubbleSize / 2
-                let centerRect = CGRect(
-                    x: safeRect.minX + MapLibrePinPlacement.bubbleSize / 2,
-                    y: safeRect.minY + topExtent,
-                    width: max(1, safeRect.width - MapLibrePinPlacement.bubbleSize),
-                    height: max(1, safeRect.height - topExtent - bottomExtent)
-                )
-                let projection = projectedToBoundary(
-                    source,
-                    from: CGPoint(x: safeRect.midX, y: safeRect.midY),
-                    inside: centerRect
-                )
-                if projection.edge.isHorizontal {
-                    return EdgePinCandidate(
-                        annotation: annotation,
-                        edge: projection.edge,
-                        desiredCenter: projection.point,
-                        axisMinimum: centerRect.minX,
-                        axisMaximum: centerRect.maxX,
-                        extentBefore: MapLibrePinPlacement.bubbleSize / 2,
-                        extentAfter: MapLibrePinPlacement.bubbleSize / 2,
-                        distanceToEdge: hypot(source.x - projection.point.x, source.y - projection.point.y)
-                    )
-                }
-                return EdgePinCandidate(
-                    annotation: annotation,
-                    edge: projection.edge,
-                    desiredCenter: projection.point,
-                    axisMinimum: centerRect.minY,
-                    axisMaximum: centerRect.maxY,
-                    extentBefore: topExtent,
-                    extentAfter: bottomExtent,
-                    distanceToEdge: hypot(source.x - projection.point.x, source.y - projection.point.y)
-                )
-            }
-
-            var result: [UUID: MapLibrePinPlacement] = [:]
-            for edge in [EdgePinCandidate.Edge.top, .right, .bottom, .left] {
-                let edgeCandidates = candidates
-                    .filter { $0.edge == edge }
-                    .sorted {
-                        let lhs = edge.isHorizontal ? $0.desiredCenter.x : $0.desiredCenter.y
-                        let rhs = edge.isHorizontal ? $1.desiredCenter.x : $1.desiredCenter.y
-                        return lhs == rhs ? $0.annotation.index < $1.annotation.index : lhs < rhs
-                    }
-                guard !edgeCandidates.isEmpty else { continue }
-                // Keep one queue on the physical edge. Adding inward lanes
-                // made the top of the map increasingly crowded; instead,
-                // retain the nearest POIs and hide the farthest overflow.
-                let visible = edgeQueueCandidates(
-                    from: mergedEdgeCandidates(edgeCandidates, horizontal: edge.isHorizontal)
-                )
-                let positions = spacedEdgePositions(for: visible, horizontal: edge.isHorizontal)
-                for (candidate, position) in zip(visible, positions) {
-                    var center = candidate.desiredCenter
-                    if edge.isHorizontal {
-                        center.x = position
-                    } else {
-                        center.y = position
-                        // A merged pill is wider than the original round
-                        // number pin. Anchor its nearest side to the physical
-                        // map edge, so the extra width always grows inward.
-                        switch edge {
-                        case .left:
-                            center.x = safeRect.minX + candidate.labelSize.width / 2
-                        case .right:
-                            center.x = safeRect.maxX - candidate.labelSize.width / 2
-                        case .top, .bottom:
-                            break
-                        }
-                    }
-                    let annotation = candidate.displayAnnotation
-                    result[annotation.pointID] = edgePinPlacement(
-                        for: annotation,
-                        numberCenter: center,
-                        labelText: candidate.labelText,
-                        labelSize: candidate.labelSize
-                    )
-                }
-            }
-            return result
-        }
-
-        /// Neighboring off-screen POIs are visually one cluster, not several
-        /// competing bubbles. Do not merge the selected POI: it keeps its
-        /// category icon and enlarged treatment while the swiper is visible.
-        private func mergedEdgeCandidates(
-            _ candidates: [EdgePinCandidate],
-            horizontal: Bool
-        ) -> [EdgePinGroupCandidate] {
-            let mergeDistance = MapLibrePinPlacement.bubbleSize + 10
-            var clusters: [[EdgePinCandidate]] = []
-
-            for candidate in candidates {
-                let axis = horizontal ? candidate.desiredCenter.x : candidate.desiredCenter.y
-                guard let last = clusters.indices.last,
-                      let previous = clusters[last].last else {
-                    clusters.append([candidate])
-                    continue
-                }
-                let previousAxis = horizontal ? previous.desiredCenter.x : previous.desiredCenter.y
-                let canMerge = !candidate.annotation.isHighlighted
-                    && !previous.annotation.isHighlighted
-                    && axis - previousAxis <= mergeDistance
-                if canMerge {
-                    clusters[last].append(candidate)
-                } else {
-                    clusters.append([candidate])
-                }
-            }
-
-            return clusters.map { cluster in
-                let first = cluster[0]
-                let indexes = cluster.map { String($0.annotation.index + 1) }
-                let labelText = indexes.joined(separator: ".")
-                let labelSize = MapLibrePinPlacement.edgeLabelSize(for: labelText)
-                let axis = cluster.map { horizontal ? $0.desiredCenter.x : $0.desiredCenter.y }
-                    .sorted()
-                let medianAxis = axis[axis.count / 2]
-                var desiredCenter = first.desiredCenter
-                if horizontal {
-                    desiredCenter.x = medianAxis
-                } else {
-                    desiredCenter.y = medianAxis
-                }
-                let annotations = cluster.map(\.annotation)
-                let isHighlighted = annotations.contains(where: \.isHighlighted)
-                let extentBefore = horizontal
-                    ? labelSize.width / 2
-                    : (isHighlighted ? MapLibrePinPlacement.highlightedTopExtent : labelSize.height / 2)
-                let extentAfter = horizontal ? labelSize.width / 2 : labelSize.height / 2
-                // For top/bottom pins, the pill grows along the edge's queue
-                // axis. Replace the old circular-pin bounds with its actual
-                // width before arranging and clamping that queue.
-                let axisMinimum = horizontal
-                    ? first.axisMinimum - MapLibrePinPlacement.bubbleSize / 2 + labelSize.width / 2
-                    : first.axisMinimum
-                let axisMaximum = horizontal
-                    ? first.axisMaximum + MapLibrePinPlacement.bubbleSize / 2 - labelSize.width / 2
-                    : first.axisMaximum
-                return EdgePinGroupCandidate(
-                    annotations: annotations,
-                    edge: first.edge,
-                    desiredCenter: desiredCenter,
-                    axisMinimum: axisMinimum,
-                    axisMaximum: axisMaximum,
-                    extentBefore: extentBefore,
-                    extentAfter: extentAfter,
-                    distanceToEdge: cluster.map(\.distanceToEdge).min() ?? 0,
-                    labelText: labelText,
-                    labelSize: labelSize
-                )
-            }
-        }
-
-        /// Fits as many pins as one edge can hold without overlap. Candidates
-        /// are chosen by their distance outside the viewport, then returned in
-        /// map order so their final positions still follow the edge naturally.
-        private func edgeQueueCandidates(
-            from candidates: [EdgePinGroupCandidate]
-        ) -> [EdgePinGroupCandidate] {
-            guard let first = candidates.first else { return [] }
-            let availableLength = first.axisMaximum - first.axisMinimum
-            let gap: CGFloat = 6
-            var visible: [EdgePinGroupCandidate] = []
-            var occupied: CGFloat = 0
-
-            for candidate in candidates.sorted(by: {
-                $0.distanceToEdge == $1.distanceToEdge
-                    ? $0.displayAnnotation.index < $1.displayAnnotation.index
-                    : $0.distanceToEdge < $1.distanceToEdge
-            }) {
-                let length = candidate.extentBefore + candidate.extentAfter
-                let proposed = visible.isEmpty
-                    ? length
-                    : occupied + gap + length
-                guard proposed <= availableLength else { continue }
-                visible.append(candidate)
-                occupied = proposed
-            }
-            return visible.sorted {
-                let lhs = first.edge.isHorizontal ? $0.desiredCenter.x : $0.desiredCenter.y
-                let rhs = first.edge.isHorizontal ? $1.desiredCenter.x : $1.desiredCenter.y
-                return lhs == rhs ? $0.displayAnnotation.index < $1.displayAnnotation.index : lhs < rhs
-            }
-        }
-
-        private func spacedEdgePositions(
-            for candidates: [EdgePinGroupCandidate],
-            horizontal: Bool
-        ) -> [CGFloat] {
-            let gap: CGFloat = 6
-            var positions = candidates.map {
-                let desired = horizontal ? $0.desiredCenter.x : $0.desiredCenter.y
-                return min($0.axisMaximum, max($0.axisMinimum, desired))
-            }
-            guard positions.count > 1 else { return positions }
-
-            for index in 1..<positions.count {
-                let separation = candidates[index - 1].extentAfter + gap + candidates[index].extentBefore
-                positions[index] = max(positions[index], positions[index - 1] + separation)
-            }
-            if let last = positions.indices.last {
-                positions[last] = min(positions[last], candidates[last].axisMaximum)
-                for index in stride(from: last - 1, through: 0, by: -1) {
-                    let separation = candidates[index].extentAfter + gap + candidates[index + 1].extentBefore
-                    positions[index] = min(positions[index], positions[index + 1] - separation)
-                    positions[index] = max(positions[index], candidates[index].axisMinimum)
-                }
-            }
-            return positions
-        }
-
-        private func projectedToBoundary(
-            _ point: CGPoint,
-            from center: CGPoint,
-            inside rect: CGRect
-        ) -> (point: CGPoint, edge: EdgePinCandidate.Edge) {
-            let dx = point.x - center.x
-            let dy = point.y - center.y
-            var scale = CGFloat.greatestFiniteMagnitude
-            var edge = EdgePinCandidate.Edge.top
-
-            if dx > 0 {
-                let candidate = (rect.maxX - center.x) / dx
-                if candidate < scale { scale = candidate; edge = .right }
-            } else if dx < 0 {
-                let candidate = (rect.minX - center.x) / dx
-                if candidate < scale { scale = candidate; edge = .left }
-            }
-            if dy > 0 {
-                let candidate = (rect.maxY - center.y) / dy
-                if candidate < scale { scale = candidate; edge = .bottom }
-            } else if dy < 0 {
-                let candidate = (rect.minY - center.y) / dy
-                if candidate < scale { scale = candidate; edge = .top }
-            }
-
-            if !scale.isFinite {
-                return (CGPoint(x: rect.midX, y: rect.minY), .top)
-            }
-            return (
-                CGPoint(x: center.x + dx * scale, y: center.y + dy * scale),
-                edge
+                isHighlighted: annotation.isHighlighted,
+                memberID: annotation.pointID
             )
         }
 
         private func edgePinPlacement(
             for annotation: MapLibreNumberedAnnotation,
             numberCenter: CGPoint,
+            pointingCorner: MapLibreEdgePinPointingCorner?,
+            isHighlighted: Bool,
+            showsCategoryBubble: Bool,
+            highlightedCategorySymbolName: String?,
             labelText: String? = nil,
             labelSize: CGSize = CGSize(
                 width: MapLibrePinPlacement.bubbleSize,
                 height: MapLibrePinPlacement.bubbleSize
-            )
+            ),
+            representedMemberIDs: [UUID]
         ) -> MapLibrePinPlacement {
             return MapLibrePinPlacement(
                 anchorPoint: numberCenter,
                 numberCenter: numberCenter,
-                isHighlighted: annotation.isHighlighted,
+                isHighlighted: isHighlighted,
+                showsCategoryBubble: showsCategoryBubble,
                 isEdgePinned: true,
+                pointingCorner: pointingCorner,
+                highlightedCategorySymbolName: highlightedCategorySymbolName,
                 labelText: labelText,
-                labelSize: labelSize
+                labelSize: labelSize,
+                representedMemberIDs: representedMemberIDs
             )
         }
 
@@ -1561,7 +2487,7 @@ private enum MapLibrePOIIcon {
 private final class MapLibreNumberedAnnotation: MLNPointAnnotation {
     let pointID: UUID
     let index: Int
-    let isHighlighted: Bool
+    var isHighlighted: Bool
     let categorySymbolName: String
     let sourceCoordinate: CLLocationCoordinate2D
 
@@ -1581,6 +2507,98 @@ private final class MapLibreNumberedAnnotation: MLNPointAnnotation {
     }
 }
 
+enum MapLibrePinTransitionGeometry {
+    static let duration: TimeInterval = 0.28
+
+    /// After MapLibre snaps the annotation to its new proxy coordinate, this
+    /// translation puts the view back over its previous screen position. The
+    /// view then animates to identity, so only obstruction-driven movement is
+    /// eased while direct map gestures remain frame-accurate.
+    static func translation(from oldCenter: CGPoint, to newCenter: CGPoint) -> CGAffineTransform {
+        CGAffineTransform(
+            translationX: oldCenter.x - newCenter.x,
+            y: oldCenter.y - newCenter.y
+        )
+    }
+
+    static func shouldAnimateMovement(
+        requested: Bool,
+        wasEdgePinned: Bool,
+        isEdgePinned: Bool
+    ) -> Bool {
+        requested || wasEdgePinned != isEdgePinned
+    }
+}
+
+enum MapLibreAutoFocusZoomPolicy {
+    static let zoomStep: Double = 1
+
+    static func nextZoom(
+        currentZoom: Double,
+        maximumZoom: Double
+    ) -> Double? {
+        guard currentZoom < maximumZoom - 0.001 else { return nil }
+        return min(maximumZoom, currentZoom + zoomStep)
+    }
+}
+
+struct MapLibrePinCornerRadii: Equatable {
+    let topLeft: CGFloat
+    let topRight: CGFloat
+    let bottomLeft: CGFloat
+    let bottomRight: CGFloat
+}
+
+enum MapLibrePinCornerTransitionGeometry {
+    /// A pointing corner is the same bubble shape with exactly one radius
+    /// reduced to zero. Keeping all four path segments present lets Core
+    /// Animation interpolate the corner instead of switching masks abruptly.
+    static func radii(
+        pointingCorner: MapLibreEdgePinPointingCorner?,
+        radius: CGFloat
+    ) -> MapLibrePinCornerRadii {
+        MapLibrePinCornerRadii(
+            topLeft: pointingCorner == .topLeft ? 0 : radius,
+            topRight: pointingCorner == .topRight ? 0 : radius,
+            bottomLeft: pointingCorner == .bottomLeft ? 0 : radius,
+            bottomRight: pointingCorner == .bottomRight ? 0 : radius
+        )
+    }
+
+    static func path(
+        in rect: CGRect,
+        pointingCorner: MapLibreEdgePinPointingCorner?
+    ) -> CGPath {
+        let maximumRadius = min(rect.width, rect.height) / 2
+        let radii = radii(pointingCorner: pointingCorner, radius: maximumRadius)
+        let path = CGMutablePath()
+
+        path.move(to: CGPoint(x: rect.minX + radii.topLeft, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - radii.topRight, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY + radii.topRight),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radii.bottomRight))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - radii.bottomRight, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - radii.bottomLeft),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radii.topLeft))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + radii.topLeft, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
 private struct MapLibrePinPlacement {
     static let bubbleSize: CGFloat = 32
     static let categoryGap: CGFloat = 2
@@ -1592,59 +2610,143 @@ private struct MapLibrePinPlacement {
     let anchorPoint: CGPoint
     let numberCenter: CGPoint
     let isHighlighted: Bool
+    /// The orange selection border remains for merged active groups, while
+    /// this flag controls the separate category/icon bubble.
+    let showsCategoryBubble: Bool
     let isEdgePinned: Bool
+    /// Top/bottom endpoint pins expose one square outer corner as the visual
+    /// pointer toward the off-screen source. Side-edge pins remain capsules.
+    let pointingCorner: MapLibreEdgePinPointingCorner?
+    /// The selected member can differ from the stable representative that
+    /// owns the visible annotation view.
+    let highlightedCategorySymbolName: String?
     /// `nil` for a standard single-number pin. Edge clusters supply a joined
     /// value such as "2.4.9" and widen only that one pill.
     let labelText: String?
     let labelSize: CGSize
+    /// Source POIs represented by this visible annotation. A merged pill is
+    /// rendered only by the first stable itinerary member.
+    let representedMemberIDs: [UUID]
+
+    var topExtent: CGFloat {
+        showsCategoryBubble ? Self.highlightedTopExtent : labelSize.height / 2
+    }
+
+    var bottomExtent: CGFloat { labelSize.height / 2 }
 
     var labelRect: CGRect {
         Self.labelRect(
             numberCenter: numberCenter,
             labelSize: labelSize,
-            isHighlighted: isHighlighted
+            showsCategoryBubble: showsCategoryBubble
         )
     }
 
     static func labelRect(
         numberCenter: CGPoint,
         labelSize: CGSize,
-        isHighlighted: Bool
+        showsCategoryBubble: Bool
     ) -> CGRect {
-        let numberRect = CGRect(
-            x: numberCenter.x - labelSize.width / 2,
-            y: numberCenter.y - labelSize.height / 2,
-            width: labelSize.width,
-            height: labelSize.height
+        MapLibreEdgePinGeometry.renderedOuterFrame(
+            numberCenter: numberCenter,
+            labelSize: labelSize,
+            topExtent: showsCategoryBubble ? Self.highlightedTopExtent : labelSize.height / 2,
+            bottomExtent: labelSize.height / 2
         )
-        guard isHighlighted else { return numberRect }
-        let categoryRect = numberRect.offsetBy(
-            dx: 0,
-            dy: -(Self.bubbleSize + Self.categoryGap)
-        )
-        return numberRect.union(categoryRect)
     }
 
     static func edgeLabelSize(for text: String) -> CGSize {
-        let font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        let measuredWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width)
-        return CGSize(
-            width: max(bubbleSize, measuredWidth + 20),
-            height: bubbleSize
-        )
+        MapLibrePinLabelGeometry.size(for: text)
     }
 
     static func regular(
         target: CGPoint,
-        isHighlighted: Bool
+        isHighlighted: Bool,
+        memberID: UUID
     ) -> Self {
         return Self(
             anchorPoint: target,
             numberCenter: target,
             isHighlighted: isHighlighted,
+            showsCategoryBubble: isHighlighted,
             isEdgePinned: false,
+            pointingCorner: nil,
+            highlightedCategorySymbolName: nil,
             labelText: nil,
-            labelSize: CGSize(width: bubbleSize, height: bubbleSize)
+            labelSize: CGSize(width: bubbleSize, height: bubbleSize),
+            representedMemberIDs: [memberID]
+        )
+    }
+}
+
+private final class MapLibrePinShapeView: UIView {
+    override class var layerClass: AnyClass { CAShapeLayer.self }
+
+    private var shapeLayer: CAShapeLayer { layer as! CAShapeLayer }
+    private(set) var pointingCorner: MapLibreEdgePinPointingCorner?
+
+    var fillColor: UIColor = .white {
+        didSet { shapeLayer.fillColor = fillColor.cgColor }
+    }
+
+    var strokeColor: UIColor = .clear {
+        didSet { shapeLayer.strokeColor = strokeColor.cgColor }
+    }
+
+    var strokeWidth: CGFloat = 0 {
+        didSet { shapeLayer.lineWidth = strokeWidth }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        shapeLayer.fillColor = fillColor.cgColor
+        shapeLayer.strokeColor = strokeColor.cgColor
+        shapeLayer.lineWidth = strokeWidth
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func setPointingCorner(_ corner: MapLibreEdgePinPointingCorner?) {
+        pointingCorner = corner
+        shapeLayer.path = shapePath(for: corner)
+    }
+
+    func animatePointingCorner(
+        from oldCorner: MapLibreEdgePinPointingCorner?,
+        to newCorner: MapLibreEdgePinPointingCorner?
+    ) {
+        pointingCorner = newCorner
+        let newPath = shapePath(for: newCorner)
+        guard oldCorner != newCorner, !UIAccessibility.isReduceMotionEnabled else {
+            shapeLayer.removeAnimation(forKey: "pointingCorner")
+            shapeLayer.path = newPath
+            return
+        }
+
+        let visiblePath: CGPath
+        if shapeLayer.animation(forKey: "pointingCorner") != nil,
+           let presentationPath = shapeLayer.presentation()?.path {
+            visiblePath = presentationPath
+        } else {
+            visiblePath = shapePath(for: oldCorner)
+        }
+        shapeLayer.path = newPath
+        let animation = CABasicAnimation(keyPath: "path")
+        animation.fromValue = visiblePath
+        animation.toValue = newPath
+        animation.duration = MapLibrePinTransitionGeometry.duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        shapeLayer.add(animation, forKey: "pointingCorner")
+    }
+
+    private func shapePath(for corner: MapLibreEdgePinPointingCorner?) -> CGPath {
+        let inset = strokeWidth / 2
+        return MapLibrePinCornerTransitionGeometry.path(
+            in: bounds.insetBy(dx: inset, dy: inset),
+            pointingCorner: corner
         )
     }
 }
@@ -1652,32 +2754,18 @@ private struct MapLibrePinPlacement {
 private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
     static let reuseIdentifier = "MapLibreTodayNumberedPOI"
 
-    private let numberBackground = UIView()
-    private let categoryBackground = UIView()
+    private let numberBackground = MapLibrePinShapeView()
+    private let categoryBackground = MapLibrePinShapeView()
     private let numberLabel = UILabel()
     private let categoryImageView = UIImageView()
-    private let gooeyBackgroundLayer = CAShapeLayer()
 
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
         scalesWithViewingDistance = false
         backgroundColor = .clear
 
-        numberBackground.backgroundColor = .white
-        categoryBackground.backgroundColor = .white
-        numberBackground.layer.cornerRadius = MapLibrePinPlacement.bubbleSize / 2
-        categoryBackground.layer.cornerRadius = MapLibrePinPlacement.bubbleSize / 2
-
-        gooeyBackgroundLayer.fillColor = UIColor.white.cgColor
-        gooeyBackgroundLayer.strokeColor = UIColor(
-            red: 1,
-            green: 110 / 255,
-            blue: 0,
-            alpha: 1
-        ).cgColor
-        gooeyBackgroundLayer.lineWidth = 2
-        gooeyBackgroundLayer.lineJoin = .round
-        layer.insertSublayer(gooeyBackgroundLayer, at: 1)
+        numberBackground.fillColor = .white
+        categoryBackground.fillColor = .white
 
         numberLabel.textAlignment = .center
         numberLabel.textColor = .black
@@ -1722,14 +2810,21 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
             height: labelSize.height
         )
         numberBackground.frame = numberFrame
-        numberBackground.layer.cornerRadius = labelSize.height / 2
         numberLabel.frame = numberFrame
         numberLabel.text = placement.labelText ?? String(annotation.index + 1)
 
-        if annotation.isHighlighted {
-            let categoryFrame = numberFrame.offsetBy(
-                dx: 0,
-                dy: -(bubbleSize + MapLibrePinPlacement.categoryGap)
+        let accentColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
+        numberBackground.strokeColor = accentColor
+        numberBackground.strokeWidth = placement.isHighlighted ? 2 : 0
+        categoryBackground.strokeColor = accentColor
+        categoryBackground.strokeWidth = placement.isHighlighted ? 2 : 0
+
+        if placement.showsCategoryBubble {
+            let categoryFrame = CGRect(
+                x: localNumberCenter.x - bubbleSize / 2,
+                y: numberFrame.minY - MapLibrePinPlacement.categoryGap - bubbleSize,
+                width: bubbleSize,
+                height: bubbleSize
             )
             categoryBackground.frame = categoryFrame
             categoryImageView.frame = categoryFrame.insetBy(dx: 8, dy: 8)
@@ -1739,113 +2834,102 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
                     ?? UIImage(named: "icon-landscape-outline")
             )?.withRenderingMode(.alwaysTemplate)
                 ?? UIImage(
-                    systemName: annotation.categorySymbolName,
+                    systemName: placement.highlightedCategorySymbolName
+                        ?? annotation.categorySymbolName,
                     withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
                 )
-            // The highlighted pair is drawn by one continuous metaball path;
-            // hiding the two independent circles avoids visible layer seams.
-            numberBackground.isHidden = true
-            categoryBackground.isHidden = true
+            numberBackground.isHidden = false
+            categoryBackground.isHidden = false
             categoryImageView.isHidden = false
-            gooeyBackgroundLayer.frame = bounds
-            gooeyBackgroundLayer.path = gooeyPath(
-                categoryFrame: categoryFrame,
-                numberFrame: numberFrame
-            ).cgPath
-            gooeyBackgroundLayer.isHidden = false
         } else {
             numberBackground.isHidden = false
             categoryBackground.isHidden = true
             categoryImageView.isHidden = true
-            gooeyBackgroundLayer.isHidden = true
         }
+        applyPointingCorner(
+            placement.pointingCorner,
+            showsCategoryBubble: placement.showsCategoryBubble
+        )
 
         let title = annotation.title ?? "地点"
-        accessibilityLabel = annotation.isHighlighted ? "正在查看，\(title)" : title
+        if placement.representedMemberIDs.count > 1,
+           let labelText = placement.labelText {
+            accessibilityLabel = "行程地点 \(labelText)"
+        } else {
+            accessibilityLabel = placement.isHighlighted ? "正在查看，\(title)" : title
+        }
         transform = .identity
     }
 
-    /// Cuberto's gooey effect derives its joints from circle tangents. Use the
-    /// same geometry here: both bridge cubics enter the circles along their
-    /// exact tangent vectors, making the full contour C1-continuous.
-    private func gooeyPath(categoryFrame: CGRect, numberFrame: CGRect) -> UIBezierPath {
-        let centerX = categoryFrame.midX
-        let radius = categoryFrame.width / 2
-        let upperCenter = CGPoint(x: centerX, y: categoryFrame.midY)
-        let lowerCenter = CGPoint(x: centerX, y: numberFrame.midY)
-        let joinAngle = 55 * CGFloat.pi / 180
-        let handleLength = radius * 0.38
-
-        func point(on circle: CGPoint, angle: CGFloat) -> CGPoint {
-            CGPoint(
-                x: circle.x + cos(angle) * radius,
-                y: circle.y + sin(angle) * radius
+    func animateTransition(
+        from oldPlacement: MapLibrePinPlacement,
+        to newPlacement: MapLibrePinPlacement,
+        animateMovement: Bool,
+        animatePointingCorner: Bool
+    ) {
+        if animatePointingCorner {
+            let oldCorners = shapeCorners(for: oldPlacement)
+            let newCorners = shapeCorners(for: newPlacement)
+            numberBackground.animatePointingCorner(
+                from: oldCorners.number,
+                to: newCorners.number
+            )
+            categoryBackground.animatePointingCorner(
+                from: oldCorners.category,
+                to: newCorners.category
             )
         }
 
-        func clockwiseTangent(at angle: CGFloat) -> CGVector {
-            CGVector(dx: -sin(angle), dy: cos(angle))
+        guard animateMovement, !UIAccessibility.isReduceMotionEnabled else { return }
+        let translation = MapLibrePinTransitionGeometry.translation(
+            from: oldPlacement.numberCenter,
+            to: newPlacement.numberCenter
+        )
+        guard hypot(translation.tx, translation.ty) > 0.5 else { return }
+
+        transform = translation
+        UIView.animate(
+            withDuration: MapLibrePinTransitionGeometry.duration,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut]
+        ) {
+            self.transform = .identity
         }
+    }
 
-        func offset(_ point: CGPoint, along vector: CGVector, by distance: CGFloat) -> CGPoint {
-            CGPoint(
-                x: point.x + vector.dx * distance,
-                y: point.y + vector.dy * distance
-            )
-        }
+    private func applyPointingCorner(
+        _ pointingCorner: MapLibreEdgePinPointingCorner?,
+        showsCategoryBubble: Bool
+    ) {
+        let corners = shapeCorners(
+            pointingCorner: pointingCorner,
+            showsCategoryBubble: showsCategoryBubble
+        )
+        numberBackground.setPointingCorner(corners.number)
+        categoryBackground.setPointingCorner(corners.category)
+    }
 
-        let upperRightAngle = joinAngle
-        let lowerRightAngle = -joinAngle
-        let lowerLeftAngle = CGFloat.pi + joinAngle
-        let upperLeftAngle = CGFloat.pi - joinAngle
-        let upperRight = point(on: upperCenter, angle: upperRightAngle)
-        let lowerRight = point(on: lowerCenter, angle: lowerRightAngle)
-        let lowerLeft = point(on: lowerCenter, angle: lowerLeftAngle)
-        let upperLeft = point(on: upperCenter, angle: upperLeftAngle)
+    private func shapeCorners(
+        for placement: MapLibrePinPlacement
+    ) -> (number: MapLibreEdgePinPointingCorner?, category: MapLibreEdgePinPointingCorner?) {
+        shapeCorners(
+            pointingCorner: placement.pointingCorner,
+            showsCategoryBubble: placement.showsCategoryBubble
+        )
+    }
 
-        let path = UIBezierPath()
-        path.move(to: upperRight)
-        path.addCurve(
-            to: lowerRight,
-            controlPoint1: offset(
-                upperRight,
-                along: clockwiseTangent(at: upperRightAngle),
-                by: handleLength
-            ),
-            controlPoint2: offset(
-                lowerRight,
-                along: clockwiseTangent(at: lowerRightAngle),
-                by: -handleLength
-            )
-        )
-        path.addArc(
-            withCenter: lowerCenter,
-            radius: radius,
-            startAngle: lowerRightAngle,
-            endAngle: lowerLeftAngle,
-            clockwise: true
-        )
-        path.addCurve(
-            to: upperLeft,
-            controlPoint1: offset(
-                lowerLeft,
-                along: clockwiseTangent(at: lowerLeftAngle),
-                by: handleLength
-            ),
-            controlPoint2: offset(
-                upperLeft,
-                along: clockwiseTangent(at: upperLeftAngle),
-                by: -handleLength
-            )
-        )
-        path.addArc(
-            withCenter: upperCenter,
-            radius: radius,
-            startAngle: upperLeftAngle,
-            endAngle: 2 * CGFloat.pi + upperRightAngle,
-            clockwise: true
-        )
-        path.close()
-        return path
+    private func shapeCorners(
+        pointingCorner: MapLibreEdgePinPointingCorner?,
+        showsCategoryBubble: Bool
+    ) -> (number: MapLibreEdgePinPointingCorner?, category: MapLibreEdgePinPointingCorner?) {
+        // The selected category bubble sits above the numeric bubble. On the
+        // top boundary it owns the one outward-pointing square corner; on the
+        // bottom boundary the numeric bubble owns it. Non-selected pins only
+        // have the numeric bubble.
+        let appliesToCategory = showsCategoryBubble
+            && (pointingCorner == .topLeft || pointingCorner == .topRight)
+        return appliesToCategory
+            ? (number: nil, category: pointingCorner)
+            : (number: pointingCorner, category: nil)
     }
 }

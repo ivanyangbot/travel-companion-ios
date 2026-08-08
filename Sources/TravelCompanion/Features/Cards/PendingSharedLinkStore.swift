@@ -1,7 +1,7 @@
 import Foundation
 
 /// Public URLs arrive from the Share Extension through this App Group handoff.
-/// The host only pre-fills a card editor; it never fetches or scrapes a third-party app.
+/// The host pre-fills the Agent; the backend reads only explicitly shared public pages.
 @MainActor
 final class PendingSharedLinkStore: ObservableObject {
     static let appGroup = "group.com.nuanxinban.indo"
@@ -31,14 +31,17 @@ final class PendingSharedLinkStore: ObservableObject {
     }
 
     func consumeStoredURL() {
-        guard let rawURL = UserDefaults(suiteName: Self.appGroup)?.string(forKey: Self.pendingURLKey),
-              let url = ExternalLinkHandler.validatedHTTPSURL(rawURL) else { return }
+        guard let rawURL = UserDefaults(suiteName: Self.appGroup)?.string(forKey: Self.pendingURLKey) else { return }
+        guard let url = ExternalLinkHandler.validatedHTTPSURL(rawURL) else {
+            clearStoredURL()
+            return
+        }
         pendingURL = url
-        clearStoredURL()
     }
 
     func markDelivered() {
         pendingURL = nil
+        clearStoredURL()
     }
 
     func markInviteDelivered() {

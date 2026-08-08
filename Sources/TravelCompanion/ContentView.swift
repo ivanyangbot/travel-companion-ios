@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var agentSessionStore = AgentV2SessionStore()
     @StateObject private var agentRunState = AgentV2RunState()
     @State private var showsAgent = false
+    @State private var agentInitialMessage: String?
     @State private var selectedSection: MainSection = .journey
     @State private var navigationDragTranslation: CGFloat = 0
     @State private var navigationDragHasStarted = false
@@ -20,12 +21,14 @@ struct ContentView: View {
         case journey
         case expenses
         case notes
+        case settings
 
         var title: String {
             switch self {
             case .journey: "旅程"
             case .expenses: "账本"
             case .notes: "手书"
+            case .settings: "设置"
             }
         }
 
@@ -34,6 +37,7 @@ struct ContentView: View {
             case .journey: "icon-trip-outline"
             case .expenses: "icon-money-outline-1"
             case .notes: "icon-note-outline-1"
+            case .settings: "icon-settings-outline"
             }
         }
     }
@@ -67,10 +71,17 @@ struct ContentView: View {
         // 两个按钮在同一满屏坐标系中布局，底边均严格距离物理屏幕 32pt。
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(edges: .bottom)
-        .sheet(isPresented: $showsAgent) {
+        .sheet(isPresented: $showsAgent, onDismiss: { agentInitialMessage = nil }) {
             Group {
                 if let syncEngine {
-                    AgentWorkbenchView(syncEngine: syncEngine)
+                    AgentWorkbenchView(
+                        syncEngine: syncEngine,
+                        initialMessage: agentInitialMessage,
+                        onInitialMessageSubmitted: {
+                            sharedLinkStore.markDelivered()
+                            agentInitialMessage = nil
+                        }
+                    )
                 } else {
                     ProgressView("正在准备 Agent…")
                 }
@@ -82,6 +93,7 @@ struct ContentView: View {
             engine.observeAuthChanges()
             syncEngine = engine
             await engine.bootstrap()
+            presentSharedLinkInAgentIfPossible()
             if scenePhase == .active {
                 engine.startForegroundSync()
             }
@@ -90,6 +102,7 @@ struct ContentView: View {
             guard let syncEngine else { return }
             if phase == .active {
                 sharedLinkStore.consumeStoredURL()
+                presentSharedLinkInAgentIfPossible()
                 syncEngine.startForegroundSync()
                 Task { await syncEngine.retry() }
             } else {
@@ -98,11 +111,19 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             sharedLinkStore.receiveHostURL(url)
+            presentSharedLinkInAgentIfPossible()
+        }
+        .onChange(of: sharedLinkStore.pendingURL) { _, _ in
+            presentSharedLinkInAgentIfPossible()
+        }
+        .onChange(of: syncEngine?.trip?.version) { _, _ in
+            presentSharedLinkInAgentIfPossible()
         }
     }
 
     private var agentButton: some View {
         Button {
+            agentInitialMessage = nil
             showsAgent = true
         } label: {
             AnimatedAgentIcon()
@@ -113,6 +134,13 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("打开 Agent")
+    }
+
+    private func presentSharedLinkInAgentIfPossible() {
+        guard let url = sharedLinkStore.pendingURL,
+              syncEngine?.trip?.isConfigured == true else { return }
+        agentInitialMessage = "请解析这篇小红书攻略，提取其中明确提到的地点并整理成可选择的行程卡：\n\(url.absoluteString)"
+        showsAgent = true
     }
 
     @ViewBuilder
@@ -140,6 +168,10 @@ struct ContentView: View {
             } else {
                 ProgressView("正在准备手书…")
             }
+        case .settings:
+            // The settings tab is a visual placeholder for now and is not
+            // selectable. Keep this branch exhaustive for future activation.
+            EmptyView()
         }
     }
 
@@ -168,7 +200,7 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .gesture(navigationDragGesture)
         .padding(4)
-        .frame(width: 172, height: 60)
+        .frame(width: navigationContentWidth + 8, height: 60)
         .background {
             ZStack {
                 AdjustableBackdropBlur(
@@ -222,10 +254,7 @@ struct ContentView: View {
                     navigationDragHasStarted = false
 
                     let destination = navigationSection(forHighlightOffset: navigationHighlightOffset)
-                    withAnimation(.snappy(duration: 0.25)) {
-                        selectedSection = destination
-                        navigationDragTranslation = 0
-                    }
+                    selectSection(destination)
                     return
                 }
 
@@ -235,6 +264,12 @@ struct ContentView: View {
     }
 
     private func selectSection(_ section: MainSection) {
+        guard section != .settings else {
+            withAnimation(.snappy(duration: 0.25)) {
+                navigationDragTranslation = 0
+            }
+            return
+        }
         withAnimation(.snappy(duration: 0.25)) {
             selectedSection = section
             navigationDragTranslation = 0
