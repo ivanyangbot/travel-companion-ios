@@ -1,5 +1,6 @@
 import AuthenticationServices
 import SwiftUI
+import UIKit
 
 struct ItineraryView: View {
     @ObservedObject var syncEngine: SyncEngine
@@ -21,6 +22,35 @@ struct ItineraryView: View {
     @State private var signOutErrorMessage: String?
     @State private var selectedListDate: String?
     @State private var programmaticScrollTarget: UUID?
+    @State private var visibleCardOrderByDay: [UUID: [UUID]] = [:]
+    @State private var revealedListCardID: UUID?
+    @State private var listCardSwipeGestureCardID: UUID?
+    @State private var listCardSwipeTranslation: CGFloat = 0
+    @State private var longPressedListCardID: UUID?
+    @State private var suppressedListCardTapID: UUID?
+    @State private var suppressedListCardTapReleaseTask: Task<Void, Never>?
+    @State private var settlingListCard: ItinerarySettlingCard?
+    @State private var settlingListCardCenter: CGPoint = .zero
+    @State private var settlingListCardIsAnimating = false
+    @State private var settlingListCardTask: Task<Void, Never>?
+    @State private var draggedListCard: ItineraryDraggedCard?
+    @State private var draggedListCardTranslation: CGSize = .zero
+    @State private var draggedListCardStartFrame: CGRect?
+    @State private var draggedListCardDestinationDayID: UUID?
+    @State private var draggedListCardDestinationIndex: Int?
+    @State private var draggedListCardBaseFrames: [UUID: CGRect] = [:]
+    @State private var draggedListCardBaseDayFrames: [UUID: CGRect] = [:]
+    @State private var itineraryCardFrames: [UUID: CGRect] = [:]
+    @State private var itineraryDayFrames: [UUID: CGRect] = [:]
+    @State private var itineraryScrollViewportFrame: CGRect = .zero
+    @State private var itineraryScrollOffsetY: CGFloat = 0
+    @State private var itineraryScrollContentHeight: CGFloat = 0
+    @State private var itineraryScrollViewportHeight: CGFloat = 0
+    @State private var draggedListCardStartScrollOffsetY: CGFloat = 0
+    @State private var draggedListCardFingerY: CGFloat?
+    @State private var dragAutoScrollVelocity: CGFloat = 0
+    @State private var dragAutoScrollTask: Task<Void, Never>?
+    @State private var itineraryScrollPosition = ScrollPosition()
     @StateObject private var linkHandler = ExternalLinkHandler()
 
     var body: some View {
@@ -231,29 +261,34 @@ struct ItineraryView: View {
         )
 
         return GeometryReader { geometry in
-            VStack(spacing: 0) {
-                itineraryPinnedHeader(
-                    trip: trip,
-                    days: days,
-                    selectedIndex: selectedIndex,
-                    todayIndex: todayIndex,
-                    timelineWidth: min(390, max(0, geometry.size.width - 40))
-                )
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    itineraryPinnedHeader(
+                        trip: trip,
+                        days: days,
+                        selectedIndex: selectedIndex,
+                        todayIndex: todayIndex,
+                        timelineWidth: min(390, max(0, geometry.size.width - 40))
+                    )
 
-                if days.isEmpty {
-                    ContentUnavailableView {
-                        Label("还没有日期", systemImage: "calendar.badge.plus")
-                    } description: {
-                        Text("添加旅行日期后即可安排卡片。")
-                    } actions: {
-                        Button("添加日期") { activeDaySheet = .add }
-                            .buttonStyle(.borderedProminent)
+                    if days.isEmpty {
+                        ContentUnavailableView {
+                            Label("还没有日期", systemImage: "calendar.badge.plus")
+                        } description: {
+                            Text("添加旅行日期后即可安排卡片。")
+                        } actions: {
+                            Button("添加日期") { activeDaySheet = .add }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        itineraryDayScroller(trip: trip, days: days)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    itineraryDayScroller(trip: trip, days: days)
                 }
+
+                draggedItineraryCardOverlay(days: days)
             }
+            .coordinateSpace(name: "itinerary-list-root")
             .background(Color.black)
             .onAppear {
                 if selectedListDate == nil {
@@ -266,6 +301,50 @@ struct ItineraryView: View {
                     return
                 }
             }
+            .onDisappear {
+                stopDragAutoScroll()
+                settlingListCardTask?.cancel()
+                suppressedListCardTapReleaseTask?.cancel()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func draggedItineraryCardOverlay(days: [TripDaySnapshot]) -> some View {
+        if let draggedListCard,
+           let day = days.first(where: { $0.id == draggedListCard.dayID }),
+           let card = day.cards.first(where: { $0.id == draggedListCard.cardID }),
+           let startFrame = draggedListCardStartFrame {
+            let index = orderedListCards(for: day).firstIndex(where: { $0.id == card.id }) ?? 0
+            itineraryCompactCardContent(card, index: index)
+                .frame(width: startFrame.width, height: startFrame.height)
+                .scaleEffect(1.025)
+                .position(
+                    x: startFrame.midX + draggedListCardTranslation.width,
+                    y: startFrame.midY + draggedListCardTranslation.height
+                )
+                .shadow(color: .black.opacity(0.5), radius: 22, y: 12)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .zIndex(100_000)
+        }
+
+        if let settlingListCard {
+            itineraryCompactCardContent(
+                settlingListCard.card,
+                index: settlingListCard.destinationIndex
+            )
+            .frame(width: settlingListCard.startFrame.width, height: settlingListCard.startFrame.height)
+            .scaleEffect(settlingListCardIsAnimating ? 1 : 1.025)
+            .position(settlingListCardCenter)
+            .shadow(
+                color: .black.opacity(settlingListCardIsAnimating ? 0.18 : 0.5),
+                radius: settlingListCardIsAnimating ? 8 : 22,
+                y: settlingListCardIsAnimating ? 3 : 12
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .zIndex(100_000)
         }
     }
 
@@ -376,13 +455,39 @@ struct ItineraryView: View {
                                     }
                                 }
                         }
+                        .zIndex(draggedListCard?.dayID == day.id ? 100 : 0)
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.horizontal, 16)
                 .padding(.bottom, 112)
             }
             .coordinateSpace(name: "itinerary-day-scroll")
+            .scrollPosition($itineraryScrollPosition)
+            .scrollDisabled(draggedListCard != nil)
             .scrollIndicators(.hidden)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ItineraryScrollViewportFramePreferenceKey.self,
+                        value: proxy.frame(in: .named("itinerary-list-root"))
+                    )
+                }
+            }
+            .onScrollGeometryChange(for: ItineraryScrollMetrics.self) { geometry in
+                ItineraryScrollMetrics(
+                    offsetY: geometry.contentOffset.y,
+                    contentHeight: geometry.contentSize.height,
+                    viewportHeight: geometry.containerSize.height
+                )
+            } action: { _, metrics in
+                itineraryScrollOffsetY = metrics.offsetY
+                itineraryScrollContentHeight = metrics.contentHeight
+                itineraryScrollViewportHeight = metrics.viewportHeight
+                if draggedListCard != nil {
+                    refreshDragDestinationForCurrentScroll()
+                }
+            }
             .onChange(of: programmaticScrollTarget) { _, target in
                 guard let target else { return }
                 withAnimation(.smooth(duration: 0.34)) {
@@ -391,6 +496,16 @@ struct ItineraryView: View {
             }
             .onPreferenceChange(ItineraryDayHeaderOffsetsPreferenceKey.self) { offsets in
                 updateSelectedDay(from: offsets, days: days)
+            }
+            .onPreferenceChange(ItineraryCardFramesPreferenceKey.self) { frames in
+                itineraryCardFrames = frames
+                settleReleasedListCardIfReady(using: frames)
+            }
+            .onPreferenceChange(ItineraryDayFramesPreferenceKey.self) { frames in
+                itineraryDayFrames = frames
+            }
+            .onPreferenceChange(ItineraryScrollViewportFramePreferenceKey.self) { frame in
+                itineraryScrollViewportFrame = frame
             }
         }
     }
@@ -433,54 +548,247 @@ struct ItineraryView: View {
         day: TripDaySnapshot,
         days: [TripDaySnapshot]
     ) -> some View {
-        let cards = day.cards.sorted(by: Self.cardTimeOrder)
+        let cards = orderedListCards(for: day)
         VStack(spacing: 10) {
             if cards.isEmpty {
                 Button {
                     activeCardEditor = .create(day)
                 } label: {
-                    Label("这一天还没有行程，点击添加", systemImage: "plus.circle")
+                    Label(
+                        draggedListCardDestinationDayID == day.id ? "松手移动到此日期" : "这一天还没有行程，点击添加",
+                        systemImage: draggedListCardDestinationDayID == day.id ? "arrow.down.to.line" : "plus.circle"
+                    )
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.62))
+                        .foregroundStyle(draggedListCardDestinationDayID == day.id ? .orange : .white.opacity(0.62))
                         .frame(maxWidth: .infinity, minHeight: 78)
                 }
                 .buttonStyle(.plain)
             } else {
                 ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
-                    itineraryCompactCard(
-                        card,
-                        index: index,
-                        day: day,
-                        cards: cards
-                    )
-
-                    if index < cards.count - 1,
-                       let originPoint = card.place?.point,
-                       let destinationPoint = cards[index + 1].place?.point {
-                        CardLegEstimateView(
-                            originCard: card,
-                            destinationCard: cards[index + 1],
-                            originPoint: originPoint,
-                            destinationPoint: destinationPoint
+                    VStack(spacing: 10) {
+                        itineraryCompactCard(
+                            card,
+                            index: index,
+                            day: day,
+                            cards: cards,
+                            days: days
                         )
-                        .padding(.horizontal, 2)
+
+                        if index < cards.count - 1,
+                           let originPoint = card.place?.point,
+                           let destinationPoint = cards[index + 1].place?.point {
+                            CardLegEstimateView(
+                                originCard: card,
+                                destinationCard: cards[index + 1],
+                                originPoint: originPoint,
+                                destinationPoint: destinationPoint
+                            )
+                            .id(CardLegStore.legKey(origin: card, destination: cards[index + 1]))
+                            .padding(.horizontal, 2)
+                        }
                     }
+                    .offset(y: placeholderOffset(for: card, in: day, cards: cards))
+                    .animation(.snappy(duration: 0.2), value: draggedListCardDestinationIndex)
+                    .animation(.snappy(duration: 0.2), value: draggedListCardDestinationDayID)
+                    .zIndex(draggedListCard?.cardID == card.id ? 100 : 0)
                 }
+            }
+
+            if !cards.isEmpty,
+               draggedListCardDestinationDayID == day.id,
+               draggedListCard?.dayID != day.id {
+                Color.clear
+                    .frame(height: (draggedListCardStartFrame?.height ?? 72) + 10)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 18)
         .background(JourneyPalette.listSurface)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ItineraryDayFramesPreferenceKey.self,
+                    value: [day.id: proxy.frame(in: .named("itinerary-list-root"))]
+                )
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    draggedListCardDestinationDayID == day.id && draggedListCard?.dayID != day.id
+                        ? Color.orange.opacity(0.8)
+                        : .clear,
+                    lineWidth: 2
+                )
+        }
     }
 
+    @ViewBuilder
     private func itineraryCompactCard(
         _ card: TravelCardSnapshot,
         index: Int,
         day: TripDaySnapshot,
-        cards: [TravelCardSnapshot]
+        cards: [TravelCardSnapshot],
+        days: [TripDaySnapshot]
+    ) -> some View {
+        let canReorder = !syncEngine.isUserAuthenticated || cards.allSatisfy { $0.serverID != nil }
+        let isDragging = draggedListCard?.cardID == card.id || settlingListCard?.card.id == card.id
+
+        if canReorder {
+            itinerarySwipeableCard(card, index: index, day: day)
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ItineraryCardFramesPreferenceKey.self,
+                            value: [card.id: proxy.frame(in: .named("itinerary-list-root"))]
+                        )
+                    }
+                }
+                .gesture(
+                    ItineraryLongPressDragGesture(
+                        isEnabled: listCardSwipeGestureCardID == nil
+                            && (draggedListCard == nil || draggedListCard?.cardID == card.id),
+                        onBegan: {
+                            handleListCardLongPressBegan(card)
+                        },
+                        onChanged: { translation in
+                            handleListCardLongPressChanged(
+                                card,
+                                day: day,
+                                days: days,
+                                translation: translation
+                            )
+                        },
+                        onEnded: { translation in
+                            handleListCardLongPressEnded(
+                                card,
+                                day: day,
+                                cards: cards,
+                                days: days,
+                                translation: translation
+                            )
+                        },
+                        onCancelled: {
+                            handleListCardLongPressCancelled(card)
+                        }
+                    )
+                )
+                .opacity(isDragging ? 0 : 1)
+                .accessibilityHint("打开详情；长按并拖动可调整顺序")
+        } else {
+            itinerarySwipeableCard(card, index: index, day: day)
+                .accessibilityHint("打开详情；卡片同步完成后可长按拖动排序")
+        }
+    }
+
+    private func itinerarySwipeableCard(
+        _ card: TravelCardSnapshot,
+        index: Int,
+        day: TripDaySnapshot
+    ) -> some View {
+        let swipeOffset = listCardSwipeOffset(for: card.id)
+        let revealedWidth = -swipeOffset
+        let actionVisibility = ItineraryCardSwipeInteraction.actionVisibility(
+            revealedWidth: revealedWidth
+        )
+        let actionsAreOpen = revealedListCardID == card.id && listCardSwipeGestureCardID == nil
+
+        return ZStack(alignment: .trailing) {
+            Button {
+                closeListCardActions()
+                cardPendingDeletion = card
+            } label: {
+                Image("icon-delete-outline")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(.white)
+                    .frame(width: 29, height: 29)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .buttonStyle(.plain)
+            .frame(width: ItineraryCardSwipeInteraction.actionWidth)
+            .background(
+                Color(red: 0.88, green: 0, blue: 0.20),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .accessibilityLabel("删除行程卡片")
+            .opacity(actionVisibility)
+            .allowsHitTesting(actionsAreOpen)
+
+            Button {
+                closeListCardActions()
+                activeCardEditor = .edit(day, card)
+            } label: {
+                Image("icon-edit-outline")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(.white)
+                    .frame(width: 29, height: 29)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .buttonStyle(.plain)
+            .frame(width: ItineraryCardSwipeInteraction.actionWidth)
+            .background(
+                Color(red: 0.29, green: 0.29, blue: 0.29),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .offset(x: ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: revealedWidth))
+            .accessibilityLabel("编辑行程卡片")
+            .opacity(actionVisibility)
+            .allowsHitTesting(actionsAreOpen)
+
+            itineraryCompactCardContent(card, index: index)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .offset(x: swipeOffset)
+        }
+        .clipped()
+        .contentShape(Rectangle())
+        .gesture(
+            ItineraryHorizontalPanGesture(
+                isEnabled: draggedListCard == nil && longPressedListCardID != card.id,
+                actionsAlreadyRevealed: revealedListCardID == card.id,
+                onChanged: { translation in
+                    handleListCardSwipeChanged(card, translation: translation)
+                },
+                onEnded: { translation, predictedTranslation in
+                    handleListCardSwipeEnded(
+                        card,
+                        translation: translation,
+                        predictedTranslation: predictedTranslation
+                    )
+                },
+                onCancelled: {
+                    handleListCardSwipeCancelled(card)
+                }
+            )
+        )
+        .accessibilityAction(named: "编辑") {
+            closeListCardActions()
+            activeCardEditor = .edit(day, card)
+        }
+        .accessibilityAction(named: "删除") {
+            closeListCardActions()
+            cardPendingDeletion = card
+        }
+        .animation(.snappy(duration: 0.22), value: revealedListCardID)
+    }
+
+    private func itineraryCompactCardContent(
+        _ card: TravelCardSnapshot,
+        index: Int
     ) -> some View {
         Button {
-            detailCard = card
+            guard suppressedListCardTapID != card.id else { return }
+            if revealedListCardID != nil {
+                closeListCardActions()
+            } else {
+                detailCard = card
+            }
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 itineraryCardCover(card)
@@ -517,20 +825,517 @@ struct ItineraryView: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .background(JourneyPalette.cardSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button("编辑", systemImage: "pencil") { activeCardEditor = .edit(day, card) }
-            Button("上移", systemImage: "arrow.up") {
-                Task { await syncEngine.moveCard(card, in: day, direction: -1) }
+        .buttonStyle(ItineraryCardNoFadeButtonStyle())
+    }
+
+    private func handleListCardSwipeChanged(_ card: TravelCardSnapshot, translation: CGFloat) {
+        guard draggedListCard == nil, longPressedListCardID != card.id else { return }
+        suppressListCardTap(card.id)
+        if listCardSwipeGestureCardID == nil {
+            listCardSwipeGestureCardID = card.id
+            if revealedListCardID != card.id {
+                revealedListCardID = nil
             }
-            .disabled(index == 0 || (card.serverID == nil && syncEngine.isUserAuthenticated))
-            Button("下移", systemImage: "arrow.down") {
-                Task { await syncEngine.moveCard(card, in: day, direction: 1) }
-            }
-            .disabled(index == cards.count - 1 || (card.serverID == nil && syncEngine.isUserAuthenticated))
-            Button("删除", systemImage: "trash", role: .destructive) { cardPendingDeletion = card }
         }
-        .accessibilityHint("打开详情；长按可编辑或调整顺序")
+        guard listCardSwipeGestureCardID == card.id else { return }
+        listCardSwipeTranslation = translation
+    }
+
+    private func handleListCardSwipeEnded(
+        _ card: TravelCardSnapshot,
+        translation: CGFloat,
+        predictedTranslation: CGFloat
+    ) {
+        defer {
+            resetListCardSwipeGesture()
+            releaseListCardTapSuppression(card.id)
+        }
+        guard listCardSwipeGestureCardID == card.id else { return }
+
+        let baseOffset = revealedListCardID == card.id
+            ? -ItineraryCardSwipeInteraction.actionsWidth
+            : 0
+        let currentOffset = ItineraryCardSwipeInteraction.clampedOffset(
+            baseOffset: baseOffset,
+            translation: translation
+        )
+        let projectedOffset = ItineraryCardSwipeInteraction.projectedOffset(
+            baseOffset: baseOffset,
+            translation: translation,
+            predictedTranslation: predictedTranslation
+        )
+        withAnimation(.snappy(duration: 0.22)) {
+            revealedListCardID = ItineraryCardSwipeInteraction.shouldRevealActions(
+                currentOffset: currentOffset,
+                projectedOffset: projectedOffset
+            ) ? card.id : nil
+        }
+    }
+
+    private func handleListCardSwipeCancelled(_ card: TravelCardSnapshot) {
+        guard listCardSwipeGestureCardID == card.id else { return }
+        resetListCardSwipeGesture()
+        releaseListCardTapSuppression(card.id)
+    }
+
+    private func listCardSwipeOffset(for cardID: UUID) -> CGFloat {
+        let baseOffset = revealedListCardID == cardID
+            ? -ItineraryCardSwipeInteraction.actionsWidth
+            : 0
+        guard listCardSwipeGestureCardID == cardID else { return baseOffset }
+        return ItineraryCardSwipeInteraction.clampedOffset(
+            baseOffset: baseOffset,
+            translation: listCardSwipeTranslation
+        )
+    }
+
+    private func closeListCardActions() {
+        withAnimation(.snappy(duration: 0.22)) {
+            revealedListCardID = nil
+        }
+        resetListCardSwipeGesture()
+    }
+
+    private func resetListCardSwipeGesture() {
+        listCardSwipeGestureCardID = nil
+        listCardSwipeTranslation = 0
+    }
+
+    private func suppressListCardTap(_ cardID: UUID) {
+        suppressedListCardTapReleaseTask?.cancel()
+        suppressedListCardTapReleaseTask = nil
+        suppressedListCardTapID = cardID
+    }
+
+    private func releaseListCardTapSuppression(_ cardID: UUID) {
+        guard suppressedListCardTapID == cardID else { return }
+        suppressedListCardTapReleaseTask?.cancel()
+        suppressedListCardTapReleaseTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled, suppressedListCardTapID == cardID else { return }
+            suppressedListCardTapID = nil
+            suppressedListCardTapReleaseTask = nil
+        }
+    }
+
+    private func handleListCardLongPressBegan(_ card: TravelCardSnapshot) {
+        longPressedListCardID = card.id
+        suppressListCardTap(card.id)
+    }
+
+    private func handleListCardLongPressChanged(
+        _ card: TravelCardSnapshot,
+        day: TripDaySnapshot,
+        days: [TripDaySnapshot],
+        translation: CGSize
+    ) {
+        guard longPressedListCardID == card.id else { return }
+        suppressListCardTap(card.id)
+        guard ItineraryDragInteraction.shouldActivateCardDrag(
+            translation: translation,
+            alreadyActive: draggedListCard?.cardID == card.id
+        ) else { return }
+        beginDragging(card, in: day)
+        draggedListCardTranslation = translation
+        draggedListCardFingerY = (draggedListCardStartFrame?.midY ?? 0) + translation.height
+        updateDragAutoScroll(forFingerY: draggedListCardFingerY)
+        refreshDragDestination(card: card, sourceDay: day, days: days)
+    }
+
+    private func handleListCardLongPressEnded(
+        _ card: TravelCardSnapshot,
+        day: TripDaySnapshot,
+        cards: [TravelCardSnapshot],
+        days: [TripDaySnapshot],
+        translation: CGSize
+    ) {
+        defer { releaseListCardLongPress(card) }
+        guard draggedListCard?.cardID == card.id else { return }
+        finishDragging(card, in: day, cards: cards, days: days, translation: translation)
+    }
+
+    private func handleListCardLongPressCancelled(_ card: TravelCardSnapshot) {
+        if draggedListCard?.cardID == card.id {
+            stopDragAutoScroll()
+            withAnimation(.snappy(duration: 0.18)) {
+                resetActiveListCardDrag()
+            }
+        }
+        releaseListCardLongPress(card)
+    }
+
+    private func releaseListCardLongPress(_ card: TravelCardSnapshot) {
+        if longPressedListCardID == card.id {
+            longPressedListCardID = nil
+        }
+        releaseListCardTapSuppression(card.id)
+    }
+
+    private func beginDragging(_ card: TravelCardSnapshot, in day: TripDaySnapshot) {
+        guard draggedListCard?.cardID != card.id else { return }
+        closeListCardActions()
+        clearSettlingListCard()
+        draggedListCard = ItineraryDraggedCard(dayID: day.id, cardID: card.id)
+        draggedListCardBaseFrames = itineraryCardFrames
+        draggedListCardBaseDayFrames = itineraryDayFrames
+        draggedListCardStartFrame = draggedListCardBaseFrames[card.id]
+        draggedListCardStartScrollOffsetY = itineraryScrollOffsetY
+        draggedListCardTranslation = .zero
+        draggedListCardDestinationDayID = day.id
+        draggedListCardDestinationIndex = cardsIndex(of: card, in: day)
+    }
+
+    private func dragDestination(
+        for card: TravelCardSnapshot,
+        translation: CGSize,
+        sourceDay: TripDaySnapshot,
+        days: [TripDaySnapshot]
+    ) -> ItineraryCardDropTarget? {
+        guard let startFrame = draggedListCardStartFrame else { return nil }
+        let draggedMidY = startFrame.midY + translation.height
+
+        let targetDay = days
+            .filter { dragAdjustedDayFrame(for: $0.id) != nil }
+            .min { left, right in
+                dayDistance(from: draggedMidY, to: dragAdjustedDayFrame(for: left.id))
+                    < dayDistance(from: draggedMidY, to: dragAdjustedDayFrame(for: right.id))
+            } ?? sourceDay
+        let targetCards = orderedListCards(for: targetDay).filter { $0.id != card.id }
+        let index = targetCards.firstIndex {
+            guard let frame = dragAdjustedCardFrame(for: $0.id) else { return false }
+            return draggedMidY < frame.midY
+        } ?? targetCards.count
+        return ItineraryCardDropTarget(dayID: targetDay.id, index: index)
+    }
+
+    private func dayDistance(from y: CGFloat, to frame: CGRect?) -> CGFloat {
+        guard let frame else { return .greatestFiniteMagnitude }
+        let expandedFrame = frame.insetBy(dx: 0, dy: -24)
+        if expandedFrame.contains(CGPoint(x: expandedFrame.midX, y: y)) { return 0 }
+        return min(abs(y - expandedFrame.minY), abs(y - expandedFrame.maxY))
+    }
+
+    private func finishDragging(
+        _ card: TravelCardSnapshot,
+        in day: TripDaySnapshot,
+        cards: [TravelCardSnapshot],
+        days: [TripDaySnapshot],
+        translation: CGSize
+    ) {
+        stopDragAutoScroll()
+        let destination = dragDestination(
+            for: card,
+            translation: translation,
+            sourceDay: day,
+            days: days
+        )
+        var didMove = false
+        if let destination, destination.dayID == day.id {
+            let currentOrder = cards.map(\.id)
+            let newOrder = ItineraryListPresentation.movingCard(
+                card.id,
+                to: destination.index,
+                in: currentOrder
+            )
+            if newOrder != currentOrder {
+                didMove = beginSettlingListCard(
+                    card,
+                    from: day,
+                    destination: destination,
+                    translation: translation
+                )
+                withAnimation(.snappy(duration: 0.24)) {
+                    visibleCardOrderByDay[day.id] = newOrder
+                    resetActiveListCardDrag()
+                }
+                Task {
+                    await syncEngine.reorderCards(in: day, orderedCardIDs: newOrder)
+                }
+            }
+        } else if let destination,
+                  let targetDay = days.first(where: { $0.id == destination.dayID }) {
+            didMove = beginSettlingListCard(
+                card,
+                from: day,
+                destination: destination,
+                translation: translation
+            )
+            withAnimation(.snappy(duration: 0.24)) {
+                resetActiveListCardDrag()
+            }
+            Task {
+                await syncEngine.moveCard(
+                    card,
+                    from: day,
+                    to: targetDay,
+                    destinationIndex: destination.index
+                )
+            }
+        }
+
+        if !didMove {
+            withAnimation(.snappy(duration: 0.18)) {
+                resetActiveListCardDrag()
+            }
+        }
+    }
+
+    @discardableResult
+    private func beginSettlingListCard(
+        _ card: TravelCardSnapshot,
+        from sourceDay: TripDaySnapshot,
+        destination: ItineraryCardDropTarget,
+        translation: CGSize
+    ) -> Bool {
+        guard let startFrame = draggedListCardStartFrame else { return false }
+        settlingListCardTask?.cancel()
+        settlingListCard = ItinerarySettlingCard(
+            card: card,
+            sourceDayID: sourceDay.id,
+            destinationDayID: destination.dayID,
+            destinationIndex: destination.index,
+            startFrame: startFrame
+        )
+        settlingListCardCenter = ItineraryDragInteraction.releaseCenter(
+            startFrame: startFrame,
+            translation: translation
+        )
+        settlingListCardIsAnimating = false
+        let cardID = card.id
+        settlingListCardTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled,
+                  settlingListCard?.card.id == cardID,
+                  !settlingListCardIsAnimating else { return }
+            clearSettlingListCard()
+        }
+        return true
+    }
+
+    private func settleReleasedListCardIfReady(using frames: [UUID: CGRect]) {
+        guard let settlingListCard,
+              !settlingListCardIsAnimating,
+              let targetFrame = frames[settlingListCard.card.id],
+              let destinationDay = syncEngine.trip?.days.first(where: {
+                  $0.id == settlingListCard.destinationDayID
+              }),
+              destinationDay.cards.contains(where: { $0.id == settlingListCard.card.id }),
+              let destinationDayFrame = itineraryDayFrames[settlingListCard.destinationDayID],
+              destinationDayFrame.insetBy(dx: -12, dy: -12).contains(
+                  CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+              ) else { return }
+
+        let startCenter = CGPoint(
+            x: settlingListCard.startFrame.midX,
+            y: settlingListCard.startFrame.midY
+        )
+        let targetCenter = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+        if settlingListCard.sourceDayID == settlingListCard.destinationDayID,
+           hypot(targetCenter.x - startCenter.x, targetCenter.y - startCenter.y) < 1 {
+            return
+        }
+
+        settlingListCardTask?.cancel()
+        let cardID = settlingListCard.card.id
+        settlingListCardTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(240))
+            guard !Task.isCancelled, self.settlingListCard?.card.id == cardID else { return }
+            animateReleasedListCardToCurrentFrame(cardID: cardID)
+        }
+    }
+
+    private func animateReleasedListCardToCurrentFrame(cardID: UUID) {
+        guard let settlingListCard,
+              settlingListCard.card.id == cardID,
+              !settlingListCardIsAnimating,
+              let targetFrame = itineraryCardFrames[cardID],
+              let destinationDayFrame = itineraryDayFrames[settlingListCard.destinationDayID],
+              destinationDayFrame.insetBy(dx: -12, dy: -12).contains(
+                  CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+              ) else {
+            clearSettlingListCard()
+            return
+        }
+
+        let targetCenter = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+        settlingListCardIsAnimating = true
+        withAnimation(.snappy(duration: 0.28)) {
+            settlingListCardCenter = targetCenter
+        }
+        settlingListCardTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, self.settlingListCard?.card.id == cardID else { return }
+            clearSettlingListCard()
+        }
+    }
+
+    private func resetActiveListCardDrag() {
+        draggedListCard = nil
+        draggedListCardTranslation = .zero
+        draggedListCardStartFrame = nil
+        draggedListCardDestinationDayID = nil
+        draggedListCardDestinationIndex = nil
+        draggedListCardBaseFrames = [:]
+        draggedListCardBaseDayFrames = [:]
+        draggedListCardFingerY = nil
+    }
+
+    private func clearSettlingListCard() {
+        settlingListCardTask?.cancel()
+        settlingListCardTask = nil
+        settlingListCard = nil
+        settlingListCardIsAnimating = false
+        settlingListCardCenter = .zero
+    }
+
+    private func dragAdjustedCardFrame(for cardID: UUID) -> CGRect? {
+        if let baseFrame = draggedListCardBaseFrames[cardID] {
+            return baseFrame.offsetBy(
+                dx: 0,
+                dy: draggedListCardStartScrollOffsetY - itineraryScrollOffsetY
+            )
+        }
+        return itineraryCardFrames[cardID]
+    }
+
+    private func dragAdjustedDayFrame(for dayID: UUID) -> CGRect? {
+        if let baseFrame = draggedListCardBaseDayFrames[dayID] {
+            return baseFrame.offsetBy(
+                dx: 0,
+                dy: draggedListCardStartScrollOffsetY - itineraryScrollOffsetY
+            )
+        }
+        return itineraryDayFrames[dayID]
+    }
+
+    private func refreshDragDestination(
+        card: TravelCardSnapshot,
+        sourceDay: TripDaySnapshot,
+        days: [TripDaySnapshot]
+    ) {
+        let destination = dragDestination(
+            for: card,
+            translation: draggedListCardTranslation,
+            sourceDay: sourceDay,
+            days: days
+        )
+        draggedListCardDestinationDayID = destination?.dayID
+        draggedListCardDestinationIndex = destination?.index
+    }
+
+    private func refreshDragDestinationForCurrentScroll() {
+        guard let draggedListCard,
+              let trip = syncEngine.trip else { return }
+        let days = trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+        guard let sourceDay = days.first(where: { $0.id == draggedListCard.dayID }),
+              let card = sourceDay.cards.first(where: { $0.id == draggedListCard.cardID }) else { return }
+        refreshDragDestination(card: card, sourceDay: sourceDay, days: days)
+    }
+
+    private func updateDragAutoScroll(forFingerY fingerY: CGFloat?) {
+        guard let fingerY,
+              draggedListCard != nil,
+              itineraryScrollViewportFrame.height > 0 else {
+            stopDragAutoScroll()
+            return
+        }
+
+        let velocity = ItineraryDragInteraction.autoScrollVelocity(
+            fingerY: fingerY,
+            viewport: itineraryScrollViewportFrame
+        )
+
+        dragAutoScrollVelocity = velocity
+        guard velocity != 0 else {
+            stopDragAutoScroll()
+            return
+        }
+        guard dragAutoScrollTask == nil else { return }
+
+        dragAutoScrollTask = Task { @MainActor in
+            while !Task.isCancelled, draggedListCard != nil {
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled else { break }
+                let maximumOffset = max(0, itineraryScrollContentHeight - itineraryScrollViewportHeight)
+                let nextOffset = min(
+                    maximumOffset,
+                    max(0, itineraryScrollOffsetY + dragAutoScrollVelocity / 60)
+                )
+                if abs(nextOffset - itineraryScrollOffsetY) > 0.1 {
+                    itineraryScrollOffsetY = nextOffset
+                    itineraryScrollPosition.scrollTo(y: nextOffset)
+                    refreshDragDestinationForCurrentScroll()
+                }
+            }
+        }
+    }
+
+    private func stopDragAutoScroll() {
+        dragAutoScrollVelocity = 0
+        dragAutoScrollTask?.cancel()
+        dragAutoScrollTask = nil
+    }
+
+    private func cardsIndex(of card: TravelCardSnapshot, in day: TripDaySnapshot) -> Int? {
+        orderedListCards(for: day).firstIndex(where: { $0.id == card.id })
+    }
+
+    private func placeholderOffset(
+        for card: TravelCardSnapshot,
+        in day: TripDaySnapshot,
+        cards: [TravelCardSnapshot]
+    ) -> CGFloat {
+        guard let draggedCard = draggedListCard,
+              let destinationDayID = draggedListCardDestinationDayID,
+              let destinationIndex = draggedListCardDestinationIndex,
+              let cardIndex = cards.firstIndex(where: { $0.id == card.id }),
+              let cardFrame = draggedListCardBaseFrames[card.id] else { return 0 }
+
+        if day.id != draggedCard.dayID, day.id == destinationDayID, cardIndex >= destinationIndex {
+            return (draggedListCardStartFrame?.height ?? 72) + 10
+        }
+
+        guard day.id == draggedCard.dayID,
+              let sourceIndex = cards.firstIndex(where: { $0.id == draggedCard.cardID }) else { return 0 }
+
+        if destinationDayID != draggedCard.dayID,
+           cardIndex > sourceIndex,
+           cards.indices.contains(cardIndex - 1),
+           let previousFrame = draggedListCardBaseFrames[cards[cardIndex - 1].id] {
+            return previousFrame.midY - cardFrame.midY
+        }
+
+        if destinationDayID == draggedCard.dayID,
+           destinationIndex > sourceIndex,
+           cardIndex > sourceIndex,
+           cardIndex <= destinationIndex,
+           cards.indices.contains(cardIndex - 1),
+           let previousFrame = draggedListCardBaseFrames[cards[cardIndex - 1].id] {
+            return previousFrame.midY - cardFrame.midY
+        }
+
+        if destinationDayID == draggedCard.dayID,
+           destinationIndex < sourceIndex,
+           cardIndex >= destinationIndex,
+           cardIndex < sourceIndex,
+           cards.indices.contains(cardIndex + 1),
+           let nextFrame = draggedListCardBaseFrames[cards[cardIndex + 1].id] {
+            return nextFrame.midY - cardFrame.midY
+        }
+
+        return 0
+    }
+
+    private func orderedListCards(for day: TripDaySnapshot) -> [TravelCardSnapshot] {
+        let persistedOrder = ItineraryListPresentation.orderedCards(day.cards)
+        guard let visibleOrder = visibleCardOrderByDay[day.id],
+              visibleOrder.count == persistedOrder.count,
+              Set(visibleOrder) == Set(persistedOrder.map(\.id)) else {
+            return persistedOrder
+        }
+
+        let cardsByID = Dictionary(uniqueKeysWithValues: persistedOrder.map { ($0.id, $0) })
+        return visibleOrder.compactMap { cardsByID[$0] }
     }
 
     @ViewBuilder
@@ -1047,11 +1852,307 @@ private enum JourneyPalette {
     static let cardSurface = Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
 }
 
+private struct ItineraryCardNoFadeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+    }
+}
+
+private struct ItineraryHorizontalPanGesture: UIGestureRecognizerRepresentable {
+    var isEnabled: Bool
+    var actionsAlreadyRevealed: Bool
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (_ translation: CGFloat, _ predictedTranslation: CGFloat) -> Void
+    var onCancelled: () -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator(configuration: self)
+    }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.delegate = context.coordinator
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.maximumNumberOfTouches = 1
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        context.coordinator.configuration = self
+        if recognizer.isEnabled != isEnabled {
+            recognizer.isEnabled = isEnabled
+        }
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        let translation = recognizer.translation(in: recognizer.view).x
+        switch recognizer.state {
+        case .began, .changed:
+            context.coordinator.configuration.onChanged(translation)
+        case .ended:
+            let velocity = recognizer.velocity(in: recognizer.view).x
+            let predictedTranslation = translation + velocity * 0.12
+            context.coordinator.configuration.onEnded(translation, predictedTranslation)
+        case .cancelled, .failed:
+            context.coordinator.configuration.onCancelled()
+        default:
+            break
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var configuration: ItineraryHorizontalPanGesture
+
+        init(configuration: ItineraryHorizontalPanGesture) {
+            self.configuration = configuration
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard configuration.isEnabled,
+                  let panGesture = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+            return ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                velocity: panGesture.velocity(in: panGesture.view),
+                actionsAlreadyRevealed: configuration.actionsAlreadyRevealed
+            )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
+private struct ItineraryLongPressDragGesture: UIGestureRecognizerRepresentable {
+    var isEnabled: Bool
+    var onBegan: () -> Void
+    var onChanged: (CGSize) -> Void
+    var onEnded: (CGSize) -> Void
+    var onCancelled: () -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator(configuration: self)
+    }
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let recognizer = UILongPressGestureRecognizer()
+        recognizer.delegate = context.coordinator
+        recognizer.minimumPressDuration = 0.3
+        recognizer.allowableMovement = 12
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.numberOfTouchesRequired = 1
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        context.coordinator.configuration = self
+        if recognizer.isEnabled != isEnabled {
+            recognizer.isEnabled = isEnabled
+        }
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        let coordinator = context.coordinator
+        switch recognizer.state {
+        case .began:
+            coordinator.startLocation = recognizer.location(in: nil)
+            coordinator.configuration.onBegan()
+        case .changed:
+            coordinator.configuration.onChanged(coordinator.translation(for: recognizer))
+        case .ended:
+            coordinator.configuration.onEnded(coordinator.translation(for: recognizer))
+            coordinator.startLocation = nil
+        case .cancelled, .failed:
+            coordinator.configuration.onCancelled()
+            coordinator.startLocation = nil
+        default:
+            break
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var configuration: ItineraryLongPressDragGesture
+        var startLocation: CGPoint?
+
+        init(configuration: ItineraryLongPressDragGesture) {
+            self.configuration = configuration
+        }
+
+        func translation(for recognizer: UILongPressGestureRecognizer) -> CGSize {
+            guard let startLocation else { return .zero }
+            let location = recognizer.location(in: nil)
+            return CGSize(
+                width: location.x - startLocation.x,
+                height: location.y - startLocation.y
+            )
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            configuration.isEnabled
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
 private struct ItineraryDayHeaderOffsetsPreferenceKey: PreferenceKey {
     static var defaultValue: [UUID: CGFloat] { [:] }
 
     static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
         value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+private struct ItineraryCardFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] { [:] }
+
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+private struct ItineraryDayFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] { [:] }
+
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+private struct ItineraryScrollViewportFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect { .zero }
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
+private struct ItineraryScrollMetrics: Equatable {
+    let offsetY: CGFloat
+    let contentHeight: CGFloat
+    let viewportHeight: CGFloat
+}
+
+private struct ItineraryDraggedCard: Equatable {
+    let dayID: UUID
+    let cardID: UUID
+}
+
+private struct ItineraryCardDropTarget: Equatable {
+    let dayID: UUID
+    let index: Int
+}
+
+private struct ItinerarySettlingCard {
+    let card: TravelCardSnapshot
+    let sourceDayID: UUID
+    let destinationDayID: UUID
+    let destinationIndex: Int
+    let startFrame: CGRect
+}
+
+enum ItineraryDragInteraction {
+    static func shouldActivateCardDrag(
+        translation: CGSize,
+        alreadyActive: Bool,
+        movementThreshold: CGFloat = 3
+    ) -> Bool {
+        alreadyActive || hypot(translation.width, translation.height) >= movementThreshold
+    }
+
+    static func releaseCenter(startFrame: CGRect, translation: CGSize) -> CGPoint {
+        CGPoint(
+            x: startFrame.midX + translation.width,
+            y: startFrame.midY + translation.height
+        )
+    }
+
+    static func autoScrollVelocity(
+        fingerY: CGFloat,
+        viewport: CGRect,
+        minimumSpeed: CGFloat = 90,
+        maximumSpeed: CGFloat = 720
+    ) -> CGFloat {
+        guard viewport.height > 0 else { return 0 }
+        let threshold = min(110, max(72, viewport.height * 0.2))
+        let upperTrigger = viewport.minY + threshold
+        let lowerTrigger = viewport.maxY - threshold
+
+        if fingerY < upperTrigger {
+            let proximity = min(1, max(0, (upperTrigger - fingerY) / threshold))
+            return -(minimumSpeed + (maximumSpeed - minimumSpeed) * pow(proximity, 1.55))
+        }
+        if fingerY > lowerTrigger {
+            let proximity = min(1, max(0, (fingerY - lowerTrigger) / threshold))
+            return minimumSpeed + (maximumSpeed - minimumSpeed) * pow(proximity, 1.55)
+        }
+        return 0
+    }
+}
+
+enum ItineraryCardSwipeInteraction {
+    static let actionWidth: CGFloat = 72
+    static let actionsWidth: CGFloat = actionWidth * 2
+
+    static func shouldBeginSwipe(
+        _ translation: CGSize,
+        actionsAlreadyRevealed: Bool,
+        dominanceRatio: CGFloat = 1.25,
+        minimumHorizontalDistance: CGFloat = 10
+    ) -> Bool {
+        guard abs(translation.width) >= minimumHorizontalDistance,
+              abs(translation.width) > abs(translation.height) * dominanceRatio else { return false }
+        return actionsAlreadyRevealed || translation.width < 0
+    }
+
+    static func shouldBeginSwipe(
+        velocity: CGPoint,
+        actionsAlreadyRevealed: Bool,
+        dominanceRatio: CGFloat = 1.25
+    ) -> Bool {
+        guard abs(velocity.x) > abs(velocity.y) * dominanceRatio else { return false }
+        return actionsAlreadyRevealed || velocity.x < 0
+    }
+
+    static func clampedOffset(baseOffset: CGFloat, translation: CGFloat) -> CGFloat {
+        min(0, max(-actionsWidth, baseOffset + translation))
+    }
+
+    static func projectedOffset(
+        baseOffset: CGFloat,
+        translation: CGFloat,
+        predictedTranslation: CGFloat
+    ) -> CGFloat {
+        let currentOffset = clampedOffset(baseOffset: baseOffset, translation: translation)
+        let predictionDelta = predictedTranslation - translation
+        let maximumProjection = actionWidth * 0.55
+        let limitedProjection = min(maximumProjection, max(-maximumProjection, predictionDelta))
+        return clampedOffset(baseOffset: currentOffset, translation: limitedProjection)
+    }
+
+    static func shouldRevealActions(currentOffset: CGFloat, projectedOffset: CGFloat) -> Bool {
+        currentOffset <= -24 && projectedOffset <= -actionsWidth * 0.42
+    }
+
+    static func editDrawerOffset(revealedWidth: CGFloat) -> CGFloat {
+        -min(actionWidth, max(0, revealedWidth / 2))
+    }
+
+    static func actionVisibility(revealedWidth: CGFloat) -> CGFloat {
+        min(1, max(0, revealedWidth / 24))
     }
 }
 
@@ -1091,17 +2192,37 @@ enum ItineraryListPresentation {
     }
 
     static func daySummary(for day: TripDaySnapshot) -> String {
-        let titles = day.cards
-            .sorted {
-                if $0.startAt != $1.startAt { return $0.startAt < $1.startAt }
-                if $0.position != $1.position { return $0.position < $1.position }
-                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-            }
+        let titles = orderedCards(day.cards)
             .prefix(2)
             .map { ($0.place?.name.nilIfEmpty ?? $0.title).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !titles.isEmpty else { return "尚未安排行程" }
         return String(titles.joined(separator: "，").prefix(8))
+    }
+
+    static func orderedCards(_ cards: [TravelCardSnapshot]) -> [TravelCardSnapshot] {
+        cards.sorted {
+            if $0.position != $1.position { return $0.position < $1.position }
+            if $0.startAt != $1.startAt { return $0.startAt < $1.startAt }
+            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+    }
+
+    static func movingCard(_ cardID: UUID, onto targetID: UUID, in orderedIDs: [UUID]) -> [UUID] {
+        guard cardID != targetID,
+              let targetIndex = orderedIDs.firstIndex(of: targetID) else { return orderedIDs }
+
+        return movingCard(cardID, to: targetIndex, in: orderedIDs)
+    }
+
+    static func movingCard(_ cardID: UUID, to destinationIndex: Int, in orderedIDs: [UUID]) -> [UUID] {
+        guard let sourceIndex = orderedIDs.firstIndex(of: cardID),
+              orderedIDs.indices.contains(destinationIndex) else { return orderedIDs }
+
+        var result = orderedIDs
+        let movedID = result.remove(at: sourceIndex)
+        result.insert(movedID, at: min(destinationIndex, result.count))
+        return result
     }
 
     static func timeRange(for card: TravelCardSnapshot) -> String {

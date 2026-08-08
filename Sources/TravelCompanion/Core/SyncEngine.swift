@@ -1007,6 +1007,94 @@ final class SyncEngine: ObservableObject {
         }
     }
 
+    /// Moves a card between two dates and persists the complete source/target
+    /// ordering. The moved card keeps its wall-clock time and duration while
+    /// its calendar date, owning day ID, and position follow the destination.
+    func moveCard(
+        _ card: TravelCardSnapshot,
+        from sourceDay: TripDaySnapshot,
+        to destinationDay: TripDaySnapshot,
+        destinationIndex: Int
+    ) async {
+        guard sourceDay.id != destinationDay.id,
+              var current = trip,
+              let sourceDayIndex = current.days.firstIndex(where: { $0.id == sourceDay.id }),
+              let destinationDayIndex = current.days.firstIndex(where: { $0.id == destinationDay.id }),
+              let sourceCardIndex = current.days[sourceDayIndex].cards.firstIndex(where: { $0.id == card.id }),
+              (0...current.days[destinationDayIndex].cards.count).contains(destinationIndex) else { return }
+
+        let sourceCardsBeforeMove = current.days[sourceDayIndex].cards
+        let destinationCardsBeforeMove = current.days[destinationDayIndex].cards
+        if !localOnly {
+            guard card.serverID != nil,
+                  sourceDay.serverID != nil,
+                  destinationDay.serverID != nil,
+                  (sourceCardsBeforeMove + destinationCardsBeforeMove).allSatisfy({ $0.serverID != nil }) else {
+                status = .failed("卡片同步完成后才能跨日期移动。")
+                return
+            }
+        }
+
+        let originalState = Dictionary(uniqueKeysWithValues:
+            (sourceCardsBeforeMove + destinationCardsBeforeMove).map { ($0.id, ($0.dayID, $0.position)) }
+        )
+        var movedCard = current.days[sourceDayIndex].cards.remove(at: sourceCardIndex)
+        let destinationResourceDayID = destinationDay.serverID
+            ?? destinationCardsBeforeMove.first?.dayID
+            ?? Self.takeLocalResourceID()
+        movedCard.dayID = destinationResourceDayID
+        let dayDelta = Self.dayOffset(from: sourceDay.date, to: destinationDay.date)
+        if dayDelta != 0 {
+            movedCard.startAt = Self.utcCalendar.date(byAdding: .day, value: dayDelta, to: movedCard.startAt) ?? movedCard.startAt
+            if let endAt = movedCard.endAt {
+                movedCard.endAt = Self.utcCalendar.date(byAdding: .day, value: dayDelta, to: endAt) ?? endAt
+            }
+        }
+        current.days[destinationDayIndex].cards.insert(movedCard, at: destinationIndex)
+        for index in current.days[sourceDayIndex].cards.indices {
+            current.days[sourceDayIndex].cards[index].position = index
+        }
+        for index in current.days[destinationDayIndex].cards.indices {
+            current.days[destinationDayIndex].cards[index].position = index
+        }
+        current.updatedAt = .now
+        trip = current
+
+        do {
+            if localOnly {
+                try saveLocalSnapshot(current)
+                return
+            }
+
+            try repository.save(current)
+            let affectedCards = current.days[sourceDayIndex].cards + current.days[destinationDayIndex].cards
+            for changedCard in affectedCards {
+                guard let serverID = changedCard.serverID,
+                      let original = originalState[changedCard.id] else { continue }
+                let movedBetweenDays = changedCard.id == movedCard.id
+                let positionChanged = original.1 != changedCard.position
+                guard movedBetweenDays || positionChanged else { continue }
+                let request = CardRequest(
+                    dayId: movedBetweenDays ? destinationDay.serverID : nil,
+                    startAt: movedBetweenDays ? Self.migrationTimestampFormatter.string(from: changedCard.startAt) : nil,
+                    endAt: movedBetweenDays ? changedCard.endAt.map { Self.migrationTimestampFormatter.string(from: $0) } : nil,
+                    position: changedCard.position
+                )
+                let body = try await apiClient.encode(request)
+                try repository.enqueue(
+                    method: "PATCH",
+                    path: "/v1/cards/\(serverID)",
+                    tripID: current.id,
+                    body: body,
+                    baseVersion: current.version
+                )
+            }
+            await replayPendingOperations()
+        } catch {
+            status = .failed("无法跨日期移动卡片。")
+        }
+    }
+
     private func enqueueTripPatch(_ request: TripPatchRequest) async {
         let baseVersion = trip?.version ?? 0
         do {
@@ -1179,6 +1267,12 @@ final class SyncEngine: ObservableObject {
     private static func parseTimestamp(_ value: String?) -> Date? {
         guard let value else { return nil }
         return ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func dayOffset(from sourceDate: String, to destinationDate: String) -> Int {
+        guard let source = dayFormatter.date(from: sourceDate),
+              let destination = dayFormatter.date(from: destinationDate) else { return 0 }
+        return utcCalendar.dateComponents([.day], from: source, to: destination).day ?? 0
     }
 
     private static func apply(_ request: CardRequest, to card: TravelCardSnapshot, in snapshot: inout SharedTripSnapshot) {
@@ -1406,6 +1500,12 @@ private func resolvedPlace(from placeData: Data?) async -> PlaceRequest? {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
+    }()
+
+    private static let utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
     }()
 
     private static let migrationTimestampFormatter: ISO8601DateFormatter = {

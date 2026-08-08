@@ -13,7 +13,7 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(ItineraryListPresentation.weekday(for: day), "六")
     }
 
-    func testItineraryListDerivesEightCharacterSummaryInChronologicalOrder() {
+    func testItineraryListDerivesEightCharacterSummaryInPersistedOrder() {
         let later = TravelCardSnapshot(
             dayID: 1,
             kind: .activity,
@@ -45,6 +45,186 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(ItineraryListPresentation.selectedIndex(date: nil, in: days), 0)
         XCTAssertEqual(ItineraryListPresentation.selectedIndex(date: "2026-09-13", in: days), 1)
         XCTAssertEqual(ItineraryListPresentation.todayIndex(in: days, today: today), 1)
+    }
+
+    @MainActor
+    func testItineraryListManualPositionControlsOrderAndRouteAdjacencyKey() {
+        let first = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "手动第一站",
+            startAt: Date(timeIntervalSince1970: 200),
+            position: 0
+        )
+        let second = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "手动第二站",
+            startAt: Date(timeIntervalSince1970: 100),
+            position: 1
+        )
+
+        XCTAssertEqual(ItineraryListPresentation.orderedCards([second, first]).map(\.id), [first.id, second.id])
+        XCTAssertNotEqual(
+            CardLegStore.legKey(origin: first, destination: second),
+            CardLegStore.legKey(origin: second, destination: first)
+        )
+    }
+
+    func testItineraryListMovesDraggedCardAroundTarget() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        XCTAssertEqual(
+            ItineraryListPresentation.movingCard(first, onto: third, in: [first, second, third]),
+            [second, third, first]
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.movingCard(first, to: 1, in: [first, second, third]),
+            [second, first, third]
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.movingCard(third, onto: first, in: [first, second, third]),
+            [third, first, second]
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.movingCard(second, onto: second, in: [first, second, third]),
+            [first, second, third]
+        )
+    }
+
+    func testItineraryDragRequiresMovementAfterLongPressAndUsesVariableEdgeSpeed() {
+        XCTAssertFalse(
+            ItineraryDragInteraction.shouldActivateCardDrag(
+                translation: CGSize(width: 0, height: 2.9),
+                alreadyActive: false
+            )
+        )
+        XCTAssertTrue(
+            ItineraryDragInteraction.shouldActivateCardDrag(
+                translation: CGSize(width: 0, height: 3),
+                alreadyActive: false
+            )
+        )
+        XCTAssertTrue(
+            ItineraryDragInteraction.shouldActivateCardDrag(
+                translation: .zero,
+                alreadyActive: true
+            )
+        )
+
+        let viewport = CGRect(x: 0, y: 100, width: 390, height: 500)
+        XCTAssertEqual(ItineraryDragInteraction.autoScrollVelocity(fingerY: viewport.midY, viewport: viewport), 0)
+        let upperSlow = ItineraryDragInteraction.autoScrollVelocity(fingerY: 190, viewport: viewport)
+        let upperFast = ItineraryDragInteraction.autoScrollVelocity(fingerY: 110, viewport: viewport)
+        let lowerSlow = ItineraryDragInteraction.autoScrollVelocity(fingerY: 510, viewport: viewport)
+        let lowerFast = ItineraryDragInteraction.autoScrollVelocity(fingerY: 590, viewport: viewport)
+        XCTAssertLessThan(upperFast, upperSlow)
+        XCTAssertLessThan(upperSlow, 0)
+        XCTAssertGreaterThan(lowerFast, lowerSlow)
+        XCTAssertGreaterThan(lowerSlow, 0)
+        XCTAssertLessThanOrEqual(abs(upperFast), 720)
+        XCTAssertLessThanOrEqual(lowerFast, 720)
+
+        XCTAssertEqual(
+            ItineraryDragInteraction.releaseCenter(
+                startFrame: CGRect(x: 20, y: 40, width: 100, height: 60),
+                translation: CGSize(width: 15, height: 90)
+            ),
+            CGPoint(x: 85, y: 160)
+        )
+    }
+
+    func testItineraryCardSwipeDistinguishesHorizontalIntentAndSnapsActions() {
+        XCTAssertTrue(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                CGSize(width: -40, height: 8),
+                actionsAlreadyRevealed: false
+            )
+        )
+        XCTAssertFalse(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                CGSize(width: 40, height: 8),
+                actionsAlreadyRevealed: false
+            )
+        )
+        XCTAssertTrue(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                CGSize(width: 40, height: 8),
+                actionsAlreadyRevealed: true
+            )
+        )
+        XCTAssertFalse(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                CGSize(width: -8, height: 40),
+                actionsAlreadyRevealed: false
+            )
+        )
+        XCTAssertFalse(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                CGSize(width: -9, height: 1),
+                actionsAlreadyRevealed: false
+            )
+        )
+        XCTAssertTrue(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                velocity: CGPoint(x: -420, y: 80),
+                actionsAlreadyRevealed: false
+            )
+        )
+        XCTAssertFalse(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                velocity: CGPoint(x: -80, y: 420),
+                actionsAlreadyRevealed: false
+            )
+        )
+        XCTAssertFalse(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                velocity: CGPoint(x: 420, y: 80),
+                actionsAlreadyRevealed: false
+            )
+        )
+        XCTAssertTrue(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                velocity: CGPoint(x: 420, y: 80),
+                actionsAlreadyRevealed: true
+            )
+        )
+
+        XCTAssertEqual(
+            ItineraryCardSwipeInteraction.clampedOffset(baseOffset: 0, translation: -200),
+            -ItineraryCardSwipeInteraction.actionsWidth
+        )
+        XCTAssertEqual(
+            ItineraryCardSwipeInteraction.clampedOffset(
+                baseOffset: -ItineraryCardSwipeInteraction.actionsWidth,
+                translation: 200
+            ),
+            0
+        )
+        XCTAssertTrue(ItineraryCardSwipeInteraction.shouldRevealActions(currentOffset: -40, projectedOffset: -80))
+        XCTAssertFalse(ItineraryCardSwipeInteraction.shouldRevealActions(currentOffset: -12, projectedOffset: -100))
+        XCTAssertFalse(ItineraryCardSwipeInteraction.shouldRevealActions(currentOffset: -40, projectedOffset: -40))
+
+        XCTAssertEqual(ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: 40), -20)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: 72), -36)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: 100), -50)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: 144), -72)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 0), 0)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 12), 0.5)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 24), 1)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 144), 1)
+
+        XCTAssertEqual(
+            ItineraryCardSwipeInteraction.projectedOffset(
+                baseOffset: 0,
+                translation: -30,
+                predictedTranslation: -300
+            ),
+            -69.6,
+            accuracy: 0.001
+        )
     }
 
     @MainActor
@@ -211,6 +391,159 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(engine.trips.count, 2)
         XCTAssertEqual(engine.trip?.destination, "上海")
         XCTAssertTrue(try repository.pendingOperations().isEmpty)
+    }
+
+    @MainActor
+    func testDraggedCardOrderPersistsAndRenumbersEveryPosition() async throws {
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SharedTripRepository(modelContext: ModelContext(container))
+        let cards = [
+            TravelCardSnapshot(
+                dayID: 1,
+                kind: .activity,
+                title: "第一站",
+                startAt: Date(timeIntervalSince1970: 100),
+                position: 0
+            ),
+            TravelCardSnapshot(
+                dayID: 1,
+                kind: .activity,
+                title: "第二站",
+                startAt: Date(timeIntervalSince1970: 200),
+                position: 1
+            ),
+            TravelCardSnapshot(
+                dayID: 1,
+                kind: .activity,
+                title: "第三站",
+                startAt: Date(timeIntervalSince1970: 300),
+                position: 2
+            ),
+        ]
+        let trip = SharedTripSnapshot(
+            id: -1,
+            destination: "丽江",
+            startDate: "2026-09-12",
+            endDate: "2026-09-12",
+            currency: "CNY",
+            version: 0,
+            updatedAt: .now,
+            days: [TripDaySnapshot(date: "2026-09-12", position: 0, cards: cards)]
+        )
+        try repository.save(trip)
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: APIClient(baseURL: nil),
+            authenticatedOverride: false
+        )
+        await engine.bootstrap()
+
+        let loadedDay = try XCTUnwrap(engine.trip?.days.first)
+        await engine.reorderCards(
+            in: loadedDay,
+            orderedCardIDs: loadedDay.cards.reversed().map(\.id)
+        )
+
+        XCTAssertEqual(engine.trip?.days.first?.cards.map(\.title), ["第三站", "第二站", "第一站"])
+        XCTAssertEqual(engine.trip?.days.first?.cards.map(\.position), [0, 1, 2])
+        let reloadedTrip = try XCTUnwrap(repository.cachedTrip(id: -1))
+        XCTAssertEqual(reloadedTrip.days.first?.cards.map(\.title), ["第三站", "第二站", "第一站"])
+        XCTAssertEqual(reloadedTrip.days.first?.cards.map(\.position), [0, 1, 2])
+        XCTAssertTrue(try repository.pendingOperations().isEmpty)
+    }
+
+    @MainActor
+    func testCrossDayDragUpdatesDatesAndQueuesBackendDayAndPositionPatches() async throws {
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let repository = SharedTripRepository(modelContext: ModelContext(container))
+        let formatter = ISO8601DateFormatter()
+        let movedStart = try XCTUnwrap(formatter.date(from: "2026-09-12T09:30:00Z"))
+        let movedEnd = try XCTUnwrap(formatter.date(from: "2026-09-12T10:30:00Z"))
+        let movedCard = TravelCardSnapshot(
+            serverID: 101,
+            dayID: 11,
+            kind: .activity,
+            title: "跨日移动",
+            startAt: movedStart,
+            endAt: movedEnd,
+            position: 0
+        )
+        let sourceRemainder = TravelCardSnapshot(
+            serverID: 102,
+            dayID: 11,
+            kind: .activity,
+            title: "源日保留",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-12T11:00:00Z")),
+            position: 1
+        )
+        let destinationExisting = TravelCardSnapshot(
+            serverID: 201,
+            dayID: 22,
+            kind: .activity,
+            title: "目标已有",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-13T08:00:00Z")),
+            position: 0
+        )
+        try repository.save(SharedTripSnapshot(
+            id: 42,
+            destination: "丽江",
+            startDate: "2026-09-12",
+            endDate: "2026-09-13",
+            currency: "CNY",
+            version: 7,
+            updatedAt: .now,
+            days: [
+                TripDaySnapshot(serverID: 11, date: "2026-09-12", position: 0, cards: [movedCard, sourceRemainder]),
+                TripDaySnapshot(serverID: 22, date: "2026-09-13", position: 1, cards: [destinationExisting]),
+            ]
+        ))
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: APIClient(baseURL: nil),
+            authenticatedOverride: true
+        )
+        await engine.bootstrap()
+
+        let sourceDay = try XCTUnwrap(engine.trip?.days.first(where: { $0.serverID == 11 }))
+        let destinationDay = try XCTUnwrap(engine.trip?.days.first(where: { $0.serverID == 22 }))
+        let loadedMovedCard = try XCTUnwrap(sourceDay.cards.first(where: { $0.serverID == 101 }))
+        await engine.moveCard(
+            loadedMovedCard,
+            from: sourceDay,
+            to: destinationDay,
+            destinationIndex: 1
+        )
+
+        let updatedSource = try XCTUnwrap(engine.trip?.days.first(where: { $0.serverID == 11 }))
+        let updatedDestination = try XCTUnwrap(engine.trip?.days.first(where: { $0.serverID == 22 }))
+        XCTAssertEqual(updatedSource.cards.map(\.serverID), [102])
+        XCTAssertEqual(updatedSource.cards.map(\.position), [0])
+        XCTAssertEqual(updatedDestination.cards.map(\.serverID), [201, 101])
+        XCTAssertEqual(updatedDestination.cards.map(\.position), [0, 1])
+        let updatedMovedCard = try XCTUnwrap(updatedDestination.cards.last)
+        XCTAssertEqual(updatedMovedCard.dayID, 22)
+        XCTAssertEqual(updatedMovedCard.startAt.timeIntervalSince(movedStart), 86_400, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(updatedMovedCard.endAt).timeIntervalSince(movedEnd), 86_400, accuracy: 0.001)
+
+        let operations = try repository.pendingOperations()
+        XCTAssertEqual(operations.count, 2)
+        let movedOperation = try XCTUnwrap(operations.first(where: { $0.path == "/v1/cards/101" }))
+        let movedBody = try XCTUnwrap(JSONSerialization.jsonObject(with: movedOperation.body) as? [String: Any])
+        XCTAssertEqual(movedBody["dayId"] as? Int, 22)
+        XCTAssertEqual(movedBody["position"] as? Int, 1)
+        XCTAssertEqual(movedBody["startAt"] as? String, "2026-09-13T09:30:00.000Z")
+        XCTAssertEqual(movedBody["endAt"] as? String, "2026-09-13T10:30:00.000Z")
+
+        let sourceOperation = try XCTUnwrap(operations.first(where: { $0.path == "/v1/cards/102" }))
+        let sourceBody = try XCTUnwrap(JSONSerialization.jsonObject(with: sourceOperation.body) as? [String: Any])
+        XCTAssertNil(sourceBody["dayId"])
+        XCTAssertEqual(sourceBody["position"] as? Int, 0)
     }
 
     @MainActor
