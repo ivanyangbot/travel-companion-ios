@@ -19,6 +19,8 @@ struct ItineraryView: View {
     @State private var showsSharingSheet = false
     @State private var inviteBeingJoined: String?
     @State private var signOutErrorMessage: String?
+    @State private var selectedListDate: String?
+    @State private var programmaticScrollTarget: UUID?
     @StateObject private var linkHandler = ExternalLinkHandler()
 
     var body: some View {
@@ -167,29 +169,21 @@ struct ItineraryView: View {
     @ViewBuilder
     private var itineraryContent: some View {
         if let trip = syncEngine.trip {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 26) {
-                    journeyActionBar
-                    Text("旅程")
-                        .font(.system(size: 44, weight: .black, design: .rounded))
-                        .tracking(-1.5)
-                    if !appleSignIn.isAuthenticated {
-                        signInBanner
-                    }
-                    if trip.isConfigured {
-                        tripHeader(trip)
-                        timeline(trip)
-                    } else {
+            if trip.isConfigured {
+                detailedItinerary(trip)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        journeyActionBar
                         TripSetupSheet { destination, startDate, endDate, currency in
                             Task { await syncEngine.saveSetup(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
                         }
                     }
+                    .padding(16)
+                    .padding(.bottom, 112)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 112)
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         } else if case .failed(let message) = syncEngine.status {
             VStack(spacing: 16) {
                 ContentUnavailableView(
@@ -225,6 +219,380 @@ struct ItineraryView: View {
             }
         } else {
             ProgressView("正在打开共享行程…")
+        }
+    }
+
+    private func detailedItinerary(_ trip: SharedTripSnapshot) -> some View {
+        let days = trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+        let todayIndex = ItineraryListPresentation.todayIndex(in: days)
+        let selectedIndex = ItineraryListPresentation.selectedIndex(
+            date: selectedListDate,
+            in: days
+        )
+
+        return GeometryReader { geometry in
+            VStack(spacing: 0) {
+                itineraryPinnedHeader(
+                    trip: trip,
+                    days: days,
+                    selectedIndex: selectedIndex,
+                    todayIndex: todayIndex,
+                    timelineWidth: min(390, max(0, geometry.size.width - 40))
+                )
+
+                if days.isEmpty {
+                    ContentUnavailableView {
+                        Label("还没有日期", systemImage: "calendar.badge.plus")
+                    } description: {
+                        Text("添加旅行日期后即可安排卡片。")
+                    } actions: {
+                        Button("添加日期") { activeDaySheet = .add }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    itineraryDayScroller(trip: trip, days: days)
+                }
+            }
+            .background(Color.black)
+            .onAppear {
+                if selectedListDate == nil {
+                    selectedListDate = days.first?.date
+                }
+            }
+            .onChange(of: days.map(\.date)) { _, dates in
+                guard let selectedListDate, dates.contains(selectedListDate) else {
+                    self.selectedListDate = dates.first
+                    return
+                }
+            }
+        }
+    }
+
+    private func itineraryPinnedHeader(
+        trip: SharedTripSnapshot,
+        days: [TripDaySnapshot],
+        selectedIndex: Int,
+        todayIndex: Int,
+        timelineWidth: CGFloat
+    ) -> some View {
+        VStack(spacing: 9) {
+            ZStack {
+                Text("详细行程")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                HStack(spacing: 0) {
+                    Button {
+                        withAnimation(.snappy(duration: 0.28)) { section = .today }
+                    } label: {
+                        Image("icon-mapview-outline")
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .frame(width: 40, height: 40)
+                    }
+                    .itineraryHeaderButtonStyle()
+                    .accessibilityLabel("切换到地图模式")
+
+                    Spacer(minLength: 0)
+                }
+            }
+            .frame(height: 48)
+            .padding(.horizontal, 4)
+
+            HStack(spacing: 6) {
+                Text(trip.destination?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "未命名旅程")
+                    .font(.system(size: 23, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
+                Button { showsTripEditor = true } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.62))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("编辑行程")
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity)
+
+            if !days.isEmpty {
+                TodayDateTimeline(
+                    days: days,
+                    selectedIndex: selectedIndex,
+                    todayIndex: todayIndex,
+                    width: timelineWidth,
+                    label: ItineraryListPresentation.timelineLabel
+                ) { index in
+                    guard days.indices.contains(index) else { return }
+                    selectedListDate = days[index].date
+                    programmaticScrollTarget = days[index].id
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity)
+        .background(Color.black)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(.white.opacity(0.055)).frame(height: 1)
+        }
+        .zIndex(20)
+    }
+
+    private func itineraryDayScroller(
+        trip: SharedTripSnapshot,
+        days: [TripDaySnapshot]
+    ) -> some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                if !appleSignIn.isAuthenticated {
+                    signInBanner
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                }
+
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    ForEach(days, id: \.id) { day in
+                        Section {
+                            itineraryDayContent(trip: trip, day: day, days: days)
+                        } header: {
+                            itineraryDayHeader(day)
+                                .id(day.id)
+                                .background {
+                                    GeometryReader { proxy in
+                                        Color.clear.preference(
+                                            key: ItineraryDayHeaderOffsetsPreferenceKey.self,
+                                            value: [day.id: proxy.frame(in: .named("itinerary-day-scroll")).minY]
+                                        )
+                                    }
+                                }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 112)
+            }
+            .coordinateSpace(name: "itinerary-day-scroll")
+            .scrollIndicators(.hidden)
+            .onChange(of: programmaticScrollTarget) { _, target in
+                guard let target else { return }
+                withAnimation(.smooth(duration: 0.34)) {
+                    scrollProxy.scrollTo(target, anchor: .top)
+                }
+            }
+            .onPreferenceChange(ItineraryDayHeaderOffsetsPreferenceKey.self) { offsets in
+                updateSelectedDay(from: offsets, days: days)
+            }
+        }
+    }
+
+    private func itineraryDayHeader(_ day: TripDaySnapshot) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(ItineraryListPresentation.monthDay(for: day))
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text(ItineraryListPresentation.weekday(for: day))
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text(ItineraryListPresentation.daySummary(for: day))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.62))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .padding(.horizontal, 12)
+        .background(JourneyPalette.listSurface)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("添加行程卡片", systemImage: "plus") { activeCardEditor = .create(day) }
+            Button("编辑日期", systemImage: "calendar") { activeDaySheet = .edit(day) }
+            Button("删除日期", systemImage: "trash", role: .destructive) { dayPendingDeletion = day }
+                .disabled(day.serverID == nil && syncEngine.isUserAuthenticated)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("长按可添加卡片或编辑日期")
+    }
+
+    @ViewBuilder
+    private func itineraryDayContent(
+        trip: SharedTripSnapshot,
+        day: TripDaySnapshot,
+        days: [TripDaySnapshot]
+    ) -> some View {
+        let cards = day.cards.sorted(by: Self.cardTimeOrder)
+        VStack(spacing: 10) {
+            if cards.isEmpty {
+                Button {
+                    activeCardEditor = .create(day)
+                } label: {
+                    Label("这一天还没有行程，点击添加", systemImage: "plus.circle")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.62))
+                        .frame(maxWidth: .infinity, minHeight: 78)
+                }
+                .buttonStyle(.plain)
+            } else {
+                ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                    itineraryCompactCard(
+                        card,
+                        index: index,
+                        day: day,
+                        cards: cards
+                    )
+
+                    if index < cards.count - 1,
+                       let originPoint = card.place?.point,
+                       let destinationPoint = cards[index + 1].place?.point {
+                        CardLegEstimateView(
+                            originCard: card,
+                            destinationCard: cards[index + 1],
+                            originPoint: originPoint,
+                            destinationPoint: destinationPoint
+                        )
+                        .padding(.horizontal, 2)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 18)
+        .background(JourneyPalette.listSurface)
+    }
+
+    private func itineraryCompactCard(
+        _ card: TravelCardSnapshot,
+        index: Int,
+        day: TripDaySnapshot,
+        cards: [TravelCardSnapshot]
+    ) -> some View {
+        Button {
+            detailCard = card
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                itineraryCardCover(card)
+                    .frame(width: 58, height: 58)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(index + 1).\(card.title)")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    Label(ItineraryListPresentation.timeRange(for: card), systemImage: card.kind.systemImage)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.62))
+                        .lineLimit(1)
+
+                    if let summary = ItineraryListPresentation.cardSummary(for: card) {
+                        Text(summary)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.36))
+                    .frame(height: 58)
+            }
+            .padding(7)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .background(JourneyPalette.cardSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("编辑", systemImage: "pencil") { activeCardEditor = .edit(day, card) }
+            Button("上移", systemImage: "arrow.up") {
+                Task { await syncEngine.moveCard(card, in: day, direction: -1) }
+            }
+            .disabled(index == 0 || (card.serverID == nil && syncEngine.isUserAuthenticated))
+            Button("下移", systemImage: "arrow.down") {
+                Task { await syncEngine.moveCard(card, in: day, direction: 1) }
+            }
+            .disabled(index == cards.count - 1 || (card.serverID == nil && syncEngine.isUserAuthenticated))
+            Button("删除", systemImage: "trash", role: .destructive) { cardPendingDeletion = card }
+        }
+        .accessibilityHint("打开详情；长按可编辑或调整顺序")
+    }
+
+    @ViewBuilder
+    private func itineraryCardCover(_ card: TravelCardSnapshot) -> some View {
+        if let url = CardImageURL.resolve(card.images?.first) {
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFill()
+                } else {
+                    itineraryCardPlaceholder(card)
+                }
+            }
+        } else {
+            itineraryCardPlaceholder(card)
+        }
+    }
+
+    private func itineraryCardPlaceholder(_ card: TravelCardSnapshot) -> some View {
+        ZStack {
+            LinearGradient(
+                colors: [.white.opacity(0.16), .white.opacity(0.055)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: card.kind.systemImage)
+                .font(.system(size: 23, weight: .medium))
+                .foregroundStyle(.white.opacity(0.74))
+        }
+    }
+
+    private func updateSelectedDay(
+        from offsets: [UUID: CGFloat],
+        days: [TripDaySnapshot]
+    ) {
+        guard !offsets.isEmpty else { return }
+
+        if let target = programmaticScrollTarget {
+            if let targetOffset = offsets[target], abs(targetOffset) < 2 {
+                programmaticScrollTarget = nil
+            } else {
+                return
+            }
+        }
+
+        let pinnedOrPastDay = days
+            .compactMap { day -> (TripDaySnapshot, CGFloat)? in
+                guard let offset = offsets[day.id] else { return nil }
+                return (day, offset)
+            }
+            .filter { $0.1 <= 1 }
+            .max { $0.1 < $1.1 }
+
+        let nextDay = days.compactMap { day -> (TripDaySnapshot, CGFloat)? in
+                guard let offset = offsets[day.id], offset > 1 else { return nil }
+                return (day, offset)
+            }
+            .min { $0.1 < $1.1 }
+
+        let visibleDay = pinnedOrPastDay?.0 ?? nextDay?.0
+
+        if let visibleDay, visibleDay.date != selectedListDate {
+            selectedListDate = visibleDay.date
         }
     }
 
@@ -675,6 +1043,112 @@ private enum JourneyPalette {
     static let controlFill = Color(red: 0.095, green: 0.10, blue: 0.13)
     static let dayFill = Color(red: 0.025, green: 0.03, blue: 0.06)
     static let dayBorder = Color(red: 0.17, green: 0.20, blue: 0.36)
+    static let listSurface = Color(red: 23 / 255, green: 23 / 255, blue: 23 / 255)
+    static let cardSurface = Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
+}
+
+private struct ItineraryDayHeaderOffsetsPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGFloat] { [:] }
+
+    static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+enum ItineraryListPresentation {
+    private static let weekdaySymbols = ["日", "一", "二", "三", "四", "五", "六"]
+
+    static func selectedIndex(date: String?, in days: [TripDaySnapshot]) -> Int {
+        guard !days.isEmpty else { return 0 }
+        return date.flatMap { selected in days.firstIndex(where: { $0.date == selected }) } ?? 0
+    }
+
+    static func todayIndex(in days: [TripDaySnapshot], today: Date = .now) -> Int {
+        guard !days.isEmpty else { return 0 }
+        let todayString = dayFormatter.string(from: today)
+        if let exact = days.firstIndex(where: { $0.date == todayString }) { return exact }
+        guard let todayDate = dayFormatter.date(from: todayString) else { return 0 }
+        return days.enumerated().min { left, right in
+            abs((dayFormatter.date(from: left.element.date) ?? .distantPast).timeIntervalSince(todayDate))
+                < abs((dayFormatter.date(from: right.element.date) ?? .distantPast).timeIntervalSince(todayDate))
+        }?.offset ?? 0
+    }
+
+    static func timelineLabel(_ day: TripDaySnapshot, _ isToday: Bool) -> String {
+        guard let date = dayFormatter.date(from: day.date) else { return day.date }
+        let weekday = weekdaySymbols[calendar.component(.weekday, from: date) - 1]
+        return isToday ? "今日 \(weekday)" : "\(numericFormatter.string(from: date)) \(weekday)"
+    }
+
+    static func monthDay(for day: TripDaySnapshot) -> String {
+        guard let date = dayFormatter.date(from: day.date) else { return day.date }
+        return numericFormatter.string(from: date)
+    }
+
+    static func weekday(for day: TripDaySnapshot) -> String {
+        guard let date = dayFormatter.date(from: day.date) else { return "" }
+        return weekdaySymbols[calendar.component(.weekday, from: date) - 1]
+    }
+
+    static func daySummary(for day: TripDaySnapshot) -> String {
+        let titles = day.cards
+            .sorted {
+                if $0.startAt != $1.startAt { return $0.startAt < $1.startAt }
+                if $0.position != $1.position { return $0.position < $1.position }
+                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+            .prefix(2)
+            .map { ($0.place?.name.nilIfEmpty ?? $0.title).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !titles.isEmpty else { return "尚未安排行程" }
+        return String(titles.joined(separator: "，").prefix(8))
+    }
+
+    static func timeRange(for card: TravelCardSnapshot) -> String {
+        let start = timeFormatter.string(from: card.startAt)
+        guard let endAt = card.endAt else { return start }
+        return "\(start)~\(timeFormatter.string(from: endAt))"
+    }
+
+    static func cardSummary(for card: TravelCardSnapshot) -> String? {
+        for candidate in [card.description, card.notes] {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty { return trimmed }
+        }
+        let tips = card.tips?.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return tips?.isEmpty == false ? tips?.joined(separator: " · ") : nil
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let numericFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "MM.dd"
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private static let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
 }
 
 private extension Image {
@@ -699,5 +1173,30 @@ private extension View {
             .frame(width: 54, height: 54)
             .background(JourneyPalette.controlFill, in: Circle())
             .buttonStyle(.plain)
+    }
+
+    func itineraryHeaderButtonStyle() -> some View {
+        self
+            .foregroundStyle(.white)
+            .frame(width: 48, height: 48)
+            .background { TodayGlassBackdrop() }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(
+                color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+                radius: 12,
+                y: 12
+            )
+            .buttonStyle(.plain)
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

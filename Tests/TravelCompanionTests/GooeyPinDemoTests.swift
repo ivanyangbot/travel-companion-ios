@@ -420,6 +420,62 @@ final class GooeyPinDemoTests: XCTestCase {
         XCTAssertEqual(second.singlePosition.y, direct.singlePosition.y, accuracy: 0.0001)
     }
 
+    func testPhysicalDragAnchorDoesNotMoveWhenAggregateBoundsChange() {
+        let initialLayout = makeLayout(
+            aggregatePosition: GooeyPinNormalizedPoint(x: 0.2, y: 0.5),
+            aggregateWidth: 48,
+            effectPadding: 24
+        )
+        let changedLayout = makeLayout(
+            aggregatePosition: GooeyPinNormalizedPoint(x: 0.2, y: 0.5),
+            aggregateWidth: 180,
+            effectPadding: 24
+        )
+        let startCenter = CGPoint(
+            x: initialLayout.aggregateFrame.midX,
+            y: initialLayout.aggregateFrame.midY
+        )
+        let translation = CGSize(width: 24, height: -12)
+
+        let position = GooeyPinDemoGeometry.draggedPosition(
+            startCenter: startCenter,
+            translation: translation,
+            pin: .aggregate,
+            layout: changedLayout
+        )
+        let resultingCenter = GooeyPinDemoGeometry.center(
+            for: position,
+            in: changedLayout.aggregateCenterBounds
+        )
+
+        XCTAssertEqual(resultingCenter.x, startCenter.x + translation.width, accuracy: 0.0001)
+        XCTAssertEqual(resultingCenter.y, startCenter.y + translation.height, accuracy: 0.0001)
+    }
+
+    func testNumberOrderUnlocksAfterAFormerlyFusedPinFullySeparates() {
+        XCTAssertTrue(
+            GooeyPinNumberOrderLock.updated(
+                currentlyLocked: true,
+                surfaceGap: 27.99,
+                splitThreshold: 28
+            )
+        )
+        XCTAssertFalse(
+            GooeyPinNumberOrderLock.updated(
+                currentlyLocked: true,
+                surfaceGap: 28,
+                splitThreshold: 28
+            )
+        )
+        XCTAssertFalse(
+            GooeyPinNumberOrderLock.updated(
+                currentlyLocked: false,
+                surfaceGap: 0,
+                splitThreshold: 28
+            )
+        )
+    }
+
     func testNormalDragEndKeepsExactLandingPositionsWithoutSnap() {
         let layout = makeLayout()
         let state = GooeyPinInteraction.dragging(
@@ -592,9 +648,247 @@ final class GooeyPinDemoTests: XCTestCase {
         XCTAssertEqual(invalid.springDamping, 1)
     }
 
+    func testRightEdgeNumberScenarioUsesSpatialOrderAndExtractsFour() {
+        let scenario = GooeyPinNumberScenario.rightEdge
+
+        XCTAssertEqual(scenario.orderedMembers.map(\.value), ["2", "3", "7", "5", "4"])
+        XCTAssertEqual(scenario.remainingMembers.map(\.value), ["2", "3", "7", "5"])
+        XCTAssertEqual(scenario.fusedText, "2.3.7.5.4")
+        XCTAssertEqual(scenario.separatedAggregateText, "2.3.7.5")
+        XCTAssertEqual(scenario.extractedMember.value, "4")
+        XCTAssertGreaterThan(scenario.separationDirection.dx, 0)
+        XCTAssertEqual(scenario.separationDirection.dy, 0, accuracy: 0.0001)
+    }
+
+    func testUpperLeftNumberScenarioUsesSpatialOrderAndExtractsThree() {
+        let scenario = GooeyPinNumberScenario.upperLeft
+
+        XCTAssertEqual(scenario.orderedMembers.map(\.value), ["7", "3", "8", "12"])
+        XCTAssertEqual(scenario.remainingMembers.map(\.value), ["7", "8", "12"])
+        XCTAssertEqual(scenario.fusedText, "7.3.8.12")
+        XCTAssertEqual(scenario.separatedAggregateText, "7.8.12")
+        XCTAssertEqual(scenario.extractedMember.value, "3")
+        XCTAssertLessThan(scenario.separationDirection.dx, 0)
+        XCTAssertLessThan(scenario.separationDirection.dy, 0)
+    }
+
+    func testNumberOrderingIsStableWhenInputMembersArriveInAnotherOrder() {
+        let scenario = GooeyPinNumberScenario.upperLeft
+
+        XCTAssertEqual(
+            GooeyPinNumberOrdering.ordered(Array(scenario.members.reversed())).map(\.id),
+            scenario.orderedMembers.map(\.id)
+        )
+    }
+
+    func testFourMergingFromLeftBecomesFirstWithoutReorderingRemainingMembers() {
+        var state = GooeyPinDemoState.standard
+
+        state.updateNumberOrderForMerge(direction: CGVector(dx: -1, dy: 0))
+
+        XCTAssertEqual(state.numberScenario.fusedText, "4.2.3.7.5")
+        XCTAssertEqual(state.numberScenario.separatedAggregateText, "2.3.7.5")
+        XCTAssertEqual(
+            state.numberScenario.remainingMembers.map(\.id),
+            GooeyPinNumberScenario.rightEdge.remainingMembers.map(\.id)
+        )
+    }
+
+    func testFourMergingFromRightRemainsLast() {
+        var state = GooeyPinDemoState.standard
+
+        state.updateNumberOrderForMerge(direction: CGVector(dx: 1, dy: 0))
+
+        XCTAssertEqual(state.numberScenario.fusedText, "2.3.7.5.4")
+    }
+
+    func testUpperLeftMergeDirectionKeepsThreeInItsSecondRelativeSlot() {
+        var state = GooeyPinDemoState.standard
+        state.applyNumberScenario(.upperLeft)
+
+        state.updateNumberOrderForMerge(
+            direction: GooeyPinNumberScenario.upperLeft.separationDirection
+        )
+
+        XCTAssertEqual(state.numberScenario.fusedText, "7.3.8.12")
+        XCTAssertEqual(state.numberScenario.separatedAggregateText, "7.8.12")
+    }
+
+    func testNumberExtractionProgressIsContinuousAndClamped() {
+        XCTAssertEqual(
+            GooeyPinNumberLayout.extractionProgress(
+                surfaceGap: 12,
+                mergeThreshold: 12,
+                splitThreshold: 28
+            ),
+            0
+        )
+        XCTAssertEqual(
+            GooeyPinNumberLayout.extractionProgress(
+                surfaceGap: 28,
+                mergeThreshold: 12,
+                splitThreshold: 28
+            ),
+            1
+        )
+        let before = GooeyPinNumberLayout.extractionProgress(
+            surfaceGap: 19.99,
+            mergeThreshold: 12,
+            splitThreshold: 28
+        )
+        let after = GooeyPinNumberLayout.extractionProgress(
+            surfaceGap: 20.01,
+            mergeThreshold: 12,
+            splitThreshold: 28
+        )
+        XCTAssertLessThan(abs(after - before), 0.01)
+        XCTAssertEqual(
+            GooeyPinNumberLayout.extractionProgress(
+                surfaceGap: -1_000,
+                mergeThreshold: 12,
+                splitThreshold: 28
+            ),
+            0
+        )
+        XCTAssertEqual(
+            GooeyPinNumberLayout.extractionProgress(
+                surfaceGap: 1_000,
+                mergeThreshold: 12,
+                splitThreshold: 28
+            ),
+            1
+        )
+    }
+
+    func testVisualNumberTransitionWaitsUntilTheGooeyBridgeIsCloseToVisible() {
+        let parameters = GooeyPinDemoParameters.standard
+
+        XCTAssertEqual(
+            GooeyPinNumberLayout.visualExtractionProgress(
+                surfaceGap: parameters.mergeThreshold,
+                parameters: parameters
+            ),
+            1,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            GooeyPinNumberLayout.visualExtractionProgress(
+                surfaceGap: 7.2,
+                parameters: parameters
+            ),
+            1,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            GooeyPinNumberLayout.visualExtractionProgress(
+                surfaceGap: 4.2,
+                parameters: parameters
+            ),
+            0.5,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            GooeyPinNumberLayout.visualExtractionProgress(
+                surfaceGap: 1.2,
+                parameters: parameters
+            ),
+            0,
+            accuracy: 0.0001
+        )
+    }
+
+    func testRightEdgeFourMovesFromLastAggregateSlotToSingleCenter() throws {
+        let scenario = GooeyPinNumberScenario.rightEdge
+        let layout = makeLayout()
+        let fused = GooeyPinNumberLayout.presentation(
+            scenario: scenario,
+            layout: layout,
+            extractionProgress: 0
+        )
+        let separated = GooeyPinNumberLayout.presentation(
+            scenario: scenario,
+            layout: layout,
+            extractionProgress: 1
+        )
+        let fusedFour = try XCTUnwrap(fused.placement(for: scenario.extractedMemberID))
+        let separatedFour = try XCTUnwrap(separated.placement(for: scenario.extractedMemberID))
+        let otherFusedPositions = fused.memberPlacements
+            .filter { $0.id != scenario.extractedMemberID }
+            .map(\.position.x)
+
+        XCTAssertGreaterThan(fusedFour.position.x, try XCTUnwrap(otherFusedPositions.max()))
+        XCTAssertEqual(separatedFour.position.x, layout.singleFrame.midX, accuracy: 0.0001)
+        XCTAssertEqual(separatedFour.position.y, layout.singleFrame.midY, accuracy: 0.0001)
+        XCTAssertEqual(
+            separated.memberPlacements.filter { $0.id != scenario.extractedMemberID }.map(\.value),
+            ["2", "3", "7", "5"]
+        )
+    }
+
+    func testUpperLeftThreeLeavesItsSecondSlotWithoutRemainingNumberJump() throws {
+        let scenario = GooeyPinNumberScenario.upperLeft
+        let layout = makeLayout(
+            aggregatePosition: scenario.aggregatePosition,
+            singlePosition: scenario.singlePosition
+        )
+        let fused = GooeyPinNumberLayout.presentation(
+            scenario: scenario,
+            layout: layout,
+            extractionProgress: 0
+        )
+        let justBefore = GooeyPinNumberLayout.presentation(
+            scenario: scenario,
+            layout: layout,
+            extractionProgress: 0.499
+        )
+        let justAfter = GooeyPinNumberLayout.presentation(
+            scenario: scenario,
+            layout: layout,
+            extractionProgress: 0.501
+        )
+        let separated = GooeyPinNumberLayout.presentation(
+            scenario: scenario,
+            layout: layout,
+            extractionProgress: 1
+        )
+        let fusedValues = fused.memberPlacements.map(\.value)
+        let fusedThree = try XCTUnwrap(fused.placement(for: scenario.extractedMemberID))
+
+        XCTAssertEqual(fusedValues, ["7", "3", "8", "12"])
+        XCTAssertGreaterThan(fusedThree.position.x, fused.memberPlacements[0].position.x)
+        XCTAssertLessThan(fusedThree.position.x, fused.memberPlacements[2].position.x)
+        XCTAssertEqual(
+            separated.memberPlacements.filter { $0.id != scenario.extractedMemberID }.map(\.value),
+            ["7", "8", "12"]
+        )
+        for member in scenario.remainingMembers {
+            let before = try XCTUnwrap(justBefore.placement(for: member.id)).position
+            let after = try XCTUnwrap(justAfter.placement(for: member.id)).position
+            XCTAssertLessThan(hypot(after.x - before.x, after.y - before.y), 1)
+        }
+        let separatedThree = try XCTUnwrap(separated.placement(for: scenario.extractedMemberID))
+        XCTAssertEqual(separatedThree.position.x, layout.singleFrame.midX, accuracy: 0.0001)
+        XCTAssertEqual(separatedThree.position.y, layout.singleFrame.midY, accuracy: 0.0001)
+    }
+
+    func testApplyingNumberScenarioPreservesParametersAndUsesScenarioDirection() {
+        var state = GooeyPinDemoState.standard
+        state.parameters.aggregateWidth = 180
+
+        state.applyNumberScenario(.upperLeft)
+
+        XCTAssertEqual(state.numberScenarioID, .upperLeft)
+        XCTAssertEqual(state.parameters.aggregateWidth, 180)
+        XCTAssertEqual(state.aggregatePosition, GooeyPinNumberScenario.upperLeft.aggregatePosition)
+        XCTAssertEqual(state.singlePosition, GooeyPinNumberScenario.upperLeft.singlePosition)
+        XCTAssertEqual(state.lastDirection, GooeyPinNumberScenario.upperLeft.separationDirection)
+        XCTAssertEqual(state.snapState, .separated)
+    }
+
     func testDemoStateResetRestoresParametersPositionsDirectionAndState() {
         var state = GooeyPinDemoState.standard
         state.parameters.aggregateWidth = 180
+        state.applyNumberScenario(.upperLeft)
         state.aggregatePosition = GooeyPinNormalizedPoint(x: 1, y: 0)
         state.singlePosition = GooeyPinNormalizedPoint(x: 0, y: 1)
         state.snapState = .fused
@@ -605,6 +899,7 @@ final class GooeyPinDemoTests: XCTestCase {
 
         XCTAssertEqual(state, .standard)
         XCTAssertEqual(state.parameters, .standard)
+        XCTAssertEqual(state.numberScenarioID, .rightEdge)
         XCTAssertEqual(state.aggregatePosition, GooeyPinNormalizedPoint(x: 0.18, y: 0.5))
         XCTAssertEqual(state.singlePosition, GooeyPinNormalizedPoint(x: 0.82, y: 0.5))
         XCTAssertEqual(state.snapState, .separated)

@@ -22,20 +22,20 @@
 ## Execution Checklist
 - [x] Record assumptions: target platform, data ownership, deployment target, MVP scope, and deliverables.
 - [x] Reuse and update the existing complete `docs/product/PRD.md`.
-- [ ] Update the existing home Pin product feature with production Gooey acceptance criteria.
+- [x] Update the existing home Pin product feature with production Gooey acceptance criteria.
 - [x] Product documents already live under `docs/product/`.
 - [x] Confirm architecture and technology stack before writing project files.
-- [ ] Run `env-auditor` and resolve required blockers.
+- [x] Run `env-auditor` and resolve required blockers.
 - [x] Reuse the existing project, git repository, and execution log.
-- [ ] Prepare local/server development environments.
-- [ ] Run frontend and backend skeleton smoke checks as applicable.
-- [ ] Update the existing home Pin technical design and implementation order.
-- [ ] Present the technical design summary and get confirmation before coding unless autonomous implementation is already granted.
+- [x] Prepare local development environment; server environment is N/A for this client-only change.
+- [x] Run the existing iOS project smoke checks; backend skeleton is N/A.
+- [x] Update the existing home Pin technical design and implementation order.
+- [x] Present the technical design summary; autonomous implementation was granted by the user's direct change request.
 - [x] API contract not applicable: client-only visual change.
 - [x] Icon collection not applicable: no new icons.
 - [x] Existing homepage, data contracts, persistence, and entry points are retained.
-- [ ] Develop features with implementer, spec-reviewer, and quality-reviewer subagents when available.
-- [ ] Verify there are no unimplemented entry buttons, mock data, or incomplete features unless explicitly requested.
-- [ ] Run focused map tests, Debug build, Simulator fusion/separation QA, and diff/project checks; deployment/DNS/publication are N/A.
-- [ ] Run completion audit and resolve or explicitly defer every missing item.
-- [ ] Run `final-review-agent`, append final status/manual actions to the log; do not commit unless separately requested.
+- [x] Develop features with implementer, spec-reviewer, and quality-reviewer subagents when available.
+- [x] Verify there are no unimplemented entry buttons, mock data, or incomplete features unless explicitly requested.
+- [x] Run focused map tests, Debug build, Simulator launch QA, and diff/project checks; rapid-pinch timing is covered by production-overlay regressions and remains available for subjective Simulator feel-check; deployment/DNS/publication are N/A.
+- [x] Run completion audit and resolve or explicitly defer every missing item.
+- [x] Run independent final specification and quality reviews, append final status/manual actions to the log; do not commit unless separately requested.

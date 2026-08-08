@@ -4,6 +4,49 @@ import XCTest
 @testable import TravelCompanion
 
 final class TravelCardsTests: XCTestCase {
+    func testItineraryListFormatsDateRailAndDayHeaderConsistently() {
+        let day = TripDaySnapshot(date: "2026-09-12", position: 0)
+
+        XCTAssertEqual(ItineraryListPresentation.timelineLabel(day, false), "09.12 六")
+        XCTAssertEqual(ItineraryListPresentation.timelineLabel(day, true), "今日 六")
+        XCTAssertEqual(ItineraryListPresentation.monthDay(for: day), "09.12")
+        XCTAssertEqual(ItineraryListPresentation.weekday(for: day), "六")
+    }
+
+    func testItineraryListDerivesEightCharacterSummaryInChronologicalOrder() {
+        let later = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "古城夜游",
+            startAt: Date(timeIntervalSince1970: 20),
+            position: 1
+        )
+        let earlier = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "抵达丽江",
+            startAt: Date(timeIntervalSince1970: 10),
+            position: 0
+        )
+        let day = TripDaySnapshot(date: "2026-09-12", position: 0, cards: [later, earlier])
+
+        XCTAssertEqual(ItineraryListPresentation.daySummary(for: day), "抵达丽江，古城夜")
+    }
+
+    func testItineraryListFallsBackToFirstDayAndFindsToday() {
+        let days = [
+            TripDaySnapshot(date: "2026-09-12", position: 0),
+            TripDaySnapshot(date: "2026-09-13", position: 1)
+        ]
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let today = calendar.date(from: DateComponents(year: 2026, month: 9, day: 13))!
+
+        XCTAssertEqual(ItineraryListPresentation.selectedIndex(date: nil, in: days), 0)
+        XCTAssertEqual(ItineraryListPresentation.selectedIndex(date: "2026-09-13", in: days), 1)
+        XCTAssertEqual(ItineraryListPresentation.todayIndex(in: days, today: today), 1)
+    }
+
     @MainActor
     func testOnlyPublicHTTPSURLsAreAccepted() {
         XCTAssertEqual(ExternalLinkHandler.validatedHTTPSURL("https://example.com/share")?.host, "example.com")

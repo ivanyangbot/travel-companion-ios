@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum GooeyPinID: String, Equatable, Hashable {
     case aggregate
@@ -103,22 +104,411 @@ enum GooeyPinSnapResolver {
     }
 }
 
-struct GooeyPinDemoState: Equatable {
-    static let standard = Self(
-        parameters: .standard,
+enum GooeyPinNumberScenarioID: String, CaseIterable {
+    case rightEdge
+    case upperLeft
+
+    var title: String {
+        switch self {
+        case .rightEdge: "4 · 右侧"
+        case .upperLeft: "3 · 左上"
+        }
+    }
+}
+
+struct GooeyPinNumberMember: Identifiable, Equatable {
+    let id: String
+    let value: String
+    let relativePosition: CGPoint
+}
+
+struct GooeyPinNumberScenario: Equatable {
+    static let rightEdge = Self(
+        id: .rightEdge,
+        members: [
+            GooeyPinNumberMember(id: "right-2", value: "2", relativePosition: CGPoint(x: -1, y: -0.2)),
+            GooeyPinNumberMember(id: "right-3", value: "3", relativePosition: CGPoint(x: -0.5, y: 0.3)),
+            GooeyPinNumberMember(id: "right-7", value: "7", relativePosition: CGPoint(x: 0, y: -0.4)),
+            GooeyPinNumberMember(id: "right-5", value: "5", relativePosition: CGPoint(x: 0.5, y: 0.2)),
+            GooeyPinNumberMember(id: "right-4", value: "4", relativePosition: CGPoint(x: 1, y: 0))
+        ],
+        extractedMemberID: "right-4",
         aggregatePosition: GooeyPinNormalizedPoint(x: 0.18, y: 0.5),
-        singlePosition: GooeyPinNormalizedPoint(x: 0.82, y: 0.5),
-        snapState: .separated,
-        lastDirection: CGVector(dx: 1, dy: 0),
-        lastActivePin: .single
+        singlePosition: GooeyPinNormalizedPoint(x: 0.82, y: 0.5)
     )
 
+    static let upperLeft = Self(
+        id: .upperLeft,
+        members: [
+            GooeyPinNumberMember(id: "upper-left-7", value: "7", relativePosition: CGPoint(x: -1, y: 0.1)),
+            GooeyPinNumberMember(id: "upper-left-3", value: "3", relativePosition: CGPoint(x: -0.45, y: -1)),
+            GooeyPinNumberMember(id: "upper-left-8", value: "8", relativePosition: CGPoint(x: 0.25, y: 0.15)),
+            GooeyPinNumberMember(id: "upper-left-12", value: "12", relativePosition: CGPoint(x: 1, y: 0.65))
+        ],
+        extractedMemberID: "upper-left-3",
+        aggregatePosition: GooeyPinNormalizedPoint(x: 0.62, y: 0.64),
+        singlePosition: GooeyPinNormalizedPoint(x: 0.16, y: 0.14)
+    )
+
+    let id: GooeyPinNumberScenarioID
+    let members: [GooeyPinNumberMember]
+    let extractedMemberID: String
+    let aggregatePosition: GooeyPinNormalizedPoint
+    let singlePosition: GooeyPinNormalizedPoint
+    let memberOrderIDs: [String]?
+
+    init(
+        id: GooeyPinNumberScenarioID,
+        members: [GooeyPinNumberMember],
+        extractedMemberID: String,
+        aggregatePosition: GooeyPinNormalizedPoint,
+        singlePosition: GooeyPinNormalizedPoint,
+        memberOrderIDs: [String]? = nil
+    ) {
+        self.id = id
+        self.members = members
+        self.extractedMemberID = extractedMemberID
+        self.aggregatePosition = aggregatePosition
+        self.singlePosition = singlePosition
+        self.memberOrderIDs = memberOrderIDs
+    }
+
+    static func scenario(for id: GooeyPinNumberScenarioID) -> Self {
+        switch id {
+        case .rightEdge: .rightEdge
+        case .upperLeft: .upperLeft
+        }
+    }
+
+    var orderedMembers: [GooeyPinNumberMember] {
+        let spatiallyOrdered = GooeyPinNumberOrdering.ordered(members)
+        guard let memberOrderIDs else { return spatiallyOrdered }
+
+        let membersByID = Dictionary(uniqueKeysWithValues: members.map { ($0.id, $0) })
+        var usedIDs = Set<String>()
+        let explicitlyOrdered = memberOrderIDs.compactMap { id -> GooeyPinNumberMember? in
+            guard usedIDs.insert(id).inserted else { return nil }
+            return membersByID[id]
+        }
+        return explicitlyOrdered + spatiallyOrdered.filter { !usedIDs.contains($0.id) }
+    }
+
+    func applyingMemberOrder(_ memberOrderIDs: [String]) -> Self {
+        Self(
+            id: id,
+            members: members,
+            extractedMemberID: extractedMemberID,
+            aggregatePosition: aggregatePosition,
+            singlePosition: singlePosition,
+            memberOrderIDs: memberOrderIDs
+        )
+    }
+
+    var remainingMembers: [GooeyPinNumberMember] {
+        orderedMembers.filter { $0.id != extractedMemberID }
+    }
+
+    var extractedMember: GooeyPinNumberMember {
+        orderedMembers.first { $0.id == extractedMemberID } ?? orderedMembers[0]
+    }
+
+    var fusedText: String {
+        orderedMembers.map(\.value).joined(separator: ".")
+    }
+
+    var separatedAggregateText: String {
+        remainingMembers.map(\.value).joined(separator: ".")
+    }
+
+    var separationDirection: CGVector {
+        let point = extractedMember.relativePosition
+        let length = hypot(point.x, point.y)
+        guard length.isFinite, length > 0.0001 else { return CGVector(dx: 1, dy: 0) }
+        return CGVector(dx: point.x / length, dy: point.y / length)
+    }
+}
+
+enum GooeyPinNumberOrdering {
+    static func ordered(_ members: [GooeyPinNumberMember]) -> [GooeyPinNumberMember] {
+        members.sorted { lhs, rhs in
+            if abs(lhs.relativePosition.x - rhs.relativePosition.x) > 0.0001 {
+                return lhs.relativePosition.x < rhs.relativePosition.x
+            }
+            if abs(lhs.relativePosition.y - rhs.relativePosition.y) > 0.0001 {
+                return lhs.relativePosition.y < rhs.relativePosition.y
+            }
+            return lhs.id < rhs.id
+        }
+    }
+
+    static func orderForMerge(
+        orderedMembers: [GooeyPinNumberMember],
+        extractedMemberID: String,
+        direction: CGVector
+    ) -> [String] {
+        let remainingIDs = orderedMembers
+            .filter { $0.id != extractedMemberID }
+            .map(\.id)
+        guard orderedMembers.contains(where: { $0.id == extractedMemberID }) else {
+            return remainingIDs
+        }
+
+        let length = hypot(direction.dx, direction.dy)
+        let normalizedX = length.isFinite && length > 0.0001 ? direction.dx / length : 1
+        let horizontalProgress = min(1, max(0, (normalizedX + 1) / 2))
+        let insertionIndex = min(
+            remainingIDs.count,
+            max(0, Int((horizontalProgress * CGFloat(remainingIDs.count)).rounded()))
+        )
+        var result = remainingIDs
+        result.insert(extractedMemberID, at: insertionIndex)
+        return result
+    }
+}
+
+enum GooeyPinNumberOrderLock {
+    static func updated(
+        currentlyLocked: Bool,
+        surfaceGap: CGFloat,
+        splitThreshold: CGFloat
+    ) -> Bool {
+        guard currentlyLocked else { return false }
+        guard surfaceGap.isFinite, splitThreshold.isFinite else { return true }
+        return surfaceGap < splitThreshold
+    }
+}
+
+struct GooeyPinNumberPlacement: Identifiable, Equatable {
+    let id: String
+    let value: String
+    let position: CGPoint
+}
+
+struct GooeyPinNumberSeparatorPlacement: Identifiable, Equatable {
+    let id: String
+    let position: CGPoint
+    let opacity: CGFloat
+}
+
+struct GooeyPinNumberPresentation: Equatable {
+    let extractionProgress: CGFloat
+    let memberPlacements: [GooeyPinNumberPlacement]
+    let separatorPlacements: [GooeyPinNumberSeparatorPlacement]
+    let fontSize: CGFloat
+
+    func placement(for memberID: String) -> GooeyPinNumberPlacement? {
+        memberPlacements.first { $0.id == memberID }
+    }
+}
+
+enum GooeyPinNumberLayout {
+    private static let labelFont = UIFont.systemFont(ofSize: 16, weight: .medium)
+
+    static func extractionProgress(
+        surfaceGap: CGFloat,
+        mergeThreshold: CGFloat,
+        splitThreshold: CGFloat
+    ) -> CGFloat {
+        let merge = mergeThreshold.isFinite ? mergeThreshold : 0
+        let splitCandidate = splitThreshold.isFinite ? splitThreshold : merge + 4
+        let split = max(merge + 4, splitCandidate)
+        let gap = surfaceGap.isFinite ? surfaceGap : merge
+        let linear = min(1, max(0, (gap - merge) / (split - merge)))
+        return linear * linear * (3 - 2 * linear)
+    }
+
+    static func visualExtractionProgress(
+        surfaceGap: CGFloat,
+        parameters: GooeyPinDemoParameters
+    ) -> CGFloat {
+        let value = parameters.normalized()
+        let alphaReachScale = min(1, max(0.25, 1.1 - value.alphaThreshold))
+        let visibleBridgeReach = max(
+            0,
+            value.blurRadius * alphaReachScale + value.strokeWidth * 0.5
+        )
+        let outerGap = min(value.mergeThreshold, visibleBridgeReach)
+        let transitionSpan = max(
+            3,
+            min(8, value.blurRadius * 0.5 + value.strokeWidth * 0.5)
+        )
+        return extractionProgress(
+            surfaceGap: surfaceGap,
+            mergeThreshold: outerGap - transitionSpan,
+            splitThreshold: outerGap
+        )
+    }
+
+    static func presentation(
+        scenario: GooeyPinNumberScenario,
+        layout: GooeyPinDemoLayout,
+        extractionProgress requestedProgress: CGFloat
+    ) -> GooeyPinNumberPresentation {
+        let progress = requestedProgress.isFinite ? min(1, max(0, requestedProgress)) : 0
+        let orderedMembers = scenario.orderedMembers
+        let remainingMembers = scenario.remainingMembers
+        let fullSlots = slots(for: orderedMembers, in: layout.aggregateFrame)
+        let remainingSlots = slots(for: remainingMembers, in: layout.aggregateFrame)
+        let singleCenter = CGPoint(x: layout.singleFrame.midX, y: layout.singleFrame.midY)
+
+        let memberPlacements = orderedMembers.compactMap { member -> GooeyPinNumberPlacement? in
+            guard let fullPosition = fullSlots[member.id] else { return nil }
+            let targetPosition: CGPoint
+            if member.id == scenario.extractedMemberID {
+                targetPosition = singleCenter
+            } else {
+                targetPosition = remainingSlots[member.id] ?? fullPosition
+            }
+            return GooeyPinNumberPlacement(
+                id: member.id,
+                value: member.value,
+                position: interpolate(from: fullPosition, to: targetPosition, progress: progress)
+            )
+        }
+
+        let fullSeparators = separators(for: orderedMembers, slots: fullSlots)
+        let remainingSeparators = separators(for: remainingMembers, slots: remainingSlots)
+        let separatorKeys = Set(fullSeparators.keys).union(remainingSeparators.keys).sorted()
+        let separatorPlacements = separatorKeys.compactMap { key -> GooeyPinNumberSeparatorPlacement? in
+            switch (fullSeparators[key], remainingSeparators[key]) {
+            case let (.some(full), .some(remaining)):
+                return GooeyPinNumberSeparatorPlacement(
+                    id: key,
+                    position: interpolate(from: full, to: remaining, progress: progress),
+                    opacity: 1
+                )
+            case let (.some(full), .none):
+                return GooeyPinNumberSeparatorPlacement(id: key, position: full, opacity: 1 - progress)
+            case let (.none, .some(remaining)):
+                return GooeyPinNumberSeparatorPlacement(id: key, position: remaining, opacity: progress)
+            case (.none, .none):
+                return nil
+            }
+        }
+
+        return GooeyPinNumberPresentation(
+            extractionProgress: progress,
+            memberPlacements: memberPlacements,
+            separatorPlacements: separatorPlacements,
+            fontSize: labelFont.pointSize
+        )
+    }
+
+    private static func slots(
+        for members: [GooeyPinNumberMember],
+        in frame: CGRect
+    ) -> [String: CGPoint] {
+        guard !members.isEmpty else { return [:] }
+        let memberWidths = members.map { measuredWidth(of: $0.value) }
+        let separatorWidth = measuredWidth(of: ".")
+        let totalWidth = memberWidths.reduce(0, +)
+            + separatorWidth * CGFloat(max(0, members.count - 1))
+        var cursor = frame.midX - totalWidth / 2
+        var result: [String: CGPoint] = [:]
+        for (index, member) in members.enumerated() {
+            let width = memberWidths[index]
+            result[member.id] = CGPoint(x: cursor + width / 2, y: frame.midY)
+            cursor += width
+            if index < members.count - 1 { cursor += separatorWidth }
+        }
+        return result
+    }
+
+    private static func separators(
+        for members: [GooeyPinNumberMember],
+        slots: [String: CGPoint]
+    ) -> [String: CGPoint] {
+        Dictionary(uniqueKeysWithValues: zip(members, members.dropFirst()).compactMap { lhs, rhs in
+            guard let lhsPoint = slots[lhs.id], let rhsPoint = slots[rhs.id] else { return nil }
+            return (
+                lhs.id + "→" + rhs.id,
+                CGPoint(x: (lhsPoint.x + rhsPoint.x) / 2, y: (lhsPoint.y + rhsPoint.y) / 2)
+            )
+        })
+    }
+
+    private static func interpolate(from: CGPoint, to: CGPoint, progress: CGFloat) -> CGPoint {
+        CGPoint(
+            x: from.x + (to.x - from.x) * progress,
+            y: from.y + (to.y - from.y) * progress
+        )
+    }
+
+    private static func measuredWidth(of text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: labelFont]).width)
+    }
+}
+
+enum GooeyPinAdaptiveLayout {
+    static func layout(
+        stageSize: CGSize,
+        aggregatePosition: GooeyPinNormalizedPoint,
+        singlePosition: GooeyPinNormalizedPoint,
+        scenario: GooeyPinNumberScenario,
+        parameters: GooeyPinDemoParameters,
+        effectPadding: CGFloat,
+        fallbackDirection: CGVector
+    ) -> GooeyPinDemoLayout {
+        let fusedWidth = MapLibrePinLabelGeometry.size(for: scenario.fusedText).width
+        let separatedWidth = MapLibrePinLabelGeometry.size(for: scenario.separatedAggregateText).width
+        var aggregateWidth = separatedWidth
+        var result = GooeyPinDemoGeometry.layout(
+            stageSize: stageSize,
+            aggregatePosition: aggregatePosition,
+            singlePosition: singlePosition,
+            aggregateWidth: aggregateWidth,
+            effectPadding: effectPadding,
+            fallbackDirection: fallbackDirection
+        )
+
+        for _ in 0..<4 {
+            let progress = GooeyPinNumberLayout.visualExtractionProgress(
+                surfaceGap: result.metrics.surfaceGap,
+                parameters: parameters
+            )
+            aggregateWidth = fusedWidth + (separatedWidth - fusedWidth) * progress
+            result = GooeyPinDemoGeometry.layout(
+                stageSize: stageSize,
+                aggregatePosition: aggregatePosition,
+                singlePosition: singlePosition,
+                aggregateWidth: aggregateWidth,
+                effectPadding: effectPadding,
+                fallbackDirection: fallbackDirection
+            )
+        }
+        return result
+    }
+}
+
+struct GooeyPinDemoState: Equatable {
+    static let standard: Self = {
+        let scenario = GooeyPinNumberScenario.rightEdge
+        return Self(
+            parameters: .standard,
+            numberScenarioID: scenario.id,
+            numberMemberOrderIDs: scenario.orderedMembers.map(\.id),
+            aggregatePosition: scenario.aggregatePosition,
+            singlePosition: scenario.singlePosition,
+            snapState: .separated,
+            lastDirection: scenario.separationDirection,
+            lastActivePin: .single
+        )
+    }()
+
     var parameters: GooeyPinDemoParameters
+    var numberScenarioID: GooeyPinNumberScenarioID
+    var numberMemberOrderIDs: [String]
     var aggregatePosition: GooeyPinNormalizedPoint
     var singlePosition: GooeyPinNormalizedPoint
     var snapState: GooeyPinSnapState
     var lastDirection: CGVector
     var lastActivePin: GooeyPinID
+
+    var numberScenario: GooeyPinNumberScenario {
+        GooeyPinNumberScenario
+            .scenario(for: numberScenarioID)
+            .applyingMemberOrder(numberMemberOrderIDs)
+    }
 
     func position(for pin: GooeyPinID) -> GooeyPinNormalizedPoint {
         switch pin {
@@ -132,6 +522,25 @@ struct GooeyPinDemoState: Equatable {
         case .aggregate: aggregatePosition = position.normalized()
         case .single: singlePosition = position.normalized()
         }
+    }
+
+    mutating func applyNumberScenario(_ id: GooeyPinNumberScenarioID) {
+        let scenario = GooeyPinNumberScenario.scenario(for: id)
+        numberScenarioID = id
+        numberMemberOrderIDs = scenario.orderedMembers.map(\.id)
+        aggregatePosition = scenario.aggregatePosition
+        singlePosition = scenario.singlePosition
+        snapState = .separated
+        lastDirection = scenario.separationDirection
+        lastActivePin = .single
+    }
+
+    mutating func updateNumberOrderForMerge(direction: CGVector) {
+        numberMemberOrderIDs = GooeyPinNumberOrdering.orderForMerge(
+            orderedMembers: numberScenario.orderedMembers,
+            extractedMemberID: numberScenario.extractedMemberID,
+            direction: direction
+        )
     }
 
     mutating func reset() {
@@ -363,7 +772,7 @@ enum GooeyPinDemoGeometry {
             width: max(pinHeight, stageWidth - padding * 2),
             height: max(pinHeight, stageHeight - padding * 2)
         )
-        let minimumAggregateWidth = min(48, content.width)
+        let minimumAggregateWidth = min(pinHeight, content.width)
         let maximumAggregateWidth = min(180, content.width)
         let aggregateWidth = finiteClamp(
             requestedWidth,
@@ -458,6 +867,23 @@ enum GooeyPinDemoGeometry {
         let dy = translation.height.isFinite ? translation.height : 0
         return normalizedPosition(
             for: CGPoint(x: startCenter.x + dx, y: startCenter.y + dy),
+            in: bounds
+        )
+    }
+
+    static func draggedPosition(
+        startCenter: CGPoint,
+        translation: CGSize,
+        pin: GooeyPinID,
+        layout: GooeyPinDemoLayout
+    ) -> GooeyPinNormalizedPoint {
+        let bounds = layout.centerBounds(for: pin)
+        let finiteStartX = startCenter.x.isFinite ? startCenter.x : bounds.midX
+        let finiteStartY = startCenter.y.isFinite ? startCenter.y : bounds.midY
+        let dx = translation.width.isFinite ? translation.width : 0
+        let dy = translation.height.isFinite ? translation.height : 0
+        return normalizedPosition(
+            for: CGPoint(x: finiteStartX + dx, y: finiteStartY + dy),
             in: bounds
         )
     }
@@ -626,10 +1052,16 @@ struct GooeyPinDemoView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var demoState = GooeyPinDemoState.standard
-    @State private var aggregateDragStart: GooeyPinNormalizedPoint?
-    @State private var singleDragStart: GooeyPinNormalizedPoint?
+    @State private var aggregateDragStartCenter: CGPoint?
+    @State private var singleDragStartCenter: CGPoint?
+    @State private var activeDragPin: GooeyPinID?
+    @State private var numberOrderLockedForDrag: Bool?
     @State private var stageMetrics = GooeyPinStageMetrics.standard
     @State private var previousStagePlacement: GooeyPinStagePlacement?
+
+    private var numberScenario: GooeyPinNumberScenario {
+        demoState.numberScenario
+    }
 
     var body: some View {
         NavigationStack {
@@ -677,12 +1109,19 @@ struct GooeyPinDemoView: View {
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(.secondary)
             }
+            Text(
+                "融合 \(numberScenario.fusedText) · 分离 \(numberScenario.separatedAggregateText) + \(numberScenario.extractedMember.value)"
+            )
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
 
             GooeyPinStage(
                 aggregatePosition: demoState.aggregatePosition,
                 singlePosition: demoState.singlePosition,
                 fallbackDirection: demoState.lastDirection,
                 parameters: demoState.parameters.normalized(),
+                numberScenario: numberScenario,
+                activeDragPin: activeDragPin,
                 onDragChanged: dragChanged,
                 onDragEnded: dragEnded,
                 onAccessibilityAction: accessibilityAction
@@ -697,10 +1136,12 @@ struct GooeyPinDemoView: View {
                     current: metrics.placement
                 )
                 previousStagePlacement = reconciliation.rememberedPlacement
-                if let aggregatePosition = reconciliation.aggregatePosition {
+                if activeDragPin != .aggregate,
+                   let aggregatePosition = reconciliation.aggregatePosition {
                     demoState.aggregatePosition = aggregatePosition
                 }
-                if let singlePosition = reconciliation.singlePosition {
+                if activeDragPin != .single,
+                   let singlePosition = reconciliation.singlePosition {
                     demoState.singlePosition = singlePosition
                 }
                 stageMetrics = metrics
@@ -714,12 +1155,25 @@ struct GooeyPinDemoView: View {
 
     private var layoutPanel: some View {
         parameterGroup("布局") {
-            parameterSlider(
-                "聚合 Pin 宽度",
-                value: $demoState.parameters.aggregateWidth,
-                range: 48...180,
-                unit: "pt"
-            )
+            Picker(
+                "数字分离示例",
+                selection: Binding(
+                    get: { demoState.numberScenarioID },
+                    set: { newValue in selectNumberScenario(newValue) }
+                )
+            ) {
+                ForEach(GooeyPinNumberScenarioID.allCases, id: \.self) { scenarioID in
+                    Text(scenarioID.title).tag(scenarioID)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("数字分离示例")
+            Text("数字先按成员相对位置稳定排序；分离成员沿自身方位移动，其他数字连续补位。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Label("聚合 Pin 宽度按首页文字测量规则自动适配", systemImage: "textformat.size")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -781,7 +1235,16 @@ struct GooeyPinDemoView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .accessibilityLabel("恢复全部 Gooey 参数和 Pin 位置默认值")
+        .accessibilityLabel("恢复全部 Gooey 参数、数字示例和 Pin 位置默认值")
+    }
+
+    private func selectNumberScenario(_ id: GooeyPinNumberScenarioID) {
+        guard id != demoState.numberScenarioID else { return }
+        clearDragStarts()
+        previousStagePlacement = nil
+        animateAssistance {
+            demoState.applyNumberScenario(id)
+        }
     }
 
     private func dragChanged(
@@ -789,22 +1252,68 @@ struct GooeyPinDemoView: View {
         translation: CGSize,
         layout: GooeyPinDemoLayout
     ) {
-        let start: GooeyPinNormalizedPoint
+        if activeDragPin == nil {
+            activeDragPin = pin
+        }
+        guard activeDragPin == pin else { return }
+        if numberOrderLockedForDrag == nil {
+            numberOrderLockedForDrag = demoState.snapState == .fused
+        }
+        let startCenter: CGPoint
         switch pin {
         case .aggregate:
-            if aggregateDragStart == nil { aggregateDragStart = demoState.aggregatePosition }
-            start = aggregateDragStart ?? demoState.aggregatePosition
+            if aggregateDragStartCenter == nil {
+                aggregateDragStartCenter = CGPoint(
+                    x: layout.aggregateFrame.midX,
+                    y: layout.aggregateFrame.midY
+                )
+            }
+            startCenter = aggregateDragStartCenter ?? CGPoint(
+                x: layout.aggregateFrame.midX,
+                y: layout.aggregateFrame.midY
+            )
         case .single:
-            if singleDragStart == nil { singleDragStart = demoState.singlePosition }
-            start = singleDragStart ?? demoState.singlePosition
+            if singleDragStartCenter == nil {
+                singleDragStartCenter = CGPoint(
+                    x: layout.singleFrame.midX,
+                    y: layout.singleFrame.midY
+                )
+            }
+            startCenter = singleDragStartCenter ?? CGPoint(
+                x: layout.singleFrame.midX,
+                y: layout.singleFrame.midY
+            )
         }
-        demoState = GooeyPinInteraction.dragging(
-            state: demoState,
-            pin: pin,
-            startPosition: start,
-            translation: translation,
-            layout: layout
-        )
+
+        var targetState = demoState
+        var targetLayout = layout
+        for _ in 0..<4 {
+            targetState.setPosition(
+                GooeyPinDemoGeometry.draggedPosition(
+                    startCenter: startCenter,
+                    translation: translation,
+                    pin: pin,
+                    layout: targetLayout
+                ),
+                for: pin
+            )
+            targetLayout = adaptiveLayout(for: targetState, stageSize: layout.stageSize)
+        }
+        targetState.lastActivePin = pin
+
+        if let numberOrderLockedForDrag {
+            self.numberOrderLockedForDrag = GooeyPinNumberOrderLock.updated(
+                currentlyLocked: numberOrderLockedForDrag,
+                surfaceGap: targetLayout.metrics.surfaceGap,
+                splitThreshold: targetState.parameters.splitThreshold
+            )
+        }
+        if self.numberOrderLockedForDrag == false,
+           targetLayout.metrics.hasDistinctCenters {
+            targetState.lastDirection = targetLayout.metrics.direction
+            targetState.updateNumberOrderForMerge(direction: targetLayout.metrics.direction)
+        }
+        demoState = targetState
     }
 
     private func dragEnded(
@@ -815,9 +1324,11 @@ struct GooeyPinDemoView: View {
         dragChanged(pin, translation: translation, layout: layout)
         demoState = GooeyPinInteraction.endingDrag(state: demoState)
         switch pin {
-        case .aggregate: aggregateDragStart = nil
-        case .single: singleDragStart = nil
+        case .aggregate: aggregateDragStartCenter = nil
+        case .single: singleDragStartCenter = nil
         }
+        activeDragPin = nil
+        numberOrderLockedForDrag = nil
     }
 
     private func accessibilityAction(
@@ -842,7 +1353,19 @@ struct GooeyPinDemoView: View {
                 ),
                 for: pin
             )
+            if targetState.snapState == .separated {
+                let targetLayout = adaptiveLayout(for: targetState, stageSize: layout.stageSize)
+                if targetLayout.metrics.hasDistinctCenters {
+                    targetState.lastDirection = targetLayout.metrics.direction
+                    targetState.updateNumberOrderForMerge(direction: targetLayout.metrics.direction)
+                }
+            }
         case .snap(let snapState):
+            if snapState == .fused,
+               targetState.snapState == .separated,
+               layout.metrics.hasDistinctCenters {
+                targetState.updateNumberOrderForMerge(direction: layout.metrics.direction)
+            }
             targetState.setPosition(
                 GooeyPinDemoGeometry.assistedPosition(
                     moving: pin,
@@ -876,8 +1399,25 @@ struct GooeyPinDemoView: View {
     }
 
     private func clearDragStarts() {
-        aggregateDragStart = nil
-        singleDragStart = nil
+        aggregateDragStartCenter = nil
+        singleDragStartCenter = nil
+        activeDragPin = nil
+        numberOrderLockedForDrag = nil
+    }
+
+    private func adaptiveLayout(
+        for state: GooeyPinDemoState,
+        stageSize: CGSize
+    ) -> GooeyPinDemoLayout {
+        GooeyPinAdaptiveLayout.layout(
+            stageSize: stageSize,
+            aggregatePosition: state.aggregatePosition,
+            singlePosition: state.singlePosition,
+            scenario: state.numberScenario,
+            parameters: state.parameters,
+            effectPadding: GooeyPinEffectGeometry.safePadding(for: state.parameters),
+            fallbackDirection: state.lastDirection
+        )
     }
 
     private func resolveSnapState(using surfaceGap: CGFloat) {
@@ -964,6 +1504,8 @@ private struct GooeyPinStage: View {
     let singlePosition: GooeyPinNormalizedPoint
     let fallbackDirection: CGVector
     let parameters: GooeyPinDemoParameters
+    let numberScenario: GooeyPinNumberScenario
+    let activeDragPin: GooeyPinID?
     let onDragChanged: (GooeyPinID, CGSize, GooeyPinDemoLayout) -> Void
     let onDragEnded: (GooeyPinID, CGSize, GooeyPinDemoLayout) -> Void
     let onAccessibilityAction: (GooeyPinID, GooeyPinAccessibilityAction, GooeyPinDemoLayout) -> Void
@@ -971,11 +1513,12 @@ private struct GooeyPinStage: View {
     var body: some View {
         GeometryReader { proxy in
             let padding = GooeyPinEffectGeometry.safePadding(for: parameters)
-            let layout = GooeyPinDemoGeometry.layout(
+            let layout = GooeyPinAdaptiveLayout.layout(
                 stageSize: proxy.size,
                 aggregatePosition: aggregatePosition,
                 singlePosition: singlePosition,
-                aggregateWidth: parameters.aggregateWidth,
+                scenario: numberScenario,
+                parameters: parameters,
                 effectPadding: padding,
                 fallbackDirection: fallbackDirection
             )
@@ -989,6 +1532,7 @@ private struct GooeyPinStage: View {
                     alphaThreshold: parameters.alphaThreshold,
                     sourceOpacity: parameters.sourceOpacity
                 )
+                .frame(width: proxy.size.width, height: proxy.size.height)
                 GooeyBlobLayer(
                     layout: layout,
                     inset: parameters.strokeWidth,
@@ -997,9 +1541,18 @@ private struct GooeyPinStage: View {
                     alphaThreshold: parameters.alphaThreshold,
                     sourceOpacity: parameters.sourceOpacity
                 )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+
+                GooeyPinNumberLayer(
+                    scenario: numberScenario,
+                    layout: layout,
+                    parameters: parameters
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
 
                 pinTargets(layout: layout)
             }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .shadow(
                 color: .black.opacity(0.42),
                 radius: parameters.shadowRadius,
@@ -1034,7 +1587,8 @@ private struct GooeyPinStage: View {
                 y: hitGeometry.aggregateTargetFrame.midY
             )
             .gesture(dragGesture(for: .aggregate, layout: layout))
-            .zIndex(1)
+            .allowsHitTesting(activeDragPin != .single)
+            .zIndex(activeDragPin == .aggregate ? 4 : 1)
             .accessibilityElement()
             .accessibilityLabel("聚合 Pin")
             .accessibilityValue(accessibilityValue(for: .aggregate, layout: layout))
@@ -1046,7 +1600,8 @@ private struct GooeyPinStage: View {
             .contentShape(Circle())
             .position(x: hitGeometry.singleTargetFrame.midX, y: hitGeometry.singleTargetFrame.midY)
             .gesture(dragGesture(for: .single, layout: layout))
-            .zIndex(1.25)
+            .allowsHitTesting(activeDragPin != .aggregate)
+            .zIndex(activeDragPin == .single ? 4 : 1.25)
             .accessibilityElement()
             .accessibilityLabel("单体 Pin")
             .accessibilityValue(accessibilityValue(for: .single, layout: layout))
@@ -1060,7 +1615,8 @@ private struct GooeyPinStage: View {
                 .contentShape(Rectangle())
                 .position(x: frame.midX, y: frame.midY)
                 .gesture(dragGesture(for: .aggregate, layout: layout))
-                .zIndex(1.5)
+                .allowsHitTesting(activeDragPin != .single)
+                .zIndex(activeDragPin == .aggregate ? 4.5 : 1.5)
                 .accessibilityHidden(true)
         }
 
@@ -1075,7 +1631,8 @@ private struct GooeyPinStage: View {
                 y: hitGeometry.singlePriorityFrame.midY
             )
             .gesture(dragGesture(for: .single, layout: layout))
-            .zIndex(2)
+            .allowsHitTesting(activeDragPin != .aggregate)
+            .zIndex(activeDragPin == .single ? 5 : 2)
             .accessibilityHidden(true)
     }
 
@@ -1087,7 +1644,20 @@ private struct GooeyPinStage: View {
 
     private func accessibilityValue(for pin: GooeyPinID, layout: GooeyPinDemoLayout) -> String {
         let frame = pin == .aggregate ? layout.aggregateFrame : layout.singleFrame
-        return "横坐标 \(Int(frame.midX.rounded()))，纵坐标 \(Int(frame.midY.rounded()))"
+        let progress = GooeyPinNumberLayout.visualExtractionProgress(
+            surfaceGap: layout.metrics.surfaceGap,
+            parameters: parameters
+        )
+        let numberText: String
+        switch pin {
+        case .aggregate:
+            numberText = progress < 0.5
+                ? numberScenario.fusedText
+                : numberScenario.separatedAggregateText
+        case .single:
+            numberText = numberScenario.extractedMember.value
+        }
+        return "数字 \(numberText)，横坐标 \(Int(frame.midX.rounded()))，纵坐标 \(Int(frame.midY.rounded()))"
     }
 }
 
@@ -1147,5 +1717,41 @@ private struct GooeyBlobLayer: View {
             }
         }
         .allowsHitTesting(false)
+    }
+}
+
+private struct GooeyPinNumberLayer: View {
+    let scenario: GooeyPinNumberScenario
+    let layout: GooeyPinDemoLayout
+    let parameters: GooeyPinDemoParameters
+
+    var body: some View {
+        let progress = GooeyPinNumberLayout.visualExtractionProgress(
+            surfaceGap: layout.metrics.surfaceGap,
+            parameters: parameters
+        )
+        let presentation = GooeyPinNumberLayout.presentation(
+            scenario: scenario,
+            layout: layout,
+            extractionProgress: progress
+        )
+
+        ZStack(alignment: .topLeading) {
+            ForEach(presentation.separatorPlacements) { separator in
+                Text(".")
+                    .font(.system(size: presentation.fontSize, weight: .medium))
+                    .foregroundStyle(.black)
+                    .opacity(separator.opacity)
+                    .position(separator.position)
+            }
+            ForEach(presentation.memberPlacements) { member in
+                Text(member.value)
+                    .font(.system(size: presentation.fontSize, weight: .medium))
+                    .foregroundStyle(.black)
+                    .position(member.position)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

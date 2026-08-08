@@ -36,9 +36,9 @@ struct ContentView: View {
         var icon: String {
             switch self {
             case .journey: "icon-trip-outline"
-            case .expenses: "icon-money-outline-1"
-            case .notes: "icon-note-outline-1"
-            case .settings: "icon-settings-outline"
+            case .expenses: "icon-money-outline"
+            case .notes: "icon-note-outline"
+            case .settings: "icon-setting-outline"
             }
         }
     }

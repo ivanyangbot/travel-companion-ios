@@ -962,6 +962,51 @@ final class SyncEngine: ObservableObject {
         }
     }
 
+    /// Persists an arbitrary drag-and-drop order in one optimistic update. The
+    /// caller must provide every card in the day exactly once; rejecting partial
+    /// lists prevents an interrupted drag from accidentally hiding cards.
+    func reorderCards(in day: TripDaySnapshot, orderedCardIDs: [UUID]) async {
+        guard var current = trip,
+              let dayIndex = current.days.firstIndex(where: { $0.id == day.id }) else { return }
+
+        let existingCards = current.days[dayIndex].cards
+        guard existingCards.count == orderedCardIDs.count,
+              Set(existingCards.map(\.id)) == Set(orderedCardIDs) else { return }
+        if !localOnly, !existingCards.allSatisfy({ $0.serverID != nil }) { return }
+
+        let cardsByID = Dictionary(uniqueKeysWithValues: existingCards.map { ($0.id, $0) })
+        var reordered = orderedCardIDs.compactMap { cardsByID[$0] }
+        guard reordered.count == existingCards.count else { return }
+        for index in reordered.indices { reordered[index].position = index }
+
+        current.days[dayIndex].cards = reordered
+        current.updatedAt = .now
+        trip = current
+
+        do {
+            if localOnly {
+                try saveLocalSnapshot(current)
+                return
+            }
+
+            try repository.save(current)
+            for changedCard in reordered {
+                guard let serverID = changedCard.serverID else { continue }
+                let body = try await apiClient.encode(CardRequest(position: changedCard.position))
+                try repository.enqueue(
+                    method: "PATCH",
+                    path: "/v1/cards/\(serverID)",
+                    tripID: current.id,
+                    body: body,
+                    baseVersion: current.version
+                )
+            }
+            await replayPendingOperations()
+        } catch {
+            status = .failed("无法保存卡片顺序。")
+        }
+    }
+
     private func enqueueTripPatch(_ request: TripPatchRequest) async {
         let baseVersion = trip?.version ?? 0
         do {

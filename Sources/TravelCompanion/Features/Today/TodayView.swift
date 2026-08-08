@@ -775,7 +775,7 @@ private struct TodayPOIOverlayToggleButton: View {
     }
 }
 
-private struct TodayGlassBackdrop: View {
+struct TodayGlassBackdrop: View {
     var body: some View {
         ZStack {
             AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.1)
@@ -789,7 +789,9 @@ private struct TodayGlassBackdrop: View {
 /// Horizontally scrollable day rail placed directly above the POI swiper. It
 /// deliberately shares the swiper's visibility condition, so the dedicated
 /// header toggle expands and collapses both pieces together.
-private struct TodayDateTimeline: View {
+/// Shared date rail used by both the map and itinerary list modes. Keeping one
+/// implementation guarantees identical labels, anchoring and drag behavior.
+struct TodayDateTimeline: View {
     private enum PinnedTodaySide {
         case leading
         case trailing
@@ -1395,62 +1397,75 @@ private struct POICard: View {
     }
 
     private var coverContent: some View {
-        ZStack {
-            coverImage
+        GeometryReader { geometry in
+            ZStack {
+                // A portrait cover's scaled-to-fill size can be much taller
+                // than the collapsed 2:1 card. Constrain it before composing
+                // the overlays so the title is laid out against the visible
+                // card bounds instead of the image's overflowing bounds.
+                coverImage
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
 
-            // Matches the product gradient: transparent through 48.37%,
-            // reaching 52% black at 79.94% and remaining dark to the bottom.
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .clear, location: 0.4837),
-                    .init(color: .black.opacity(0.52), location: 0.7994),
-                    .init(color: .black.opacity(0.52), location: 1)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .allowsHitTesting(false)
+                // Matches the product gradient: transparent through 48.37%,
+                // reaching 52% black at 79.94% and remaining dark to the bottom.
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .clear, location: 0.4837),
+                        .init(color: .black.opacity(0.52), location: 0.7994),
+                        .init(color: .black.opacity(0.52), location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .allowsHitTesting(false)
 
-            Image("icon-poi-more-vertical")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 4, height: 18)
-                .frame(width: 44, height: 44)
-                .accessibilityHidden(true)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.top, 2)
+                Image("icon-poi-more-vertical")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 4, height: 18)
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.top, 2)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Spacer(minLength: 0)
-
-                Text("\(index + 1). \(card.title)")
-                    .font(.system(size: 22, weight: .semibold))
-                    .tracking(0)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-
-                HStack(spacing: 8) {
-                    metadataItem(
-                        iconName: "icon-poi-pin-outline",
-                        iconSize: CGSize(width: 12, height: 12),
-                        text: timeText
-                    )
-
-                    if let distanceText {
-                        metadataItem(
-                            iconName: "icon-poi-distance-outline",
-                            iconSize: CGSize(width: 12, height: 14),
-                            text: distanceText
-                        )
-                    }
-
+                VStack(alignment: .leading, spacing: 8) {
                     Spacer(minLength: 0)
+
+                    Text("\(index + 1). \(card.title)")
+                        .font(.system(size: 22, weight: .semibold))
+                        .tracking(0)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    HStack(spacing: 8) {
+                        metadataItem(
+                            iconName: "icon-poi-pin-outline",
+                            iconSize: CGSize(width: 12, height: 12),
+                            text: timeText
+                        )
+
+                        if let distanceText {
+                            metadataItem(
+                                iconName: "icon-poi-distance-outline",
+                                iconSize: CGSize(width: 12, height: 14),
+                                text: distanceText
+                            )
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.trailing, 44)
                 }
-                .padding(.trailing, 44)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height
+            )
+            .clipped()
         }
     }
 
