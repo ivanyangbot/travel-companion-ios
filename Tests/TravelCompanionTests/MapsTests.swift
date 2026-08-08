@@ -71,7 +71,8 @@ final class MapsTests: XCTestCase {
         _ members: [Int],
         frame: CGRect,
         label: String? = nil,
-        highlighted: Bool = false
+        highlighted: Bool = false,
+        pointingCorner: MapLibreEdgePinPointingCorner? = nil
     ) -> MapLibrePinVisualSnapshot {
         let ids = members.map(gooeyID)
         return MapLibrePinVisualSnapshot(
@@ -81,7 +82,7 @@ final class MapsTests: XCTestCase {
             labelText: label ?? members.map(String.init).joined(separator: "."),
             isHighlighted: highlighted,
             showsCategoryBubble: highlighted,
-            pointingCorner: nil
+            pointingCorner: pointingCorner
         )
     }
 
@@ -99,6 +100,18 @@ final class MapsTests: XCTestCase {
         var count = 0
         path.applyWithBlock { _ in count += 1 }
         return count
+    }
+
+    private func pointedRadius(
+        _ radii: MapLibrePinCornerRadii,
+        at corner: MapLibreEdgePinPointingCorner
+    ) -> CGFloat {
+        switch corner {
+        case .topLeft: radii.topLeft
+        case .topRight: radii.topRight
+        case .bottomLeft: radii.bottomLeft
+        case .bottomRight: radii.bottomRight
+        }
     }
 
     func testEdgePinSafeRectUsesCompleteFrameMarginsAndMeasuredTimeline() {
@@ -228,6 +241,74 @@ final class MapsTests: XCTestCase {
         XCTAssertEqual(split.key, merge.key)
     }
 
+    func testGooeyAccentRoleAndDescriptorHighlightPropagation() throws {
+        let plainSingles = partition(generation: 1, [
+            gooeySnapshot([1], frame: CGRect(x: 0, y: 0, width: 32, height: 32)),
+            gooeySnapshot([2], frame: CGRect(x: 40, y: 0, width: 32, height: 32))
+        ])
+        let plainGroup = partition(generation: 2, [
+            gooeySnapshot([1, 2], frame: CGRect(x: 20, y: 0, width: 56, height: 32))
+        ])
+        let plain = try XCTUnwrap(MapLibrePinGooeyTransitionResolver.transitions(
+            previous: plainSingles,
+            current: plainGroup,
+            reason: .viewport,
+            hasPresentedInitialState: true
+        ).first)
+        XCTAssertFalse(plain.showsAccent)
+        XCTAssertEqual(MapLibrePinGooeyStyle.outerFillRole(showsAccent: plain.showsAccent), .white)
+
+        let highlightedSingles = partition(generation: 3, [
+            gooeySnapshot(
+                [1],
+                frame: CGRect(x: 0, y: 0, width: 32, height: 32),
+                highlighted: true
+            ),
+            gooeySnapshot([2], frame: CGRect(x: 40, y: 0, width: 32, height: 32))
+        ])
+        let highlighted = try XCTUnwrap(MapLibrePinGooeyTransitionResolver.transitions(
+            previous: highlightedSingles,
+            current: plainGroup,
+            reason: .viewport,
+            hasPresentedInitialState: true
+        ).first)
+        XCTAssertTrue(highlighted.showsAccent)
+        XCTAssertEqual(MapLibrePinGooeyStyle.outerFillRole(showsAccent: highlighted.showsAccent), .accent)
+    }
+
+    func testGooeyUpdateReasonPrioritizesSafeAreaOverSelection() {
+        XCTAssertEqual(MapLibrePinPlacementUpdateReason.resolve(
+            hasPresentedInitialState: false,
+            pointsChanged: true,
+            safeAreaChanged: true,
+            selectionChanged: true
+        ), .initial)
+        XCTAssertEqual(MapLibrePinPlacementUpdateReason.resolve(
+            hasPresentedInitialState: true,
+            pointsChanged: true,
+            safeAreaChanged: true,
+            selectionChanged: true
+        ), .dataMutation)
+
+        let safeAreaAndSelection = MapLibrePinPlacementUpdateReason.resolve(
+            hasPresentedInitialState: true,
+            pointsChanged: false,
+            safeAreaChanged: true,
+            selectionChanged: true
+        )
+        XCTAssertEqual(safeAreaAndSelection, .safeArea)
+        XCTAssertTrue(safeAreaAndSelection.allowsGooeyTransition)
+
+        let selectionOnly = MapLibrePinPlacementUpdateReason.resolve(
+            hasPresentedInitialState: true,
+            pointsChanged: false,
+            safeAreaChanged: false,
+            selectionChanged: true
+        )
+        XCTAssertEqual(selectionOnly, .selection)
+        XCTAssertFalse(selectionOnly.allowsGooeyTransition)
+    }
+
     func testGooeyResolverRejectsCRUDAndManyToManyRepartition() {
         let old = partition(generation: 1, [
             gooeySnapshot([1, 2], frame: CGRect(x: 0, y: 0, width: 48, height: 32)),
@@ -273,9 +354,12 @@ final class MapsTests: XCTestCase {
                 branches: [MapLibrePinGooeyBranch(
                     orderedMemberIDs: [gooeyID(1)],
                     sourceFrame: source,
-                    targetFrame: target
+                    targetFrame: target,
+                    sourcePointingCorner: nil,
+                    targetPointingCorner: nil
                 )],
-                localBounds: source.union(target).insetBy(dx: -20, dy: -20)
+                localBounds: source.union(target).insetBy(dx: -20, dy: -20),
+                showsAccent: false
             )
             let sample = try XCTUnwrap(MapLibrePinMetaballPath.sample(
                 descriptor: descriptor,
@@ -298,9 +382,12 @@ final class MapsTests: XCTestCase {
             branches: [MapLibrePinGooeyBranch(
                 orderedMemberIDs: [gooeyID(1)],
                 sourceFrame: source,
-                targetFrame: nearby
+                targetFrame: nearby,
+                sourcePointingCorner: nil,
+                targetPointingCorner: nil
             )],
-            localBounds: source.union(nearby).insetBy(dx: -20, dy: -20)
+            localBounds: source.union(nearby).insetBy(dx: -20, dy: -20),
+            showsAccent: false
         )
         let start = try XCTUnwrap(MapLibrePinMetaballPath.sample(
             descriptor: descriptor,
@@ -322,15 +409,177 @@ final class MapsTests: XCTestCase {
             branches: [MapLibrePinGooeyBranch(
                 orderedMemberIDs: [gooeyID(1)],
                 sourceFrame: source,
-                targetFrame: distant
+                targetFrame: distant,
+                sourcePointingCorner: nil,
+                targetPointingCorner: nil
             )],
-            localBounds: source.union(distant).insetBy(dx: -20, dy: -20)
+            localBounds: source.union(distant).insetBy(dx: -20, dy: -20),
+            showsAccent: false
         )
         XCTAssertGreaterThan(
             MapLibrePinGooeyGeometry.surfaceGap(from: source, to: distant),
             MapLibrePinGooeyGeometry.maximumBridgeLength
         )
         XCTAssertNil(MapLibrePinMetaballPath.sample(descriptor: tooLong, progress: 0.5))
+    }
+
+    func testGooeySurfaceGapUsesTwoDimensionalCapsuleCenterSegments() {
+        let source = CGRect(x: 0, y: 0, width: 180, height: 32)
+        let target = source.offsetBy(dx: 100, dy: 150)
+        XCTAssertEqual(
+            MapLibrePinGooeyGeometry.surfaceGap(from: source, to: target),
+            118,
+            accuracy: 0.001
+        )
+
+        let descriptor = MapLibrePinGooeyTransitionDescriptor(
+            key: MapLibrePinGooeyTransitionKey(orderedMemberIDs: [gooeyID(1), gooeyID(2)]),
+            kind: .merge,
+            branches: [MapLibrePinGooeyBranch(
+                orderedMemberIDs: [gooeyID(1)],
+                sourceFrame: source,
+                targetFrame: target,
+                sourcePointingCorner: nil,
+                targetPointingCorner: nil
+            )],
+            localBounds: source.union(target).insetBy(dx: -40, dy: -40),
+            showsAccent: false
+        )
+        XCTAssertFalse(MapLibrePinGooeyGeometry.isRenderable(descriptor))
+        XCTAssertNil(MapLibrePinMetaballPath.sample(descriptor: descriptor, progress: 0.5))
+    }
+
+    func testGooeyRetargetPolicyTranslatesRigidGeometryAndCancelsLayoutChanges() {
+        let reference = [
+            gooeySnapshot([1], frame: CGRect(x: 10, y: 20, width: 32, height: 32)),
+            gooeySnapshot([2], frame: CGRect(x: 50, y: 20, width: 32, height: 32))
+        ]
+        XCTAssertEqual(
+            MapLibrePinGooeyRetargetPolicy.decision(reference: reference, current: reference),
+            .unchanged
+        )
+
+        let translated = reference.map { placement in
+            MapLibrePinVisualSnapshot(
+                representativeID: placement.representativeID,
+                orderedMemberIDs: placement.orderedMemberIDs,
+                numberFrame: placement.numberFrame.offsetBy(dx: 12, dy: -7),
+                labelText: placement.labelText,
+                isHighlighted: placement.isHighlighted,
+                showsCategoryBubble: placement.showsCategoryBubble,
+                pointingCorner: placement.pointingCorner
+            )
+        }
+        XCTAssertEqual(
+            MapLibrePinGooeyRetargetPolicy.decision(reference: reference, current: translated),
+            .translate(MapLibrePinGooeyTranslation(dx: 12, dy: -7))
+        )
+
+        var differentialMove = translated
+        differentialMove[1] = gooeySnapshot(
+            [2],
+            frame: reference[1].numberFrame.offsetBy(dx: 15, dy: -7)
+        )
+        XCTAssertEqual(
+            MapLibrePinGooeyRetargetPolicy.decision(reference: reference, current: differentialMove),
+            .cancel
+        )
+
+        var resized = translated
+        resized[0] = gooeySnapshot(
+            [1],
+            frame: CGRect(x: 22, y: 13, width: 40, height: 32)
+        )
+        XCTAssertEqual(
+            MapLibrePinGooeyRetargetPolicy.decision(reference: reference, current: resized),
+            .cancel
+        )
+    }
+
+    func testGooeyBoundsClipsToTimelineSafeRect() throws {
+        let mapBounds = CGRect(x: 0, y: 0, width: 430, height: 932)
+        let safeBounds = MapLibreEdgePinGeometry.safeOuterRect(
+            screenBounds: mapBounds,
+            timelineTop: 700
+        )
+        let clipped = try XCTUnwrap(MapLibrePinGooeyBounds.clippedLocalBounds(
+            CGRect(x: 10, y: 620, width: 420, height: 160),
+            mapBounds: mapBounds,
+            safeBounds: safeBounds
+        ))
+        XCTAssertEqual(clipped, CGRect(x: 20, y: 620, width: 390, height: 60))
+        XCTAssertLessThanOrEqual(clipped.maxY, safeBounds.maxY)
+        XCTAssertTrue(mapBounds.contains(clipped))
+        XCTAssertTrue(safeBounds.contains(clipped))
+    }
+
+    func testGooeyFourPointingCornersRemainPresentAcrossMergeAndSplit() throws {
+        let corners: [MapLibreEdgePinPointingCorner] = [
+            .topLeft,
+            .topRight,
+            .bottomLeft,
+            .bottomRight
+        ]
+        let progressValues: [CGFloat] = [0, 0.5, 1]
+        let source = CGRect(x: 30, y: 30, width: 32, height: 32)
+        let target = CGRect(x: 82, y: 54, width: 64, height: 32)
+
+        for corner in corners {
+            for kind in [MapLibrePinGooeyTransitionKind.merge, .split] {
+                let branch = MapLibrePinGooeyBranch(
+                    orderedMemberIDs: [gooeyID(1)],
+                    sourceFrame: source,
+                    targetFrame: target,
+                    sourcePointingCorner: kind == .split ? corner : nil,
+                    targetPointingCorner: kind == .merge ? corner : nil
+                )
+                let descriptor = MapLibrePinGooeyTransitionDescriptor(
+                    key: MapLibrePinGooeyTransitionKey(
+                        orderedMemberIDs: [gooeyID(1), gooeyID(2)]
+                    ),
+                    kind: kind,
+                    branches: [branch],
+                    localBounds: source.union(target).insetBy(dx: -40, dy: -40),
+                    showsAccent: false
+                )
+                let samples = try progressValues.map { progress in
+                    let radii = MapLibrePinMetaballPath.endpointCornerRadii(
+                        branch: branch,
+                        progress: progress
+                    )
+                    let pointedEndpoint = kind == .merge ? radii.target : radii.source
+                    XCTAssertEqual(
+                        pointedRadius(pointedEndpoint, at: corner),
+                        0,
+                        accuracy: 0.0001,
+                        "\(kind) \(corner) lost its point at progress \(progress)"
+                    )
+                    return try XCTUnwrap(MapLibrePinMetaballPath.sample(
+                        descriptor: descriptor,
+                        progress: progress
+                    ))
+                }
+                XCTAssertEqual(
+                    Set(samples.map { pathElementCount($0.outerPath) }).count,
+                    1,
+                    "outer topology changed for \(kind) \(corner)"
+                )
+                XCTAssertEqual(
+                    Set(samples.map { pathElementCount($0.innerPath) }).count,
+                    1,
+                    "inner topology changed for \(kind) \(corner)"
+                )
+            }
+        }
+    }
+
+    func testGooeyCategoryIconSourcesAreSharedAndDeterministic() {
+        XCTAssertEqual(MapLibrePinCategoryIcon.sources(symbolName: "fork.knife"), [
+            .asset("icon-camera-outline"),
+            .asset("icon-camera"),
+            .asset("icon-landscape-outline"),
+            .system("fork.knife")
+        ])
     }
 
     func testGooeyLifecycleIgnoresStaleCompletionAndCapsConcurrency() throws {
@@ -351,6 +600,11 @@ final class MapsTests: XCTestCase {
             MapLibrePinGooeyLifecycleState.maximumActiveComponents
         )
         XCTAssertNil(state.begin(MapLibrePinGooeyTransitionKey(
+            orderedMemberIDs: [gooeyID(5)]
+        )))
+        state.cancel(firstKey)
+        XCTAssertFalse(state.isCurrent(firstKey, generation: replacementGeneration))
+        XCTAssertNotNil(state.begin(MapLibrePinGooeyTransitionKey(
             orderedMemberIDs: [gooeyID(5)]
         )))
         state.cancelAll()

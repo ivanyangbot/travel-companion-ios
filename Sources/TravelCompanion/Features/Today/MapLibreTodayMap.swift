@@ -1610,6 +1610,11 @@ struct MapLibrePinMetaballSample: Equatable {
     }
 }
 
+struct MapLibrePinGooeyEndpointCornerRadii: Equatable {
+    let source: MapLibrePinCornerRadii
+    let target: MapLibrePinCornerRadii
+}
+
 enum MapLibrePinGooeyGeometry {
     static let maximumBridgeLength: CGFloat = 96
     static let bridgeInset: CGFloat = 2
@@ -1665,6 +1670,17 @@ enum MapLibrePinGooeyGeometry {
 }
 
 enum MapLibrePinMetaballPath {
+    static func endpointCornerRadii(
+        branch: MapLibrePinGooeyBranch,
+        progress: CGFloat
+    ) -> MapLibrePinGooeyEndpointCornerRadii {
+        let frames = endpointFrames(branch: branch, progress: progress)
+        return MapLibrePinGooeyEndpointCornerRadii(
+            source: cornerRadii(in: frames.source, pointingCorner: branch.sourcePointingCorner),
+            target: cornerRadii(in: frames.target, pointingCorner: branch.targetPointingCorner)
+        )
+    }
+
     static func sample(
         descriptor: MapLibrePinGooeyTransitionDescriptor,
         progress: CGFloat,
@@ -1711,15 +1727,21 @@ enum MapLibrePinMetaballPath {
         previousDirection: CGVector?,
         to path: CGMutablePath
     ) {
-        let source = interpolated(branch.sourceFrame, branch.targetFrame, eased)
-            .insetBy(dx: inset, dy: inset)
-        let targetScale = max(0.001, smoothstep(min(1, max(0, (progress - 0.08) / 0.84))))
-        let target = scaled(branch.targetFrame, by: targetScale)
-            .insetBy(dx: inset, dy: inset)
+        let endpointFrames = endpointFrames(branch: branch, progress: progress, eased: eased)
+        let source = endpointFrames.source.insetBy(dx: inset, dy: inset)
+        let target = endpointFrames.target.insetBy(dx: inset, dy: inset)
         let localSource = source.offsetBy(dx: -localOrigin.x, dy: -localOrigin.y)
         let localTarget = target.offsetBy(dx: -localOrigin.x, dy: -localOrigin.y)
-        appendCapsule(localSource, to: path)
-        appendCapsule(localTarget, to: path)
+        appendPinShape(
+            localSource,
+            pointingCorner: branch.sourcePointingCorner,
+            to: path
+        )
+        appendPinShape(
+            localTarget,
+            pointingCorner: branch.targetPointingCorner,
+            to: path
+        )
 
         let delta = CGVector(dx: localTarget.midX - localSource.midX, dy: localTarget.midY - localSource.midY)
         let distance = hypot(delta.dx, delta.dy)
@@ -1728,13 +1750,25 @@ enum MapLibrePinMetaballPath {
             ? CGVector(dx: delta.dx / distance, dy: delta.dy / distance)
             : fallback
         let normal = CGVector(dx: -direction.dy, dy: direction.dx)
-        let sourceAnchor = CGPoint(
+        let defaultSourceAnchor = CGPoint(
             x: localSource.midX + direction.dx * MapLibrePinGooeyGeometry.supportDistance(of: localSource, direction: direction),
             y: localSource.midY + direction.dy * MapLibrePinGooeyGeometry.supportDistance(of: localSource, direction: direction)
         )
-        let targetAnchor = CGPoint(
+        let defaultTargetAnchor = CGPoint(
             x: localTarget.midX - direction.dx * MapLibrePinGooeyGeometry.supportDistance(of: localTarget, direction: direction),
             y: localTarget.midY - direction.dy * MapLibrePinGooeyGeometry.supportDistance(of: localTarget, direction: direction)
+        )
+        let sourceAnchor = bridgeAnchor(
+            frame: localSource,
+            pointingCorner: branch.sourcePointingCorner,
+            outwardDirection: direction,
+            defaultAnchor: defaultSourceAnchor
+        )
+        let targetAnchor = bridgeAnchor(
+            frame: localTarget,
+            pointingCorner: branch.targetPointingCorner,
+            outwardDirection: CGVector(dx: -direction.dx, dy: -direction.dy),
+            defaultAnchor: defaultTargetAnchor
         )
         let gap = hypot(targetAnchor.x - sourceAnchor.x, targetAnchor.y - sourceAnchor.y)
         let proximity = 1 - smoothstep(min(1, gap / MapLibrePinGooeyGeometry.maximumBridgeLength))
@@ -1761,35 +1795,84 @@ enum MapLibrePinMetaballPath {
         path.closeSubpath()
     }
 
-    private static func appendCapsule(_ frame: CGRect, to path: CGMutablePath) {
-        let radius = max(0, min(frame.height / 2, frame.width / 2))
-        let kappa: CGFloat = 0.552_284_749_8
-        path.move(to: CGPoint(x: frame.minX + radius, y: frame.minY))
-        path.addLine(to: CGPoint(x: frame.maxX - radius, y: frame.minY))
-        path.addCurve(
-            to: CGPoint(x: frame.maxX, y: frame.minY + radius),
-            control1: CGPoint(x: frame.maxX - radius + radius * kappa, y: frame.minY),
-            control2: CGPoint(x: frame.maxX, y: frame.minY + radius - radius * kappa)
+    private static func appendPinShape(
+        _ frame: CGRect,
+        pointingCorner: MapLibreEdgePinPointingCorner?,
+        to path: CGMutablePath
+    ) {
+        let radii = cornerRadii(in: frame, pointingCorner: pointingCorner)
+        path.move(to: CGPoint(x: frame.minX + radii.topLeft, y: frame.minY))
+        path.addLine(to: CGPoint(x: frame.maxX - radii.topRight, y: frame.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: frame.maxX, y: frame.minY + radii.topRight),
+            control: CGPoint(x: frame.maxX, y: frame.minY)
         )
-        path.addLine(to: CGPoint(x: frame.maxX, y: frame.maxY - radius))
-        path.addCurve(
-            to: CGPoint(x: frame.maxX - radius, y: frame.maxY),
-            control1: CGPoint(x: frame.maxX, y: frame.maxY - radius + radius * kappa),
-            control2: CGPoint(x: frame.maxX - radius + radius * kappa, y: frame.maxY)
+        path.addLine(to: CGPoint(x: frame.maxX, y: frame.maxY - radii.bottomRight))
+        path.addQuadCurve(
+            to: CGPoint(x: frame.maxX - radii.bottomRight, y: frame.maxY),
+            control: CGPoint(x: frame.maxX, y: frame.maxY)
         )
-        path.addLine(to: CGPoint(x: frame.minX + radius, y: frame.maxY))
-        path.addCurve(
-            to: CGPoint(x: frame.minX, y: frame.maxY - radius),
-            control1: CGPoint(x: frame.minX + radius - radius * kappa, y: frame.maxY),
-            control2: CGPoint(x: frame.minX, y: frame.maxY - radius + radius * kappa)
+        path.addLine(to: CGPoint(x: frame.minX + radii.bottomLeft, y: frame.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: frame.minX, y: frame.maxY - radii.bottomLeft),
+            control: CGPoint(x: frame.minX, y: frame.maxY)
         )
-        path.addLine(to: CGPoint(x: frame.minX, y: frame.minY + radius))
-        path.addCurve(
-            to: CGPoint(x: frame.minX + radius, y: frame.minY),
-            control1: CGPoint(x: frame.minX, y: frame.minY + radius - radius * kappa),
-            control2: CGPoint(x: frame.minX + radius - radius * kappa, y: frame.minY)
+        path.addLine(to: CGPoint(x: frame.minX, y: frame.minY + radii.topLeft))
+        path.addQuadCurve(
+            to: CGPoint(x: frame.minX + radii.topLeft, y: frame.minY),
+            control: CGPoint(x: frame.minX, y: frame.minY)
         )
         path.closeSubpath()
+    }
+
+    private static func cornerRadii(
+        in frame: CGRect,
+        pointingCorner: MapLibreEdgePinPointingCorner?
+    ) -> MapLibrePinCornerRadii {
+        MapLibrePinCornerTransitionGeometry.radii(
+            pointingCorner: pointingCorner,
+            radius: max(0, min(frame.height / 2, frame.width / 2))
+        )
+    }
+
+    private static func bridgeAnchor(
+        frame: CGRect,
+        pointingCorner: MapLibreEdgePinPointingCorner?,
+        outwardDirection: CGVector,
+        defaultAnchor: CGPoint
+    ) -> CGPoint {
+        switch pointingCorner {
+        case .topLeft where outwardDirection.dx < 0 && outwardDirection.dy < 0,
+             .topRight where outwardDirection.dx > 0 && outwardDirection.dy < 0:
+            return CGPoint(x: frame.midX, y: frame.minY)
+        case .bottomLeft where outwardDirection.dx < 0 && outwardDirection.dy > 0,
+             .bottomRight where outwardDirection.dx > 0 && outwardDirection.dy > 0:
+            return CGPoint(x: frame.midX, y: frame.maxY)
+        default:
+            return defaultAnchor
+        }
+    }
+
+    private static func endpointFrames(
+        branch: MapLibrePinGooeyBranch,
+        progress: CGFloat,
+        eased suppliedEased: CGFloat? = nil
+    ) -> (source: CGRect, target: CGRect) {
+        let progress = min(1, max(0, progress))
+        let eased = suppliedEased ?? smoothstep(progress)
+        let movingSource = interpolated(branch.sourceFrame, branch.targetFrame, eased)
+        let sourceScale = max(
+            0.001,
+            1 - smoothstep(min(1, max(0, (progress - 0.55) / 0.45)))
+        )
+        let targetScale = max(
+            0.001,
+            smoothstep(min(1, max(0, (progress - 0.08) / 0.84)))
+        )
+        return (
+            source: scaled(movingSource, by: sourceScale),
+            target: scaled(branch.targetFrame, by: targetScale)
+        )
     }
 
     private static func interpolated(_ lhs: CGRect, _ rhs: CGRect, _ progress: CGFloat) -> CGRect {
@@ -1855,6 +1938,94 @@ struct MapLibrePinGooeyLifecycleState: Equatable {
     mutating func cancelAll() {
         activeGenerations.removeAll()
     }
+
+    mutating func cancel(_ key: MapLibrePinGooeyTransitionKey) {
+        activeGenerations[key] = nil
+    }
+}
+
+struct MapLibrePinGooeyTranslation: Equatable {
+    let dx: CGFloat
+    let dy: CGFloat
+}
+
+enum MapLibrePinGooeyRetargetDecision: Equatable {
+    case unchanged
+    case translate(MapLibrePinGooeyTranslation)
+    case cancel
+}
+
+enum MapLibrePinGooeyRetargetPolicy {
+    static func relevantPlacements(
+        in snapshot: MapLibrePinPartitionSnapshot,
+        for key: MapLibrePinGooeyTransitionKey
+    ) -> [MapLibrePinVisualSnapshot] {
+        let members = Set(key.orderedMemberIDs)
+        return snapshot.placements.filter {
+            !members.isDisjoint(with: Set($0.orderedMemberIDs))
+        }.sorted { canonicalKey($0) < canonicalKey($1) }
+    }
+
+    static func decision(
+        reference: [MapLibrePinVisualSnapshot],
+        current: [MapLibrePinVisualSnapshot]
+    ) -> MapLibrePinGooeyRetargetDecision {
+        guard !reference.isEmpty, reference.count == current.count else { return .cancel }
+        let old = reference.sorted { canonicalKey($0) < canonicalKey($1) }
+        let new = current.sorted { canonicalKey($0) < canonicalKey($1) }
+        var commonTranslation: MapLibrePinGooeyTranslation?
+        for (lhs, rhs) in zip(old, new) {
+            guard canonicalKey(lhs) == canonicalKey(rhs),
+                  lhs.representativeID == rhs.representativeID,
+                  abs(lhs.numberFrame.width - rhs.numberFrame.width) <= 0.5,
+                  abs(lhs.numberFrame.height - rhs.numberFrame.height) <= 0.5,
+                  lhs.labelText == rhs.labelText,
+                  lhs.isHighlighted == rhs.isHighlighted,
+                  lhs.showsCategoryBubble == rhs.showsCategoryBubble,
+                  lhs.pointingCorner == rhs.pointingCorner else {
+                return .cancel
+            }
+            let translation = MapLibrePinGooeyTranslation(
+                dx: rhs.numberFrame.midX - lhs.numberFrame.midX,
+                dy: rhs.numberFrame.midY - lhs.numberFrame.midY
+            )
+            if let commonTranslation {
+                guard abs(commonTranslation.dx - translation.dx) <= 0.5,
+                      abs(commonTranslation.dy - translation.dy) <= 0.5 else {
+                    return .cancel
+                }
+            } else {
+                commonTranslation = translation
+            }
+        }
+        guard let commonTranslation else { return .cancel }
+        if abs(commonTranslation.dx) <= 0.25, abs(commonTranslation.dy) <= 0.25 {
+            return .unchanged
+        }
+        return .translate(commonTranslation)
+    }
+
+    private static func canonicalKey(_ placement: MapLibrePinVisualSnapshot) -> String {
+        placement.orderedMemberIDs.map(\.uuidString).sorted().joined(separator: "|")
+    }
+}
+
+enum MapLibrePinGooeyBounds {
+    static func clippedLocalBounds(
+        _ localBounds: CGRect,
+        mapBounds: CGRect,
+        safeBounds: CGRect
+    ) -> CGRect? {
+        guard MapLibrePinGooeyGeometry.isFinite(localBounds),
+              MapLibrePinGooeyGeometry.isFinite(mapBounds),
+              MapLibrePinGooeyGeometry.isFinite(safeBounds),
+              !safeBounds.isNull else {
+            return nil
+        }
+        let clipped = localBounds.intersection(mapBounds).intersection(safeBounds)
+        guard !clipped.isNull, clipped.width > 1, clipped.height > 1 else { return nil }
+        return clipped
+    }
 }
 
 @MainActor
@@ -1886,20 +2057,29 @@ private final class MapLibrePinGooeyOverlayView: UIView {
         let container: CALayer
         let outer: CAShapeLayer
         let inner: CAShapeLayer
-        let localBounds: CGRect
+        var rawLocalBounds: CGRect
+        var localBounds: CGRect
+        var referencePlacements: [MapLibrePinVisualSnapshot]
+        let showsAccent: Bool
         let annotationViews: [MapLibreNumberedAnnotationView]
 
         init(
             container: CALayer,
             outer: CAShapeLayer,
             inner: CAShapeLayer,
+            rawLocalBounds: CGRect,
             localBounds: CGRect,
+            referencePlacements: [MapLibrePinVisualSnapshot],
+            showsAccent: Bool,
             annotationViews: [MapLibreNumberedAnnotationView]
         ) {
             self.container = container
             self.outer = outer
             self.inner = inner
+            self.rawLocalBounds = rawLocalBounds
             self.localBounds = localBounds
+            self.referencePlacements = referencePlacements
+            self.showsAccent = showsAccent
             self.annotationViews = annotationViews
         }
     }
@@ -1925,6 +2105,7 @@ private final class MapLibrePinGooeyOverlayView: UIView {
         _ descriptors: [MapLibrePinGooeyTransitionDescriptor],
         previous: MapLibrePinPartitionSnapshot,
         current: MapLibrePinPartitionSnapshot,
+        safeBounds: CGRect,
         symbolName: ([UUID]) -> String?,
         finalViews: (MapLibrePinGooeyTransitionDescriptor) -> [MapLibreNumberedAnnotationView]
     ) {
@@ -1945,12 +2126,17 @@ private final class MapLibrePinGooeyOverlayView: UIView {
         cancelAll()
 
         for descriptor in descriptors where MapLibrePinGooeyGeometry.isRenderable(descriptor) {
-            guard let clippedBounds = clippedLocalBounds(descriptor.localBounds) else { continue }
+            guard let clippedBounds = MapLibrePinGooeyBounds.clippedLocalBounds(
+                descriptor.localBounds,
+                mapBounds: bounds,
+                safeBounds: safeBounds
+            ) else { continue }
             let renderDescriptor = MapLibrePinGooeyTransitionDescriptor(
                 key: descriptor.key,
                 kind: descriptor.kind,
                 branches: descriptor.branches,
-                localBounds: clippedBounds
+                localBounds: clippedBounds,
+                showsAccent: descriptor.showsAccent
             )
             let samples = stride(from: 0, through: 8, by: 1).compactMap { index in
                 MapLibrePinMetaballPath.sample(
@@ -1974,7 +2160,7 @@ private final class MapLibrePinGooeyOverlayView: UIView {
                 $0.frame = componentLayer.bounds
                 $0.fillRule = .nonZero
             }
-            outerLayer.fillColor = accentColor.cgColor
+            outerLayer.fillColor = outerFillColor(for: descriptor.showsAccent).cgColor
             innerLayer.fillColor = UIColor.white.cgColor
             outerLayer.path = last.outerPath
             innerLayer.path = last.innerPath
@@ -1987,7 +2173,13 @@ private final class MapLibrePinGooeyOverlayView: UIView {
                 container: componentLayer,
                 outer: outerLayer,
                 inner: innerLayer,
+                rawLocalBounds: descriptor.localBounds,
                 localBounds: clippedBounds,
+                referencePlacements: MapLibrePinGooeyRetargetPolicy.relevantPlacements(
+                    in: current,
+                    for: descriptor.key
+                ),
+                showsAccent: descriptor.showsAccent,
                 annotationViews: affectedViews
             )
             layer.addSublayer(componentLayer)
@@ -2034,6 +2226,60 @@ private final class MapLibrePinGooeyOverlayView: UIView {
         }
     }
 
+    func updateActiveComponents(
+        current: MapLibrePinPartitionSnapshot,
+        safeBounds: CGRect
+    ) {
+        for key in Array(active.keys) {
+            guard let component = active[key] else { continue }
+            let currentPlacements = MapLibrePinGooeyRetargetPolicy.relevantPlacements(
+                in: current,
+                for: key
+            )
+            let decision = MapLibrePinGooeyRetargetPolicy.decision(
+                reference: component.referencePlacements,
+                current: currentPlacements
+            )
+            switch decision {
+            case .unchanged:
+                guard let clipped = MapLibrePinGooeyBounds.clippedLocalBounds(
+                    component.rawLocalBounds,
+                    mapBounds: bounds,
+                    safeBounds: safeBounds
+                ), nearlyEqual(clipped, component.localBounds) else {
+                    cancel(key)
+                    continue
+                }
+                component.referencePlacements = currentPlacements
+            case let .translate(translation):
+                let translatedRaw = component.rawLocalBounds.offsetBy(
+                    dx: translation.dx,
+                    dy: translation.dy
+                )
+                guard let clipped = MapLibrePinGooeyBounds.clippedLocalBounds(
+                    translatedRaw,
+                    mapBounds: bounds,
+                    safeBounds: safeBounds
+                ), nearlyEqual(
+                    clipped,
+                    component.localBounds.offsetBy(dx: translation.dx, dy: translation.dy)
+                ) else {
+                    cancel(key)
+                    continue
+                }
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                component.container.frame = clipped
+                CATransaction.commit()
+                component.rawLocalBounds = translatedRaw
+                component.localBounds = clipped
+                component.referencePlacements = currentPlacements
+            case .cancel:
+                cancel(key)
+            }
+        }
+    }
+
     func cancelAll() {
         lifecycle.cancelAll()
         for component in active.values {
@@ -2042,6 +2288,14 @@ private final class MapLibrePinGooeyOverlayView: UIView {
             component.annotationViews.forEach { $0.setGooeyContentHidden(false) }
         }
         active.removeAll()
+    }
+
+    private func cancel(_ key: MapLibrePinGooeyTransitionKey) {
+        lifecycle.cancel(key)
+        guard let component = active.removeValue(forKey: key) else { return }
+        component.container.removeAllAnimations()
+        component.container.removeFromSuperlayer()
+        component.annotationViews.forEach { $0.setGooeyContentHidden(false) }
     }
 
     private func finish(_ key: MapLibrePinGooeyTransitionKey, generation: Int) {
@@ -2053,10 +2307,18 @@ private final class MapLibrePinGooeyOverlayView: UIView {
         component.annotationViews.forEach { $0.setGooeyContentHidden(false) }
     }
 
-    private func clippedLocalBounds(_ localBounds: CGRect) -> CGRect? {
-        let clipped = localBounds.intersection(bounds)
-        guard !clipped.isNull, clipped.width > 1, clipped.height > 1 else { return nil }
-        return clipped
+    private func outerFillColor(for showsAccent: Bool) -> UIColor {
+        switch MapLibrePinGooeyStyle.outerFillRole(showsAccent: showsAccent) {
+        case .white: UIColor.white
+        case .accent: accentColor
+        }
+    }
+
+    private func nearlyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        abs(lhs.minX - rhs.minX) <= 0.5
+            && abs(lhs.minY - rhs.minY) <= 0.5
+            && abs(lhs.width - rhs.width) <= 0.5
+            && abs(lhs.height - rhs.height) <= 0.5
     }
 
     private func pathAnimation(values: [CGPath]) -> CAKeyframeAnimation {
@@ -2161,10 +2423,8 @@ private final class MapLibrePinGooeyOverlayView: UIView {
         iconLayer.frame = categoryFrame.insetBy(dx: 8, dy: 8)
         iconLayer.contentsGravity = .resizeAspect
         iconLayer.contentsScale = traitCollection.displayScale
-        let configuration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
-        let image = UIImage(
-            systemName: symbolName ?? "mappin",
-            withConfiguration: configuration
+        let image = MapLibrePinCategoryIcon.image(
+            symbolName: symbolName ?? "mappin"
         )?.withTintColor(.black, renderingMode: .alwaysOriginal)
         iconLayer.contents = rasterized(image, size: iconLayer.bounds.size)?.cgImage
         container.addSublayer(iconLayer)
@@ -2441,7 +2701,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             }
             let forceRouteRefresh = refreshRequested && routeRefreshID > 0
 
-            if pointsChanged || selectionChanged {
+            if pointsChanged || (selectionChanged && !safeAreaChanged) {
                 // Restore any temporarily hidden annotation content before
                 // MapLibre removes or reuses those views.
                 gooeyOverlay?.cancelAll()
@@ -2476,18 +2736,12 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
 
             renderedPoints = points
             renderedSelection = selectedIndex
-            let updateReason: MapLibrePinPlacementUpdateReason
-            if !hasAppliedPinPlacements {
-                updateReason = .initial
-            } else if pointsChanged {
-                updateReason = .dataMutation
-            } else if selectionChanged {
-                updateReason = .selection
-            } else if safeAreaChanged {
-                updateReason = .safeArea
-            } else {
-                updateReason = .viewport
-            }
+            let updateReason = MapLibrePinPlacementUpdateReason.resolve(
+                hasPresentedInitialState: hasAppliedPinPlacements,
+                pointsChanged: pointsChanged,
+                safeAreaChanged: safeAreaChanged,
+                selectionChanged: selectionChanged
+            )
             updatePinPlacements(
                 on: mapView,
                 reason: updateReason,
@@ -3139,17 +3393,23 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             guard let overlay = gooeyOverlay else { return }
             overlay.frame = mapView.bounds
             mapView.bringSubviewToFront(overlay)
+            let safeBounds = edgePinBounds(on: mapView)
             guard let previousSnapshot,
                   !UIAccessibility.isReduceMotionEnabled else {
                 overlay.cancelAll()
                 return
             }
             guard !gooeyTransitions.isEmpty else {
-                if !reason.allowsGooeyTransition
-                    || !MapLibrePinGooeyTransitionResolver.hasSameCanonicalPartition(
+                if reason.allowsGooeyTransition,
+                   MapLibrePinGooeyTransitionResolver.hasSameCanonicalPartition(
                         previousSnapshot,
                         currentSnapshot
-                    ) {
+                   ) {
+                    overlay.updateActiveComponents(
+                        current: currentSnapshot,
+                        safeBounds: safeBounds
+                    )
+                } else {
                     overlay.cancelAll()
                 }
                 return
@@ -3161,6 +3421,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 gooeyTransitions,
                 previous: previousSnapshot,
                 current: currentSnapshot,
+                safeBounds: safeBounds,
                 symbolName: { memberIDs in
                     let annotations = memberIDs.compactMap { annotationByID[$0] }
                     return annotations.first(where: \.isHighlighted)?.categorySymbolName
@@ -3497,6 +3758,39 @@ private enum MapLibrePOIIcon {
             )
             symbol.draw(at: origin)
         }
+    }
+}
+
+enum MapLibrePinCategoryIconSource: Equatable {
+    case asset(String)
+    case system(String)
+}
+
+enum MapLibrePinCategoryIcon {
+    static func sources(symbolName: String) -> [MapLibrePinCategoryIconSource] {
+        [
+            .asset("icon-camera-outline"),
+            .asset("icon-camera"),
+            .asset("icon-landscape-outline"),
+            .system(symbolName)
+        ]
+    }
+
+    static func image(symbolName: String) -> UIImage? {
+        for source in sources(symbolName: symbolName) {
+            switch source {
+            case let .asset(name):
+                if let image = UIImage(named: name) { return image }
+            case let .system(name):
+                if let image = UIImage(
+                    systemName: name,
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+                ) {
+                    return image
+                }
+            }
+        }
+        return nil
     }
 }
 
@@ -3851,16 +4145,10 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
             )
             categoryBackground.frame = categoryFrame
             categoryImageView.frame = categoryFrame.insetBy(dx: 8, dy: 8)
-            categoryImageView.image = (
-                UIImage(named: "icon-camera-outline")
-                    ?? UIImage(named: "icon-camera")
-                    ?? UIImage(named: "icon-landscape-outline")
+            categoryImageView.image = MapLibrePinCategoryIcon.image(
+                symbolName: placement.highlightedCategorySymbolName
+                    ?? annotation.categorySymbolName
             )?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(
-                    systemName: placement.highlightedCategorySymbolName
-                        ?? annotation.categorySymbolName,
-                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
-                )
             numberBackground.isHidden = false
             categoryBackground.isHidden = false
             categoryImageView.isHidden = false
