@@ -63,6 +63,44 @@ final class MapsTests: XCTestCase {
         )
     }
 
+    private func gooeyID(_ suffix: Int) -> UUID {
+        UUID(uuidString: String(format: "30000000-0000-0000-0000-%012d", suffix))!
+    }
+
+    private func gooeySnapshot(
+        _ members: [Int],
+        frame: CGRect,
+        label: String? = nil,
+        highlighted: Bool = false
+    ) -> MapLibrePinVisualSnapshot {
+        let ids = members.map(gooeyID)
+        return MapLibrePinVisualSnapshot(
+            representativeID: ids[0],
+            orderedMemberIDs: ids,
+            numberFrame: frame,
+            labelText: label ?? members.map(String.init).joined(separator: "."),
+            isHighlighted: highlighted,
+            showsCategoryBubble: highlighted,
+            pointingCorner: nil
+        )
+    }
+
+    private func partition(
+        generation: Int,
+        _ placements: [MapLibrePinVisualSnapshot]
+    ) -> MapLibrePinPartitionSnapshot {
+        MapLibrePinPartitionSnapshot(
+            updateGeneration: generation,
+            placements: placements
+        )
+    }
+
+    private func pathElementCount(_ path: CGPath) -> Int {
+        var count = 0
+        path.applyWithBlock { _ in count += 1 }
+        return count
+    }
+
     func testEdgePinSafeRectUsesCompleteFrameMarginsAndMeasuredTimeline() {
         let rect = MapLibreEdgePinGeometry.safeOuterRect(
             screenBounds: CGRect(x: 0, y: 0, width: 430, height: 932),
@@ -117,6 +155,206 @@ final class MapsTests: XCTestCase {
             wasEdgePinned: false,
             isEdgePinned: false
         ))
+    }
+
+    func testGooeyTransitionReasonAndPartitionGates() {
+        let old = partition(generation: 1, [
+            gooeySnapshot([1], frame: CGRect(x: 0, y: 0, width: 32, height: 32)),
+            gooeySnapshot([2], frame: CGRect(x: 40, y: 0, width: 32, height: 32))
+        ])
+        let merged = partition(generation: 2, [
+            gooeySnapshot([1, 2], frame: CGRect(x: 12, y: 0, width: 48, height: 32))
+        ])
+
+        for reason in [
+            MapLibrePinPlacementUpdateReason.initial,
+            .dataMutation,
+            .selection
+        ] {
+            XCTAssertTrue(MapLibrePinGooeyTransitionResolver.transitions(
+                previous: old,
+                current: merged,
+                reason: reason,
+                hasPresentedInitialState: true
+            ).isEmpty)
+        }
+        XCTAssertTrue(MapLibrePinGooeyTransitionResolver.transitions(
+            previous: old,
+            current: merged,
+            reason: .viewport,
+            hasPresentedInitialState: false
+        ).isEmpty)
+
+        let movedSamePartition = partition(generation: 3, [
+            gooeySnapshot([1], frame: CGRect(x: 10, y: 10, width: 32, height: 32)),
+            gooeySnapshot([2], frame: CGRect(x: 50, y: 10, width: 32, height: 32))
+        ])
+        XCTAssertTrue(MapLibrePinGooeyTransitionResolver.transitions(
+            previous: old,
+            current: movedSamePartition,
+            reason: .safeArea,
+            hasPresentedInitialState: true
+        ).isEmpty)
+    }
+
+    func testGooeyResolverProducesStableNMemberMergeAndSplit() throws {
+        let singles = partition(generation: 1, [
+            gooeySnapshot([1], frame: CGRect(x: 0, y: 20, width: 32, height: 32)),
+            gooeySnapshot([2], frame: CGRect(x: 38, y: 20, width: 32, height: 32)),
+            gooeySnapshot([3], frame: CGRect(x: 76, y: 20, width: 32, height: 32))
+        ])
+        let group = partition(generation: 2, [
+            gooeySnapshot([1, 2, 3], frame: CGRect(x: 28, y: 20, width: 68, height: 32))
+        ])
+
+        let merge = try XCTUnwrap(MapLibrePinGooeyTransitionResolver.transitions(
+            previous: singles,
+            current: group,
+            reason: .viewport,
+            hasPresentedInitialState: true
+        ).first)
+        XCTAssertEqual(merge.kind, .merge)
+        XCTAssertEqual(merge.branches.count, 3)
+        XCTAssertEqual(merge.key.orderedMemberIDs, [1, 2, 3].map(gooeyID))
+
+        let split = try XCTUnwrap(MapLibrePinGooeyTransitionResolver.transitions(
+            previous: group,
+            current: singles,
+            reason: .autoFocus,
+            hasPresentedInitialState: true
+        ).first)
+        XCTAssertEqual(split.kind, .split)
+        XCTAssertEqual(split.branches.count, 3)
+        XCTAssertEqual(split.key, merge.key)
+    }
+
+    func testGooeyResolverRejectsCRUDAndManyToManyRepartition() {
+        let old = partition(generation: 1, [
+            gooeySnapshot([1, 2], frame: CGRect(x: 0, y: 0, width: 48, height: 32)),
+            gooeySnapshot([3, 4], frame: CGRect(x: 50, y: 0, width: 48, height: 32))
+        ])
+        let manyToMany = partition(generation: 2, [
+            gooeySnapshot([1, 3], frame: CGRect(x: 10, y: 0, width: 48, height: 32)),
+            gooeySnapshot([2, 4], frame: CGRect(x: 60, y: 0, width: 48, height: 32))
+        ])
+        XCTAssertTrue(MapLibrePinGooeyTransitionResolver.transitions(
+            previous: old,
+            current: manyToMany,
+            reason: .viewport,
+            hasPresentedInitialState: true
+        ).isEmpty)
+
+        let inserted = partition(generation: 3, [
+            gooeySnapshot([1, 2], frame: CGRect(x: 0, y: 0, width: 48, height: 32)),
+            gooeySnapshot([3, 4], frame: CGRect(x: 50, y: 0, width: 48, height: 32)),
+            gooeySnapshot([5], frame: CGRect(x: 110, y: 0, width: 32, height: 32))
+        ])
+        XCTAssertTrue(MapLibrePinGooeyTransitionResolver.transitions(
+            previous: old,
+            current: inserted,
+            reason: .viewport,
+            hasPresentedInitialState: true
+        ).isEmpty)
+    }
+
+    func testGooeyMetaballIsFiniteAcrossEveryDirection() throws {
+        let source = CGRect(x: 100, y: 100, width: 32, height: 32)
+        for degrees in 0..<360 {
+            let radians = CGFloat(degrees) * .pi / 180
+            let target = CGRect(
+                x: source.midX + cos(radians) * 80 - 24,
+                y: source.midY + sin(radians) * 80 - 16,
+                width: 48,
+                height: 32
+            )
+            let descriptor = MapLibrePinGooeyTransitionDescriptor(
+                key: MapLibrePinGooeyTransitionKey(orderedMemberIDs: [gooeyID(1), gooeyID(2)]),
+                kind: .merge,
+                branches: [MapLibrePinGooeyBranch(
+                    orderedMemberIDs: [gooeyID(1)],
+                    sourceFrame: source,
+                    targetFrame: target
+                )],
+                localBounds: source.union(target).insetBy(dx: -20, dy: -20)
+            )
+            let sample = try XCTUnwrap(MapLibrePinMetaballPath.sample(
+                descriptor: descriptor,
+                progress: 0.5
+            ))
+            for bounds in [sample.outerPath.boundingBoxOfPath, sample.innerPath.boundingBoxOfPath] {
+                XCTAssertTrue(MapLibrePinGooeyGeometry.isFinite(bounds), "failed at \(degrees)°")
+                XCTAssertGreaterThan(bounds.width, 0)
+                XCTAssertGreaterThan(bounds.height, 0)
+            }
+        }
+    }
+
+    func testGooeyMetaballEnforcesMaximumBridgeAndStableTopology() throws {
+        let source = CGRect(x: 0, y: 0, width: 32, height: 32)
+        let nearby = CGRect(x: 70, y: 20, width: 56, height: 32)
+        let descriptor = MapLibrePinGooeyTransitionDescriptor(
+            key: MapLibrePinGooeyTransitionKey(orderedMemberIDs: [gooeyID(1), gooeyID(2)]),
+            kind: .merge,
+            branches: [MapLibrePinGooeyBranch(
+                orderedMemberIDs: [gooeyID(1)],
+                sourceFrame: source,
+                targetFrame: nearby
+            )],
+            localBounds: source.union(nearby).insetBy(dx: -20, dy: -20)
+        )
+        let start = try XCTUnwrap(MapLibrePinMetaballPath.sample(
+            descriptor: descriptor,
+            progress: 0
+        ))
+        let middle = try XCTUnwrap(MapLibrePinMetaballPath.sample(
+            descriptor: descriptor,
+            progress: 0.5
+        ))
+        XCTAssertEqual(pathElementCount(start.outerPath), pathElementCount(middle.outerPath))
+        XCTAssertEqual(pathElementCount(start.innerPath), pathElementCount(middle.innerPath))
+        XCTAssertNotEqual(start.outerPath, middle.outerPath)
+        XCTAssertNotEqual(start.innerPath, middle.innerPath)
+
+        let distant = CGRect(x: 200, y: 0, width: 32, height: 32)
+        let tooLong = MapLibrePinGooeyTransitionDescriptor(
+            key: descriptor.key,
+            kind: .merge,
+            branches: [MapLibrePinGooeyBranch(
+                orderedMemberIDs: [gooeyID(1)],
+                sourceFrame: source,
+                targetFrame: distant
+            )],
+            localBounds: source.union(distant).insetBy(dx: -20, dy: -20)
+        )
+        XCTAssertGreaterThan(
+            MapLibrePinGooeyGeometry.surfaceGap(from: source, to: distant),
+            MapLibrePinGooeyGeometry.maximumBridgeLength
+        )
+        XCTAssertNil(MapLibrePinMetaballPath.sample(descriptor: tooLong, progress: 0.5))
+    }
+
+    func testGooeyLifecycleIgnoresStaleCompletionAndCapsConcurrency() throws {
+        var state = MapLibrePinGooeyLifecycleState()
+        let firstKey = MapLibrePinGooeyTransitionKey(orderedMemberIDs: [gooeyID(1)])
+        let firstGeneration = try XCTUnwrap(state.begin(firstKey))
+        let replacementGeneration = try XCTUnwrap(state.begin(firstKey))
+        state.finish(firstKey, generation: firstGeneration)
+        XCTAssertTrue(state.isCurrent(firstKey, generation: replacementGeneration))
+
+        for suffix in 2...4 {
+            XCTAssertNotNil(state.begin(MapLibrePinGooeyTransitionKey(
+                orderedMemberIDs: [gooeyID(suffix)]
+            )))
+        }
+        XCTAssertEqual(
+            state.activeGenerations.count,
+            MapLibrePinGooeyLifecycleState.maximumActiveComponents
+        )
+        XCTAssertNil(state.begin(MapLibrePinGooeyTransitionKey(
+            orderedMemberIDs: [gooeyID(5)]
+        )))
+        state.cancelAll()
+        XCTAssertTrue(state.activeGenerations.isEmpty)
     }
 
     func testPointingCornerTransitionOnlySquaresTheDirectedCorner() {

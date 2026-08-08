@@ -53,12 +53,14 @@
 | 本机卡包 | 复制常用号码 | 标签、号码、备注 | 遮挡显示、复制 | 不上传/不同步 | 可管理条目且另一端/服务端不可见 |
 | AI 填入行程 | 攻略变草案 | 文本、日期、天数 | 可编辑预览 | 需确认后写入 | 失败不丢输入，确认后生成并同步卡片 |
 | 双人协作 | 同一计划可见 | 共享修改 | 自动刷新、状态 | 最多两台设计目标 | 正常网络下变更 5 秒内可见 |
+| 首页 Pin 动态边界、聚合与 Gooey 过渡 | 在地图移动中稳定辨认屏内与屏外行程地点，并直观看到聚合关系变化 | 既有 Pin placement、resolver 成员集合变化、动态安全区 | 普通/吸边 Pin、无重叠聚合及 360° 液态融合/分离过渡 | Gooey 仅为视觉过渡，不修改聚合阈值、成员、位置、标签、选择、相机或业务数据 | 仅 resolver 成员集合变化触发正反 Gooey；稳态样式与成员结果不变；数字/图标清晰；Reduce Motion 直接终态；地图手势保持跟手且临时层不可交互 |
+| Pin Gooey 视觉调参 Demo | 独立验证融合样式 | 两枚 Pin 二维位置、宽度、滤镜/状态参数 | 360° 实时融合/分离预览 | 不接地图、POI、数字、网络或持久化 | 两 Pin 均可自由拖动；32pt 等高；任意角度连续；Debug 构建通过 |
 
 ## UX Requirements
 - Navigation: 根页为行程；底部为行程、支出、卡包；AI、地图、邀请/设置通过 Sheet 或工具栏进入，不出现行程列表。
-- Main screens/pages: 日期时间轴、卡片编辑、AI 草案、路线 Sheet、支出统计、卡包、基础设置。
+- Main screens/pages: 日期时间轴、卡片编辑、AI 草案、路线 Sheet、支出统计、卡包、基础设置；开发期可由设置齿轮打开独立 Pin Gooey 视觉调参 Sheet。
 - Empty/loading/error states: 空日期提供添加入口；AI、地图、同步显示加载、上次同步、重试和不丢输入的错误状态。
-- Accessibility/localization: 动态字体、VoiceOver、44pt 点击区域、非颜色唯一状态表达；MVP 简体中文，预留本地化。
+- Accessibility/localization: 动态字体、VoiceOver、44pt 点击区域、非颜色唯一状态表达；首页 Pin 的临时 Gooey 图层不进入命中或辅助功能树，Reduce Motion 开启时直接呈现最终聚合/拆分形态；MVP 简体中文，预留本地化。
 
 ## API And Integration Requirements
 - External services: 高德地点/路线服务与 iOS URL Scheme；飞猪、小红书等的系统分享、公开链接和网页回退；兼容的 LLM API。
@@ -81,5 +83,5 @@
 
 ## Risks And Assumptions
 - Assumptions: 两名互相信任的 iPhone 用户、一次旅行、主要在中国大陆；可接受公开共享 API 风险。
-- Risks: 完全公开 API 可被读取/篡改；AI 可能出错；第三方链接规则会变化；地图时长不保证精确；最后写入优先会覆盖并发编辑。
+- Risks: 完全公开 API 可被读取/篡改；AI 可能出错；第三方链接规则会变化；地图时长不保证精确；最后写入优先会覆盖并发编辑；首页 Gooey 若使用全屏或常驻滤镜可能降低地图手势帧率，必须限制为成员集合变化期间的局部、可清理视觉层并允许性能降级为直接终态。
 - Decisions still pending: AI 供应商与预算、高德 Key、生产部署、目的地/日期/默认币种，以及是否允许清空重建唯一行程。

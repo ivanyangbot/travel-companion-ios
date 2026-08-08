@@ -58,6 +58,16 @@ sequenceDiagram
 | 本机卡包 | `docs/design/features/local-wallet.md` | 加密本地号码、遮挡和复制 | SwiftData、Keychain |
 | AI 填入行程 | `docs/design/features/ai-itinerary.md` | 后端生成结构化草案、确认导入 | 行程卡片、LLM 配置 |
 | 双人协作 | `docs/design/features/collaboration.md` | 5 秒短轮询、离线队列和 LWW 提示 | 所有共享资源 |
+| Pin Gooey 视觉调参 Demo | `docs/design/features/pin-gooey-demo.md` | SwiftUI Canvas 双 Pin 二维自由拖动、360° 融合与实时参数面板 | 无业务依赖 |
+| 首页 Pin 动态聚合与 Gooey 过渡 | `docs/design/features/home-edge-pin-gooey.md` | resolver 唯一决定 placement；根据 member-set diff 播放 MapLibre screen-space 360° 矢量融合/分离 | Today MapLibre、Core Animation |
+
+## Today Map Pin Rendering Contract
+- `calculatedPinPlacements` 及 regular/edge/final grouping resolver 是成员、代表、位置、标签和选择态的唯一真相；既有动态安全区、外框碰撞、方向槽、聚合滞回与自动追焦设计保持不变，Gooey 仅渲染前后 placement 的瞬态视觉。
+- 生产接入范围严格限定为 `Sources/TravelCompanion/Features/Today/MapLibreTodayMap.swift` 与 `Tests/TravelCompanionTests/MapsTests.swift`。Coordinator 为 placement 更新标注 `.initial`、`.dataMutation`、`.selection`、`.viewport`、`.safeArea` 或 `.autoFocus`；首次显示、CRUD、纯选择更新及 canonical member-set partition 未变化时不播放。
+- 纯 transition resolver 对前后 member set 构造二部相交图：多旧到一新为 merge，一旧到多新为 split；一对一同集合不处理，多对多、成员增删、重复或非法输入直接显示 resolver 终态。N 成员组件和分支都使用 UUID/display order 形成稳定顺序。
+- 首选 MapLibre screen-space、不可交互、无辅助功能身份的 transient overlay，而非单个 annotation view：一次 merge/split 可能跨越多个稳态 annotation view。每个相关组件只按局部 frame union 创建 outer 橙色、inner 白色双 `CAShapeLayer`，使用确定性 360° capsule metaball path 与固定采样 `CAKeyframeAnimation`；独立 clarity layers 保持数字、`+N` 和图标清晰，最终稳态 annotation view 始终由 resolver 配置。
+- bridge 真实表面距离上限为 96pt；超限、非有限 path、超预算或并发超过 4 个组件时直接终态。进行中的相同组件从 presentation path 重定向或反向收敛，以 generation token 防止旧 completion 清理新动画。
+- Reduce Motion、CRUD/selection 打断、不兼容更新和 teardown 必须立即清理 overlay、shape/clarity layers、动画与快照。实现不得加入常驻 `CADisplayLink`、Timer、blur、Core Image、私有 filter 或全屏离屏资源。完整纯函数模型、接入顺序、验证命令及模拟器/性能矩阵见 `docs/design/features/home-edge-pin-gooey.md`。
 
 ## API Contracts
 | Endpoint | Method | Auth | Request | Response | Errors |

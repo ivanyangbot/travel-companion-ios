@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var agentSessionStore = AgentV2SessionStore()
     @StateObject private var agentRunState = AgentV2RunState()
     @State private var showsAgent = false
+    @State private var showsGooeyPinDemo = false
     @State private var agentInitialMessage: String?
     @State private var selectedSection: MainSection = .journey
     @State private var navigationDragTranslation: CGFloat = 0
@@ -86,6 +87,9 @@ struct ContentView: View {
                     ProgressView("正在准备 Agent…")
                 }
             }
+        }
+        .sheet(isPresented: $showsGooeyPinDemo) {
+            GooeyPinDemoView()
         }
         .task {
             guard syncEngine == nil else { return }
@@ -199,6 +203,16 @@ struct ContentView: View {
         }
         .contentShape(Rectangle())
         .gesture(navigationDragGesture)
+        .accessibilityRepresentation {
+            HStack {
+                ForEach(MainSection.allCases, id: \.self) { section in
+                    Button(section == .settings ? "打开 Pin Gooey Demo" : section.title) {
+                        selectSection(section)
+                    }
+                    .accessibilityValue(section == selectedSection ? "已选择" : "")
+                }
+            }
+        }
         .padding(4)
         .frame(width: navigationContentWidth + 8, height: 60)
         .background {
@@ -265,6 +279,7 @@ struct ContentView: View {
 
     private func selectSection(_ section: MainSection) {
         guard section != .settings else {
+            showsGooeyPinDemo = true
             withAnimation(.snappy(duration: 0.25)) {
                 navigationDragTranslation = 0
             }

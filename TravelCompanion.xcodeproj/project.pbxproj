@@ -13,6 +13,8 @@
 		0554718E10121E7B104D9B3A /* MemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052363166F7B2BC56DBDB352 /* MemoTests.swift */; };
 		0708992FBBEE91B48EE542ED /* AgentV2StreamParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5842942547DFB60B2B196D /* AgentV2StreamParserTests.swift */; };
 		0A2311E7F6DD352F955656DB /* TodayWeatherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 166A7CE158BD23101732C46C /* TodayWeatherTests.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* GooeyPinDemoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* GooeyPinDemoView.swift */; };
+		B1C2D3E4F5061728394A5B6C /* GooeyPinDemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6D /* GooeyPinDemoTests.swift */; };
 		0E217A4F17380B945F95119B /* AppleSignInStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419F1199DA05DB1C55ADACA7 /* AppleSignInStore.swift */; };
 		10B70769A5EACA7A2BBDB428 /* AITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D3E600510D1900A40A2985 /* AITests.swift */; };
 		173CE8FC76B8BEC1C6AA5CEC /* AgentV2SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404C61F2E1107308DC348938 /* AgentV2SessionStoreTests.swift */; };
@@ -123,6 +125,8 @@
 		07EC18374E8F4516FD09F006 /* ExternalLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLinkHandler.swift; sourceTree = "<group>"; };
 		0D4FDAB08CAD5BFF0161E7C6 /* SharedTripRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTripRepository.swift; sourceTree = "<group>"; };
 		166A7CE158BD23101732C46C /* TodayWeatherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWeatherTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5D /* GooeyPinDemoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooeyPinDemoView.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5061728394A5B6D /* GooeyPinDemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooeyPinDemoTests.swift; sourceTree = "<group>"; };
 		1680BBEB0A853E9295127F80 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		16D3E600510D1900A40A2985 /* AITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AITests.swift; sourceTree = "<group>"; };
 		18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TravelCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -219,6 +223,7 @@
 		0E160A4629FE9416B0458ED6 /* TravelCompanionTests */ = {
 			isa = PBXGroup;
 			children = (
+				B1C2D3E4F5061728394A5B6D /* GooeyPinDemoTests.swift */,
 				404C61F2E1107308DC348938 /* AgentV2SessionStoreTests.swift */,
 				7B5842942547DFB60B2B196D /* AgentV2StreamParserTests.swift */,
 				16D3E600510D1900A40A2985 /* AITests.swift */,
@@ -432,6 +437,7 @@
 		F54B2CE2378BD64A7B5428D2 /* Today */ = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4E5F60718293A4B5D /* GooeyPinDemoView.swift */,
 				568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */,
 				AB5337983395B60705321FDC /* NeonTodayMap.swift */,
 				72EAFDA83E7A9A0A19462E9B /* TodayView.swift */,
@@ -597,6 +603,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4E5F60718293A4B5C /* GooeyPinDemoView.swift in Sources */,
 				392264090A247D29C681C7F2 /* AIExpenseConversationSheet.swift in Sources */,
 				D18CAD03BDA23AD32F53F9A4 /* AIItinerarySheet.swift in Sources */,
 				698C0569AAFAAA8B9145E381 /* APIClient.swift in Sources */,
@@ -664,6 +671,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1C2D3E4F5061728394A5B6C /* GooeyPinDemoTests.swift in Sources */,
 				10B70769A5EACA7A2BBDB428 /* AITests.swift in Sources */,
 				173CE8FC76B8BEC1C6AA5CEC /* AgentV2SessionStoreTests.swift in Sources */,
 				0708992FBBEE91B48EE542ED /* AgentV2StreamParserTests.swift in Sources */,
