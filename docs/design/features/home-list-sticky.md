@@ -34,16 +34,22 @@
 
 ### Task 5: 根层拖动副本、手势仲裁与边缘自动滚动
 - Files: `ItineraryView.swift`、`TravelCardsTests.swift`
-- Implementation: 原卡片进入拖动后隐藏，在列表根层按根坐标绘制等尺寸副本并使用最高 zIndex。排序使用与 ScrollView 同时识别且不取消底层触摸的 `UILongPressGestureRecognizer`：0.3 秒内移动超过 12pt 会在识别前失败，由页面滚动完整接管；长按成功后按窗口坐标持续输出位移，移动超过 3pt 才进入拖卡状态。独立的左滑操作使用带 `UIGestureRecognizerDelegate` 方向门控的 `UIPanGestureRecognizer`：仅横向明显占优且方向向左时开始识别，纵向或方向不明确时在 recognizer begin 阶段直接失败并交还 ScrollView；长按和左滑会互相禁用，确保排序和操作抽屉互斥。通过 ScrollPosition 与 onScrollGeometryChange 跟踪精确偏移，手指进入上下 72...110pt 边缘区后以 90...720pt/s 连续滚动，速度按边缘接近度的 1.55 次曲线变化。
-- Verification: 单测覆盖 3pt 激活阈值、中心零速度、上下方向、越靠边越快和最大速度；Debug 模拟器构建验证根层布局与滚动 API。
+- Implementation: 原卡片进入拖动后隐藏，在列表根层按根坐标绘制等尺寸副本并使用最高 zIndex。排序 `UILongPressGestureRecognizer` 挂在列表根层而非 LazyVStack 卡片上，因此源卡片滚出渲染区域后识别器仍保持 active，直到用户真正松手或系统取消；0.3 秒内移动超过 12pt 会在识别前失败，由页面滚动完整接管，长按成功后移动超过 3pt 才进入拖卡状态。独立的左滑操作使用带 `UIGestureRecognizerDelegate` 方向门控的 `UIPanGestureRecognizer`，长按和左滑互相禁用。主列表通过零高度 `UIViewRepresentable` 定位其 `UIScrollView`：拖卡时只禁用 scroll view 的手动 pan，16ms 循环仍直接更新 `contentOffset`。手指进入上下 72...110pt 边缘区后以 90...720pt/s 连续滚动，速度按边缘接近度的 1.55 次曲线变化；滚动期间持续修正目标日期和插入位置。
+- Verification: 单测覆盖 3pt 激活阈值、中心零速度、上下方向、越靠边越快、最大速度，以及手动 pan 锁定时仍可程序化滚到上下边界；Debug 模拟器构建验证根层识别器与 UIScrollView 桥接。
 
-### Task 6: 列表卡片左滑编辑/删除
-- Files: `ItineraryView.swift`、`Assets.xcassets/icon-delete-outline.imageset/*`、`TravelCardsTests.swift`
-- Implementation: 在紧凑卡片后方放置两个最终宽度各 72pt 的操作按钮，编辑使用 `icon-edit-outline`，删除使用本地 `icon-delete-outline` SVG；编辑按钮的水平位移始终等于当前展开宽度的一半，删除按钮同步淡入，因此两者从滑动开始按 1:1 同时展开，而不是依次出现。原生横向 pan 的速度方向达到 1.25 倍纵向速度且向左时才接管卡片偏移，偏移限制在 0...144pt，并按预测终点与 42% 阈值吸附；抽屉已展开时允许向右关闭。全局只保留一个展开卡片；点击卡片、开始长按排序或执行操作都会收起。编辑复用 `CardEditorTarget.edit`，删除复用现有确认框与 `SyncEngine.deleteCard`。
-- Verification: 单测覆盖横纵方向判定、左右边界和展开阈值；资产编译、Debug 构建与模拟器展开态截图通过。
+### Task 6: 列表卡片 UI 与左滑编辑/Agent/删除
+- Files: `ItineraryView.swift`、`Assets.xcassets/icon-chat-outline.imageset/*`、`Assets.xcassets/icon-delete-outline.imageset/*`、`TravelCardsTests.swift`
+- Implementation: 普通卡片使用 64pt 圆角封面与右侧信息栏，标题使用 19pt semibold，时间和单一优先价格分别复用 `icon-pin-outline`、`icon-ticket-outline`，描述/备注最多四行并置于独立深色圆角摘要区。`showLargeImage=true` 且封面路径有效时改用 12pt 外部内边距、38:21 横图、底部渐变、标题和元信息叠层；存在描述、备注或提示时，在图片下方间隔 12pt 显示最小高度 102pt 的独立摘要区，不存在时不预留摘要高度。旧数据和低分图片保持普通卡片。左侧 4pt 橙色条由全行程时间判定标记当前活动，空档期标记最近下一项，30 秒刷新一次，拖动副本继承相同状态。在卡片后方放置三个最终宽度各 68pt 的操作按钮，编辑使用 `icon-edit-outline`，Agent 使用用户提供的 `icon-chat-outline`，删除使用 `icon-delete-outline`。三层按钮的位置分别按当前展开宽度的 2/3、1/3、0 移动，因此从首段左滑开始按 1:1:1 同步展开，而不是依次出现；横向偏移限制在 0...204pt。原生横向 pan 的速度方向达到 1.25 倍纵向速度且向左时才接管，按预测终点与 42% 阈值吸附，展开时允许向右关闭。编辑复用 `CardEditorTarget.edit`；Agent 复用 `AgentWorkbenchView.initialMessage`，只预填所选卡片日期/标题/时间/地点；删除复用现有确认框与 `SyncEngine.deleteCard`。
+- Verification: 单测覆盖横纵方向判定、204pt 左右边界、三等分同步展开几何、Agent 卡片上下文和展开阈值；资产编译、Debug 构建与模拟器展开态截图验证。
+
+### Task 7: 后端图片最终评分与大图决策
+- Files: 后端 `app/services/poi_images.py`、`app/models.py`、`app/schemas.py`、`migrations/versions/v0012_card_image_display_score.py`，客户端 `SharedModels.swift`、`ItineraryView.swift`
+- Implementation: 在既有候选相关度和位图画质分之上，以 50% 相关度、30% 画质、15% 横向封面适配度和 5% 可用候选丰富度生成 0...100 的 `imageScore`。默认阈值 82，达到阈值才写入 `showLargeImage=true`。无候选、失败任务、用户自带图和迁移前旧数据默认 0/false；客户端只服从布尔字段，不重复阈值判断。
+- Verification: 后端单测覆盖高相关横图高分、边缘相关竖图低分、接口序列化和迁移；客户端单测覆盖新字段与旧缓存兼容，以及当前/下一项唯一选择。
 
 ## API/Data Changes
-- 无 API、数据库或持久化模型变化。
+- `GET`/写操作回传的 card 增加只读 `imageScore: Int (0...100)` 与 `showLargeImage: Bool`。
+- `itinerary_cards` 增加 `image_score` 与 `show_large_image`，由迁移 `0012_card_image_display_score` 建立；写卡 API 不接受客户端修改这两个字段。
 - 当日摘要从当天排序后的前两张卡片名称派生，仅用于显示。
 
 ## Edge Cases

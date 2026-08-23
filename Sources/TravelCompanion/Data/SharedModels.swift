@@ -214,6 +214,11 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     /// Ordered server-hosted image paths for the card detail swiper. Older
     /// snapshots encoded a single `imageUrl`, which is folded in on decode.
     var images: [String]?
+    /// Server-owned final image confidence (0...100). The client displays it
+    /// for diagnostics only and never derives the large-card decision itself.
+    var imageScore: Int
+    /// Explicit backend decision for the immersive large-image list card.
+    var showLargeImage: Bool
     var notes: String?
     var position: Int
     var updatedAt: Date
@@ -222,7 +227,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         case serverID = "id", dayID = "dayId", kind, title, startAt, endAt, place, bookingCode, url
         case description, fromAirport = "fromAirport", toAirport = "toAirport", priceMinor
         case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips
-        case images, legacyImageURL = "imageUrl", notes, position, updatedAt
+        case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
     }
 
     init(
@@ -244,6 +249,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         stayDurationMinutes: Int? = nil,
         tips: [String]? = nil,
         images: [String]? = nil,
+        imageScore: Int = 0,
+        showLargeImage: Bool = false,
         notes: String? = nil,
         position: Int = 0,
         updatedAt: Date = .now
@@ -267,6 +274,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.stayDurationMinutes = stayDurationMinutes
         self.tips = tips
         self.images = images
+        self.imageScore = max(0, min(100, imageScore))
+        self.showLargeImage = showLargeImage && images?.isEmpty == false
         self.notes = notes
         self.position = position
         self.updatedAt = updatedAt
@@ -297,6 +306,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
             decodedImages = [legacy]
         }
         images = decodedImages.isEmpty ? nil : decodedImages
+        imageScore = max(0, min(100, try container.decodeIfPresent(Int.self, forKey: .imageScore) ?? 0))
+        showLargeImage = (try container.decodeIfPresent(Bool.self, forKey: .showLargeImage) ?? false)
+            && !decodedImages.isEmpty
         notes = try container.decodeIfPresent(String.self, forKey: .notes)
         position = try container.decode(Int.self, forKey: .position)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
@@ -323,6 +335,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(stayDurationMinutes, forKey: .stayDurationMinutes)
         try container.encodeIfPresent(tips, forKey: .tips)
         try container.encodeIfPresent(images, forKey: .images)
+        try container.encode(imageScore, forKey: .imageScore)
+        try container.encode(showLargeImage, forKey: .showLargeImage)
         try container.encodeIfPresent(notes, forKey: .notes)
         try container.encode(position, forKey: .position)
         try container.encode(updatedAt, forKey: .updatedAt)

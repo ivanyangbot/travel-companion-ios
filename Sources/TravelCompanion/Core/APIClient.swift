@@ -475,6 +475,8 @@ actor APIClient {
             let patch = try decoder.decode(Patch.self, from: data)
             return .candidatePatch(id: patch.id, candidate: patch.candidate)
         case "change_set": return .changeSet(try decoder.decode([AgentV2Change].self, from: data))
+        case "fliggy_search_started": return .fliggySearchStarted(try decoder.decode(AgentV2FliggySearchStart.self, from: data))
+        case "fliggy_search_completed": return .fliggySearchCompleted(try decoder.decode(AgentV2FliggySearchCompletion.self, from: data))
         case "done": return .done
         case "error": throw try decoder.decode(AIItineraryStreamError.self, from: data)
         default: return nil
@@ -509,14 +511,34 @@ actor APIClient {
         let _: DeletedJournalItem = try await journalRequest(path: "/v1/journal/entries/\(id)", method: "DELETE", body: nil, tripID: tripID)
     }
 
-    func uploadJournalImage(data: Data, contentType: String, tripID: Int) async throws -> String {
-        let intent: JournalUploadIntent = try await journalRequest(path: "/v1/journal/upload-intents", method: "POST", body: encoder.encode(JournalUploadIntentRequest(contentType: contentType, sizeBytes: data.count)), tripID: tripID)
+    func uploadJournalFile(
+        at fileURL: URL,
+        contentType: String,
+        fileName: String,
+        tripID: Int,
+        progress: (@Sendable (_ sentBytes: Int64, _ expectedBytes: Int64) -> Void)? = nil
+    ) async throws -> String {
+        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        guard values.isRegularFile == true, let sizeBytes = values.fileSize else {
+            throw CocoaError(.fileReadInvalidFileName)
+        }
+        let intent: JournalUploadIntent = try await journalRequest(
+            path: "/v1/journal/upload-intents",
+            method: "POST",
+            body: encoder.encode(JournalUploadIntentRequest(
+                contentType: contentType,
+                sizeBytes: sizeBytes,
+                fileName: fileName
+            )),
+            tripID: tripID
+        )
         guard let url = URL(string: intent.uploadUrl) else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
-        request.httpBody = data
+        request.timeoutInterval = 24 * 60 * 60
         for (name, value) in intent.headers { request.setValue(value, forHTTPHeaderField: name) }
-        let (_, response) = try await session.data(for: request)
+        let delegate = JournalUploadProgressDelegate(progress: progress)
+        let (_, response) = try await session.upload(for: request, fromFile: fileURL, delegate: delegate)
         guard let httpResponse = response as? HTTPURLResponse, (200 ..< 300).contains(httpResponse.statusCode) else { throw APIResponseError(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0) }
         return intent.key
     }
@@ -551,6 +573,24 @@ actor APIClient {
     private func requiredURL(_ components: URLComponents) throws -> URL {
         guard let url = components.url else { throw URLError(.badURL) }
         return url
+    }
+}
+
+private final class JournalUploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let progress: (@Sendable (Int64, Int64) -> Void)?
+
+    init(progress: (@Sendable (Int64, Int64) -> Void)?) {
+        self.progress = progress
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        progress?(totalBytesSent, totalBytesExpectedToSend)
     }
 }
 

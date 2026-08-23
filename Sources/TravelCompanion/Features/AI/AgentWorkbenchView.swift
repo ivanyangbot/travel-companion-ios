@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
 /// The PRD's local-first planning workbench. Drafts remain local until the
 /// user explicitly selects and commits candidate cards.
@@ -215,6 +216,12 @@ struct AgentWorkbenchView: View {
                         ProgressView().controlSize(.small)
                         Text(status).foregroundStyle(.secondary)
                     }
+                }
+            }
+
+            if let fliggy = runState.fliggyProgress {
+                AssistantMessageContainer {
+                    FliggySearchStatusChip(progress: fliggy)
                 }
             }
 
@@ -465,10 +472,22 @@ struct AgentWorkbenchView: View {
     private func load(_ item: PhotosPickerItem?) {
         guard let item else { return }
         Task {
-            guard let data = try? await item.loadTransferable(type: Data.self) else { runState.error = "无法读取图片。"; return }
-            guard data.count <= 2_000_000 else { runState.error = "请使用不超过 2 MB 的攻略图片，以保留可重试的本机副本。"; return }
-            store.addAttachment(.init(id: UUID(), mediaType: "image/jpeg", dataURI: "data:image/jpeg;base64," + data.base64EncodedString()))
-            photo = nil
+            defer { photo = nil }
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw AgentImageAttachmentError.unreadable
+                }
+                let prepared = try await Task.detached(priority: .userInitiated) {
+                    try AgentImageAttachmentProcessor.prepare(data)
+                }.value
+                store.addAttachment(.init(
+                    id: UUID(),
+                    mediaType: prepared.mediaType,
+                    dataURI: prepared.dataURI
+                ))
+            } catch {
+                runState.error = error.localizedDescription
+            }
         }
     }
 
@@ -507,6 +526,10 @@ struct AgentWorkbenchView: View {
                         sessionStore.apply(event)
                     case .candidateUpsert:
                         sessionStore.apply(event)
+                    case .fliggySearchStarted(let start):
+                        state.fliggySearchStarted(start)
+                    case .fliggySearchCompleted(let completion):
+                        state.fliggySearchCompleted(completion)
                     case .done:
                         let completedReply = state.streamingReply.isEmpty ? state.stagedSummaryText : state.streamingReply
                         if !completedReply.isEmpty {
@@ -633,6 +656,57 @@ private struct AssistantMessageContainer<Content: View>: View {
     }
 }
 
+/// Branded progress chip for Fliggy realtime-search tool calls. Renders in
+/// the same status area as the plain text status line; pure UI progress that
+/// never persists anywhere.
+private struct FliggySearchStatusChip: View {
+    let progress: AgentV2FliggyProgress
+
+    var body: some View {
+        HStack(spacing: 8) {
+            switch progress.phase {
+            case .running:
+                HStack(spacing: 6) {
+                    Image(systemName: "airplane")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color.orange, in: Capsule())
+            case .completed(let ok, _):
+                Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ok ? .green : .orange)
+            }
+            Text(displayText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(displayText)
+    }
+
+    private var displayText: String {
+        switch progress.phase {
+        case .running:
+            let title = progress.kind.progressTitle
+            guard let term = progress.term, !term.isEmpty else { return title }
+            return "\(title) · \(term)"
+        case .completed(let ok, let count):
+            if ok, let count {
+                return "飞猪已返回 \(count) 个结果"
+            }
+            return "飞猪实时数据暂不可用，已用其他来源继续"
+        }
+    }
+}
+
 private struct LiveCandidateCard: View {
     let card: AgentV2LiveCard
 
@@ -693,6 +767,11 @@ private struct AgentV2CandidateCard: View {
                         }
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(candidate.placeStatus == .verified ? .green : .orange)
+                        if let priceText {
+                            Label(priceText, systemImage: isRealtimePrice ? "clock.arrow.circlepath" : "banknote")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
             }
@@ -700,13 +779,34 @@ private struct AgentV2CandidateCard: View {
             .accessibilityValue(candidate.selected ? "已选择" : "未选择")
             .accessibilityHint(candidate.isCommitReady ? "轻点切换选择" : "信息完整后才可选择")
 
-            if let sourceURL {
-                Link(destination: sourceURL) {
+            if let xiaohongshuURL {
+                Link(destination: xiaohongshuURL) {
                     Label("小红书来源 · 打开原笔记", systemImage: "arrow.up.right.square")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.red)
                 }
                 .padding(.leading, 34)
+            }
+
+            if let fliggyBookingURL {
+                // Fliggy candidates carry a real booking URL. The exact price
+                // lives behind the link (or degrades to a “实时价” placeholder),
+                // so send the user to Safari rather than inventing a number.
+                Link(destination: fliggyBookingURL) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "airplane")
+                        Text("查看预订")
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(Color.orange, in: Capsule())
+                }
+                .padding(.leading, 34)
+                .accessibilityLabel("在飞猪查看预订")
             }
         }
         .padding(13)
@@ -718,13 +818,44 @@ private struct AgentV2CandidateCard: View {
         .opacity(candidate.isCommitReady ? 1 : 0.72)
     }
 
-    private var sourceURL: URL? {
+    private var xiaohongshuURL: URL? {
         guard let value = candidate.url,
               let url = URL(string: value),
               let host = url.host?.lowercased(),
               host == "xiaohongshu.com" || host.hasSuffix(".xiaohongshu.com") ||
               host == "xhslink.com" || host.hasSuffix(".xhslink.com") else { return nil }
         return url
+    }
+
+    /// Fliggy realtime candidates link to a real booking page rather than a
+    /// note; only trust the known Fliggy hosts so arbitrary model URLs never
+    /// render as a branded booking button.
+    private var fliggyBookingURL: URL? {
+        guard let value = candidate.url,
+              let url = URL(string: value),
+              let host = url.host?.lowercased(),
+              host == "fliggy.com" || host.hasSuffix(".fliggy.com") ||
+              host == "alitrip.com" || host.hasSuffix(".alitrip.com") else { return nil }
+        return url
+    }
+
+    /// Price line: a concrete minor-unit amount when present, otherwise a
+    /// “实时价” placeholder exactly when the server flagged that the live
+    /// price lives behind the booking link. Never fabricates a number.
+    private var priceText: String? {
+        if let priceMinor = candidate.priceMinor {
+            let major = Double(priceMinor) / 100
+            let amount = major.truncatingRemainder(dividingBy: 1) == 0
+                ? String(format: "%.0f", major)
+                : String(format: "%.2f", major)
+            return "¥\(amount)"
+        }
+        if candidate.notes?.contains("实时价格见预订链接") == true { return "实时价" }
+        return nil
+    }
+
+    private var isRealtimePrice: Bool {
+        candidate.priceMinor == nil && priceText != nil
     }
 }
 
@@ -915,6 +1046,131 @@ private extension TravelCardSnapshot.Kind {
         case .activity: "figure.walk"
         case .hotel: "bed.double.fill"
         case .flight: "airplane"
+        }
+    }
+}
+
+struct AgentPreparedImage: Sendable {
+    let data: Data
+    let mediaType: String
+
+    var dataURI: String {
+        "data:\(mediaType);base64,\(data.base64EncodedString())"
+    }
+}
+
+enum AgentImageAttachmentProcessor {
+    static let maximumBytes = 3_000_000
+    private static let maximumLongEdge: CGFloat = 4_096
+    private static let minimumJPEGQuality: CGFloat = 0.2
+    private static let maximumJPEGQuality: CGFloat = 0.92
+
+    static func prepare(_ source: Data) throws -> AgentPreparedImage {
+        guard !source.isEmpty else { throw AgentImageAttachmentError.unreadable }
+        if source.count <= maximumBytes, let mediaType = detectedMediaType(source) {
+            return AgentPreparedImage(data: source, mediaType: mediaType)
+        }
+        guard let original = UIImage(data: source) else { throw AgentImageAttachmentError.unreadable }
+
+        var image = resized(original, maximumLongEdge: maximumLongEdge)
+        for _ in 0 ..< 10 {
+            if let data = bestJPEG(for: image, maximumBytes: maximumBytes) {
+                return AgentPreparedImage(data: data, mediaType: "image/jpeg")
+            }
+            guard let smallest = image.jpegData(compressionQuality: minimumJPEGQuality),
+                  smallest.count > maximumBytes else {
+                throw AgentImageAttachmentError.compressionFailed
+            }
+            let ratio = min(0.88, max(0.45, sqrt(Double(maximumBytes) / Double(smallest.count)) * 0.9))
+            image = resized(image, scale: CGFloat(ratio))
+        }
+        throw AgentImageAttachmentError.compressionFailed
+    }
+
+    private static func bestJPEG(for image: UIImage, maximumBytes: Int) -> Data? {
+        guard let highQuality = image.jpegData(compressionQuality: maximumJPEGQuality) else { return nil }
+        if highQuality.count <= maximumBytes { return highQuality }
+        guard let lowestQuality = image.jpegData(compressionQuality: minimumJPEGQuality),
+              lowestQuality.count <= maximumBytes else { return nil }
+
+        var low = minimumJPEGQuality
+        var high = maximumJPEGQuality
+        var best = lowestQuality
+        for _ in 0 ..< 9 {
+            let quality = (low + high) / 2
+            guard let candidate = image.jpegData(compressionQuality: quality) else { break }
+            if candidate.count <= maximumBytes {
+                best = candidate
+                low = quality
+            } else {
+                high = quality
+            }
+        }
+        return best
+    }
+
+    private static func resized(_ image: UIImage, maximumLongEdge: CGFloat) -> UIImage {
+        let pixels = pixelSize(of: image)
+        let longEdge = max(pixels.width, pixels.height)
+        guard longEdge > maximumLongEdge else { return image }
+        return resized(image, scale: maximumLongEdge / longEdge)
+    }
+
+    private static func resized(_ image: UIImage, scale: CGFloat) -> UIImage {
+        let pixels = pixelSize(of: image)
+        let target = CGSize(
+            width: max(1, floor(pixels.width * scale)),
+            height: max(1, floor(pixels.height * scale))
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: target, format: format).image { context in
+            UIColor.white.setFill()
+            context.cgContext.fill(CGRect(origin: .zero, size: target))
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+    }
+
+    private static func pixelSize(of image: UIImage) -> CGSize {
+        if let cgImage = image.cgImage {
+            return CGSize(width: cgImage.width, height: cgImage.height)
+        }
+        return CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+    }
+
+    private static func detectedMediaType(_ data: Data) -> String? {
+        let bytes = [UInt8](data.prefix(16))
+        if bytes.count >= 3, bytes[0] == 0xFF, bytes[1] == 0xD8, bytes[2] == 0xFF {
+            return "image/jpeg"
+        }
+        if bytes.count >= 8, Array(bytes[0 ..< 8]) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+            return "image/png"
+        }
+        if bytes.count >= 12,
+           String(bytes: bytes[0 ..< 4], encoding: .ascii) == "RIFF",
+           String(bytes: bytes[8 ..< 12], encoding: .ascii) == "WEBP" {
+            return "image/webp"
+        }
+        if bytes.count >= 12,
+           String(bytes: bytes[4 ..< 8], encoding: .ascii) == "ftyp" {
+            let brand = String(bytes: bytes[8 ..< 12], encoding: .ascii) ?? ""
+            if ["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1"].contains(brand) {
+                return "image/heic"
+            }
+        }
+        return nil
+    }
+}
+
+enum AgentImageAttachmentError: LocalizedError {
+    case unreadable
+    case compressionFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadable: "无法读取所选图片。"
+        case .compressionFailed: "图片自动压缩失败，请重新选择。"
         }
     }
 }

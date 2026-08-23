@@ -302,6 +302,64 @@ final class AgentV2SessionStoreTests: XCTestCase {
         XCTAssertNil(state.status)
     }
 
+    @MainActor
+    func testFliggyProgressLifecycleAcrossStartedAndCompleted() async throws {
+        let state = AgentV2RunState()
+        state.fliggyFadeInterval = 0.05
+        state.prepareForTurn()
+        XCTAssertNil(state.fliggyProgress)
+
+        state.fliggySearchStarted(try fliggyStart(["searchType": "flight", "origin": "北京"]))
+        XCTAssertEqual(state.fliggyProgress?.kind, .flight)
+        XCTAssertEqual(state.fliggyProgress?.term, "北京")
+        XCTAssertEqual(state.fliggyProgress?.phase, .running)
+
+        // A second start replaces the first chip (paired per tool call).
+        state.fliggySearchStarted(try fliggyStart(["searchType": "hotel", "query": "外滩"]))
+        XCTAssertEqual(state.fliggyProgress?.kind, .hotel)
+        XCTAssertEqual(state.fliggyProgress?.phase, .running)
+
+        // ok=true: keeps the last term, shows count, then fades out.
+        state.fliggySearchCompleted(try fliggyCompletion(["searchType": "hotel", "ok": true, "count": 8]))
+        XCTAssertEqual(state.fliggyProgress?.kind, .hotel)
+        XCTAssertEqual(state.fliggyProgress?.term, "外滩")
+        XCTAssertEqual(state.fliggyProgress?.phase, .completed(ok: true, count: 8))
+
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertNil(state.fliggyProgress, "ok=true chip should fade out after the interval")
+    }
+
+    @MainActor
+    func testFliggyFailedCompletionPersistsUntilTurnEnds() async throws {
+        let state = AgentV2RunState()
+        state.fliggyFadeInterval = 0.05
+        state.prepareForTurn()
+        state.fliggySearchStarted(try fliggyStart(["searchType": "train"]))
+        state.fliggySearchCompleted(try fliggyCompletion(["searchType": "train", "ok": false]))
+
+        XCTAssertEqual(state.fliggyProgress?.phase, .completed(ok: false, count: nil))
+        // Degradation notice must survive past the fade interval: the model
+        // keeps going with other sources, but the user should see why.
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(state.fliggyProgress?.phase, .completed(ok: false, count: nil))
+
+        // Ending the turn clears it.
+        let generationID = state.beginGeneration()
+        state.finishGeneration(id: generationID)
+        XCTAssertNil(state.fliggyProgress)
+    }
+
+    @MainActor
+    func testFliggySearchKindMapsProgressTitles() {
+        XCTAssertEqual(AgentV2FliggySearchKind(raw: "hotel").progressTitle, "正在查询飞猪酒店实时价格")
+        XCTAssertEqual(AgentV2FliggySearchKind(raw: "flight").progressTitle, "正在查询机票实时价格")
+        XCTAssertEqual(AgentV2FliggySearchKind(raw: "train").progressTitle, "正在查询火车票实时价格")
+        XCTAssertEqual(AgentV2FliggySearchKind(raw: "poi").progressTitle, "正在查询景点门票实时价格")
+        XCTAssertEqual(AgentV2FliggySearchKind(raw: "fast").progressTitle, "正在查询飞猪实时库存")
+        XCTAssertEqual(AgentV2FliggySearchKind(raw: "unexpected").progressTitle, "正在查询飞猪实时库存")
+        XCTAssertEqual(AgentV2FliggySearchKind(raw: "unexpected"), .other)
+    }
+
     private let defaultsSuite = "AgentV2SessionStoreTests"
     private let sessionKey = "agent.v2.local.session"
 
@@ -321,6 +379,14 @@ final class AgentV2SessionStoreTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
         defaults.removePersistentDomain(forName: defaultsSuite)
         return defaults
+    }
+
+    private func fliggyStart(_ json: [String: Any]) throws -> AgentV2FliggySearchStart {
+        try JSONDecoder().decode(AgentV2FliggySearchStart.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    private func fliggyCompletion(_ json: [String: Any]) throws -> AgentV2FliggySearchCompletion {
+        try JSONDecoder().decode(AgentV2FliggySearchCompletion.self, from: JSONSerialization.data(withJSONObject: json))
     }
 
     private func candidate(

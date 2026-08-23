@@ -1,5 +1,6 @@
 import MapKit
 @preconcurrency import MapLibre
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -1455,10 +1456,32 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     static func dismantleUIView(_ uiView: MLNMapView, coordinator: Coordinator) {
         uiView.delegate = nil
         (uiView as? MapLibreGeometryTrackingMapView)?.onViewportGeometryChanged = nil
+        coordinator.tearDown()
     }
 
     @MainActor
     final class Coordinator: NSObject, @MainActor MLNMapViewDelegate {
+        private struct PendingContentUpdate {
+            let points: [TodayMapPoint]
+            let selectedIndex: Int?
+            let timelineTopInGlobal: CGFloat?
+            let routeRefreshID: Int
+            let onRouteLoadingChanged: (Bool) -> Void
+            let onViewportStateChanged: (Bool, Bool) -> Void
+        }
+
+        private struct PendingCameraUpdate {
+            let points: [TodayMapPoint]
+            let focus: CLLocationCoordinate2D?
+            let focusPointID: UUID?
+            let requestID: Int
+            let bottomInset: CGFloat
+        }
+
+        private static let logger = Logger(
+            subsystem: Bundle.main.bundleIdentifier ?? "TravelCompanion",
+            category: "TodayMapCamera"
+        )
         private var pointAnnotations: [MapLibreNumberedAnnotation] = []
         private var routeAnnotations: [MLNPolyline] = []
         private var displayedRouteCoordinates: [CLLocationCoordinate2D] = []
@@ -1476,6 +1499,11 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         /// Set before our own camera animations. Those movements should not
         /// dismiss the swiper; only a direct map gesture does that.
         private var isProgrammaticCameraChange = false
+        /// Replacing annotations while MapLibre is committing an animated
+        /// camera frame can deadlock its renderer on physical devices. Keep
+        /// only the newest date update and commit it after regionDidChange.
+        private var pendingContentUpdate: PendingContentUpdate?
+        private var pendingCameraUpdate: PendingCameraUpdate?
         private var onViewportStateChanged: ((Bool, Bool) -> Void)?
         private var lastReportedViewportIsMoving: Bool?
         private var lastReportedHasVisiblePOI: Bool?
@@ -1492,6 +1520,10 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var previousEdgeGroups: [[UUID]] = []
         private var pendingAutoFocusPointID: UUID?
         private var pendingAutoFocusCoordinate: CLLocationCoordinate2D?
+        private let autoFocusRefinementDeferrer = MapLibreCameraMutationDeferrer()
+        private let deferredMapUpdateDeferrer = MapLibreCameraMutationDeferrer()
+        private let regionPlacementDeferrer = MapLibreCameraMutationDeferrer()
+        private var regionDidChangeCallbackDepth = 0
         /// Keep enough surrounding roads and nearby POIs in view while a
         /// bottom swiper card is selected; 16 was too close for this screen.
         private let poiSwiperFocusZoomLevel: Double = 13.8
@@ -1515,6 +1547,50 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         }
 
         fileprivate func updateContent(
+            on mapView: MLNMapView,
+            points: [TodayMapPoint],
+            selectedIndex: Int?,
+            timelineTopInGlobal: CGFloat?,
+            routeRefreshID: Int,
+            onRouteLoadingChanged: @escaping (Bool) -> Void,
+            onViewportStateChanged: @escaping (Bool, Bool) -> Void
+        ) {
+            self.onViewportStateChanged = onViewportStateChanged
+            let pointsChanged = points != renderedPoints
+            let cameraTransitionIsActive = isMapRegionChanging || isProgrammaticCameraChange
+            if pendingContentUpdate != nil || (pointsChanged && cameraTransitionIsActive) {
+                let isFirstDeferredUpdate = pendingContentUpdate == nil
+                pendingContentUpdate = PendingContentUpdate(
+                    points: points,
+                    selectedIndex: selectedIndex,
+                    timelineTopInGlobal: timelineTopInGlobal,
+                    routeRefreshID: routeRefreshID,
+                    onRouteLoadingChanged: onRouteLoadingChanged,
+                    onViewportStateChanged: onViewportStateChanged
+                )
+                if isFirstDeferredUpdate {
+                    invalidateWorkForDeferredContentReplacement(
+                        notify: onRouteLoadingChanged
+                    )
+                }
+                Self.logger.notice(
+                    "defer content replacement points=\(points.count) moving=\(self.isMapRegionChanging) programmatic=\(self.isProgrammaticCameraChange)"
+                )
+                return
+            }
+
+            applyContent(
+                on: mapView,
+                points: points,
+                selectedIndex: selectedIndex,
+                timelineTopInGlobal: timelineTopInGlobal,
+                routeRefreshID: routeRefreshID,
+                onRouteLoadingChanged: onRouteLoadingChanged,
+                onViewportStateChanged: onViewportStateChanged
+            )
+        }
+
+        private func applyContent(
             on mapView: MLNMapView,
             points: [TodayMapPoint],
             selectedIndex: Int?,
@@ -1584,6 +1660,49 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 animatePointingCorner: !pointsChanged
             )
             reportViewportState(on: mapView, isMoving: isMapRegionChanging)
+        }
+
+        private func invalidateWorkForDeferredContentReplacement(
+            notify onRouteLoadingChanged: (Bool) -> Void
+        ) {
+            routeTask?.cancel()
+            routeTask = nil
+            activeDirections?.cancel()
+            activeDirections = nil
+            routeGeneration &+= 1
+            setRouteLoading(false, notify: onRouteLoadingChanged)
+            cancelAutoFocusRefinement()
+        }
+
+        @discardableResult
+        private func flushDeferredMapUpdate(on mapView: MLNMapView) -> Bool {
+            guard let content = pendingContentUpdate else { return false }
+            let camera = pendingCameraUpdate
+            pendingContentUpdate = nil
+            pendingCameraUpdate = nil
+            Self.logger.notice(
+                "flush deferred content points=\(content.points.count) cameraRequest=\(camera?.requestID ?? -1)"
+            )
+            applyContent(
+                on: mapView,
+                points: content.points,
+                selectedIndex: content.selectedIndex,
+                timelineTopInGlobal: content.timelineTopInGlobal,
+                routeRefreshID: content.routeRefreshID,
+                onRouteLoadingChanged: content.onRouteLoadingChanged,
+                onViewportStateChanged: content.onViewportStateChanged
+            )
+            if let camera {
+                applyCamera(
+                    on: mapView,
+                    points: camera.points,
+                    focus: camera.focus,
+                    focusPointID: camera.focusPointID,
+                    requestID: camera.requestID,
+                    bottomInset: camera.bottomInset
+                )
+            }
+            return true
         }
 
         private func rebuildNavigationRoute(
@@ -1669,6 +1788,10 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                             isWalking: true
                         )
                     }
+                    // MKDirections cancellation is cooperative and can resume
+                    // after a date switch. Never let an obsolete generation
+                    // mutate MapLibre annotations or the shared route cache.
+                    guard !Task.isCancelled, generation == routeGeneration else { return }
                     if let route, route.coordinates.count > 1 {
                         routeCache.store(
                             route.coordinates,
@@ -1889,6 +2012,41 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             requestID: Int,
             bottomInset: CGFloat
         ) {
+            if pendingContentUpdate != nil {
+                pendingCameraUpdate = PendingCameraUpdate(
+                    points: points,
+                    focus: focus,
+                    focusPointID: focusPointID,
+                    requestID: requestID,
+                    bottomInset: bottomInset
+                )
+                Self.logger.notice(
+                    "defer camera request=\(requestID) points=\(points.count)"
+                )
+                return
+            }
+
+            applyCamera(
+                on: mapView,
+                points: points,
+                focus: focus,
+                focusPointID: focusPointID,
+                requestID: requestID,
+                bottomInset: bottomInset
+            )
+        }
+
+        private func applyCamera(
+            on mapView: MLNMapView,
+            points: [TodayMapPoint],
+            focus: CLLocationCoordinate2D?,
+            focusPointID: UUID?,
+            requestID: Int,
+            bottomInset: CGFloat
+        ) {
+            Self.logger.debug(
+                "camera request=\(requestID) handled=\(self.handledCameraRequestID) points=\(points.count) focus=\(focus != nil)"
+            )
             if points.isEmpty {
                 guard !isFollowingUserLocation else { return }
                 isFollowingUserLocation = true
@@ -2019,11 +2177,46 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+            regionDidChangeCallbackDepth += 1
+            let callbackDepth = regionDidChangeCallbackDepth
+            defer { regionDidChangeCallbackDepth -= 1 }
+            if callbackDepth > 1 {
+                Self.logger.fault(
+                    "regionDidChange reentered depth=\(callbackDepth) zoom=\(mapView.zoomLevel, format: .fixed(precision: 3))"
+                )
+            } else {
+                Self.logger.debug(
+                    "regionDidChange animated=\(animated) zoom=\(mapView.zoomLevel, format: .fixed(precision: 3))"
+                )
+            }
             isMapRegionChanging = false
-            updatePinPlacements(on: mapView)
-            reportViewportState(on: mapView, isMoving: false)
-            if !continueAutoFocusRefinementIfNeeded(on: mapView) {
+            regionPlacementDeferrer.cancel()
+            if pendingContentUpdate != nil {
                 isProgrammaticCameraChange = false
+                reportViewportState(on: mapView, isMoving: false)
+                // A camera setter may synchronously reenter MapLibre's region
+                // delegate. Commit the next date only after this callback has
+                // fully returned, not merely after the transition has ended.
+                deferredMapUpdateDeferrer.schedule { [weak self, weak mapView] in
+                    guard let self, let mapView else { return }
+                    self.flushDeferredMapUpdate(on: mapView)
+                }
+                return
+            }
+            // MapLibre can invoke this delegate synchronously while one of
+            // its internal annotation mutexes is held. Updating an annotation
+            // coordinate here triggers KVO back into MapLibre and attempts to
+            // acquire the same non-recursive mutex. Always leave the delegate
+            // stack before applying settled pin coordinates.
+            regionPlacementDeferrer.schedule { [weak self, weak mapView] in
+                guard let self, let mapView,
+                      !self.isMapRegionChanging,
+                      self.pendingContentUpdate == nil else { return }
+                self.updatePinPlacements(on: mapView)
+                self.reportViewportState(on: mapView, isMoving: false)
+                if !self.continueAutoFocusRefinementIfNeeded(on: mapView) {
+                    self.isProgrammaticCameraChange = false
+                }
             }
         }
 
@@ -2043,7 +2236,13 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             if !isProgrammaticCameraChange {
                 reportViewportState(on: mapView, isMoving: true)
             }
-            updateEdgePinPlacementsDuringGesture(on: mapView)
+            // Never mutate annotation coordinates from this delegate stack.
+            // In particular, addAnnotation can synchronously reach this
+            // callback while MapLibre already owns its annotation mutex.
+            regionPlacementDeferrer.schedule { [weak self, weak mapView] in
+                guard let self, let mapView, self.isMapRegionChanging else { return }
+                self.updateEdgePinPlacementsDuringGesture(on: mapView)
+            }
         }
 
         /// A selected POI can still be represented by a merged numeric pill
@@ -2052,7 +2251,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         /// duplicate coordinates stop safely at MapLibre's maximum zoom.
         private func continueAutoFocusRefinementIfNeeded(on mapView: MLNMapView) -> Bool {
             guard let pointID = pendingAutoFocusPointID,
-                  let coordinate = pendingAutoFocusCoordinate else {
+                  pendingAutoFocusCoordinate != nil else {
                 return false
             }
             guard let placement = pinPlacements.values.first(where: {
@@ -2070,18 +2269,68 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 return false
             }
 
+            guard !autoFocusRefinementDeferrer.isPending else { return true }
+            Self.logger.debug(
+                "schedule auto-focus point=\(pointID.uuidString, privacy: .public) zoom=\(mapView.zoomLevel, format: .fixed(precision: 3))->\(nextZoom, format: .fixed(precision: 3)) callbackDepth=\(self.regionDidChangeCallbackDepth)"
+            )
+            // MLNMapView can deliver `regionDidChangeAnimated` synchronously
+            // from a camera mutation. Never issue the next mutation inside
+            // that delegate stack: yield one MainActor turn, then revalidate
+            // all pending state before applying the same zoom step.
+            autoFocusRefinementDeferrer.schedule { [weak self, weak mapView] in
+                guard let self, let mapView else { return }
+                self.performAutoFocusRefinementIfNeeded(on: mapView)
+            }
+            return true
+        }
+
+        private func performAutoFocusRefinementIfNeeded(on mapView: MLNMapView) {
+            guard let pointID = pendingAutoFocusPointID,
+                  let coordinate = pendingAutoFocusCoordinate,
+                  let placement = pinPlacements.values.first(where: {
+                      $0.representedMemberIDs.contains(pointID)
+                  }),
+                  placement.representedMemberIDs.count > 1,
+                  let nextZoom = MapLibreAutoFocusZoomPolicy.nextZoom(
+                      currentZoom: mapView.zoomLevel,
+                      maximumZoom: mapView.maximumZoomLevel
+                  ) else {
+                cancelAutoFocusRefinement()
+                isProgrammaticCameraChange = false
+                return
+            }
+
             isProgrammaticCameraChange = true
+            Self.logger.notice(
+                "perform auto-focus point=\(pointID.uuidString, privacy: .public) zoom=\(mapView.zoomLevel, format: .fixed(precision: 3))->\(nextZoom, format: .fixed(precision: 3)) callbackDepth=\(self.regionDidChangeCallbackDepth)"
+            )
             mapView.setCenter(
                 coordinate,
                 zoomLevel: nextZoom,
                 animated: true
             )
-            return true
         }
 
         private func cancelAutoFocusRefinement() {
+            if pendingAutoFocusPointID != nil || autoFocusRefinementDeferrer.isPending {
+                Self.logger.debug("cancel auto-focus refinement")
+            }
+            autoFocusRefinementDeferrer.cancel()
             pendingAutoFocusPointID = nil
             pendingAutoFocusCoordinate = nil
+        }
+
+        fileprivate func tearDown() {
+            routeTask?.cancel()
+            routeTask = nil
+            activeDirections?.cancel()
+            activeDirections = nil
+            cancelAutoFocusRefinement()
+            deferredMapUpdateDeferrer.cancel()
+            regionPlacementDeferrer.cancel()
+            pendingContentUpdate = nil
+            pendingCameraUpdate = nil
+            onViewportStateChanged = nil
         }
 
         private func reportViewportState(on mapView: MLNMapView, isMoving: Bool) {
@@ -2575,6 +2824,34 @@ enum MapLibreAutoFocusZoomPolicy {
     ) -> Double? {
         guard currentZoom < maximumZoom - 0.001 else { return nil }
         return min(maximumZoom, currentZoom + zoomStep)
+    }
+}
+
+/// Defers camera mutations until the current MainActor callback has returned.
+/// MapLibre is allowed to synchronously call its region delegate from a camera
+/// setter, so this boundary is part of the camera state machine rather than a
+/// cosmetic delay.
+@MainActor
+final class MapLibreCameraMutationDeferrer {
+    private var task: Task<Void, Never>?
+
+    var isPending: Bool { task != nil }
+
+    @discardableResult
+    func schedule(_ mutation: @escaping @MainActor () -> Void) -> Bool {
+        guard task == nil else { return false }
+        task = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.task = nil
+            mutation()
+        }
+        return true
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
     }
 }
 

@@ -33,19 +33,23 @@ struct ExpenseSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("支出概览").font(.title3.bold())
+                Text("支出概览")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white)
                 Spacer()
                 Text("实际 \(expenses.count) 笔")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
             totalRow(label: "实际已支出", amount: actualTotal, prominent: false)
             totalRow(label: "预估（待记实际）", amount: estimatedTotal, prominent: false)
-            Divider()
+            Divider().overlay(PrimaryTabPalette.divider)
             totalRow(label: "全行程合计（实际 + 预估）", amount: grandTotal, prominent: true)
-            Divider()
+            Divider().overlay(PrimaryTabPalette.divider)
             VStack(alignment: .leading, spacing: 8) {
-                Text("实际分类").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("实际分类")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
                 ForEach(ExpenseCategory.allCases) { category in
                     if let amount = byCategory[category], amount > 0 {
                         HStack {
@@ -54,22 +58,31 @@ struct ExpenseSummaryView: View {
                             Text(ExpenseMoney.formatted(amount, currency: currency)).monospacedDigit()
                         }
                         .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.82))
                     }
                 }
             }
         }
         .padding(18)
-        .glassEffect(.regular.tint(.indigo), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(PrimaryTabPalette.accent)
+                .frame(width: 4)
+                .padding(.vertical, 16)
+                .padding(.leading, 2)
+        }
     }
 
     private func totalRow(label: String, amount: Int64, prominent: Bool) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label)
                 .font(prominent ? .subheadline.weight(.semibold) : .subheadline)
-                .foregroundStyle(prominent ? .primary : .secondary)
+                .foregroundStyle(prominent ? .white : PrimaryTabPalette.secondaryText)
             Spacer()
             Text(ExpenseMoney.formatted(amount, currency: currency))
                 .font(prominent ? .title2.bold() : .subheadline.weight(.semibold))
+                .foregroundStyle(.white)
                 .monospacedDigit()
         }
     }

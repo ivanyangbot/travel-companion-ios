@@ -11,12 +11,14 @@ struct ContentView: View {
     @StateObject private var appleSignIn = AppleSignInStore()
     @StateObject private var agentSessionStore = AgentV2SessionStore()
     @StateObject private var agentRunState = AgentV2RunState()
+    @StateObject private var journalSync = JournalSyncCoordinator()
     @State private var showsAgent = false
     @State private var showsGooeyPinDemo = false
     @State private var agentInitialMessage: String?
     @State private var selectedSection: MainSection = .journey
     @State private var navigationDragTranslation: CGFloat = 0
     @State private var navigationDragHasStarted = false
+    @State private var navigationIsPressed = false
 
     private enum MainSection: CaseIterable {
         case journey
@@ -97,6 +99,10 @@ struct ContentView: View {
             engine.observeAuthChanges()
             syncEngine = engine
             await engine.bootstrap()
+            journalSync.updateSession(
+                isAuthenticated: engine.isUserAuthenticated,
+                tripID: engine.selectedTripID
+            )
             presentSharedLinkInAgentIfPossible()
             if scenePhase == .active {
                 engine.startForegroundSync()
@@ -108,6 +114,10 @@ struct ContentView: View {
                 sharedLinkStore.consumeStoredURL()
                 presentSharedLinkInAgentIfPossible()
                 syncEngine.startForegroundSync()
+                journalSync.updateSession(
+                    isAuthenticated: syncEngine.isUserAuthenticated,
+                    tripID: syncEngine.selectedTripID
+                )
                 Task { await syncEngine.retry() }
             } else {
                 syncEngine.stopForegroundSync()
@@ -122,6 +132,18 @@ struct ContentView: View {
         }
         .onChange(of: syncEngine?.trip?.version) { _, _ in
             presentSharedLinkInAgentIfPossible()
+        }
+        .onChange(of: syncEngine?.isUserAuthenticated) { _, authenticated in
+            journalSync.updateSession(
+                isAuthenticated: authenticated == true,
+                tripID: syncEngine?.selectedTripID
+            )
+        }
+        .onChange(of: syncEngine?.selectedTripID) { _, tripID in
+            journalSync.updateSession(
+                isAuthenticated: syncEngine?.isUserAuthenticated == true,
+                tripID: tripID
+            )
         }
     }
 
@@ -157,25 +179,37 @@ struct ContentView: View {
                     sharedLinkStore: sharedLinkStore,
                     appleSignIn: appleSignIn
                 )
-            } else {
-                ProgressView("正在准备旅程…")
-            }
+        } else {
+            sectionLoadingPlaceholder("正在准备旅程…")
+        }
         case .expenses:
             if let syncEngine {
                 ExpenseListView(syncEngine: syncEngine)
-            } else {
-                ProgressView("正在准备账本…")
-            }
+        } else {
+            sectionLoadingPlaceholder("正在准备账本…")
+        }
         case .notes:
             if let syncEngine {
-                NotesView(syncEngine: syncEngine)
-            } else {
-                ProgressView("正在准备手书…")
-            }
+                NotesView(syncEngine: syncEngine, journalSync: journalSync)
+        } else {
+            sectionLoadingPlaceholder("正在准备手书…")
+        }
         case .settings:
             // The settings tab is a visual placeholder for now and is not
             // selectable. Keep this branch exhaustive for future activation.
             EmptyView()
+        }
+    }
+
+    /// 与各主页面一致的暗色底、浅色文字的加载占位视图。
+    private func sectionLoadingPlaceholder(_ title: String) -> some View {
+        ZStack {
+            PrimaryTabPalette.background.ignoresSafeArea()
+            ProgressView {
+                Text(title)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+            .tint(.white)
         }
     }
 
@@ -202,7 +236,13 @@ struct ContentView: View {
 
         }
         .contentShape(Rectangle())
-        .gesture(navigationDragGesture)
+        .onLongPressGesture(
+            minimumDuration: .infinity,
+            maximumDistance: .infinity,
+            pressing: { navigationIsPressed = $0 },
+            perform: {}
+        )
+        .simultaneousGesture(navigationDragGesture)
         .accessibilityRepresentation {
             HStack {
                 ForEach(MainSection.allCases, id: \.self) { section in
@@ -230,6 +270,12 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(.white.opacity(0.6), lineWidth: 1.5)
         }
+        .scaleEffect(
+            x: navigationBarHorizontalScale,
+            y: navigationBarVerticalScale,
+            anchor: .bottom
+        )
+        .animation(.snappy(duration: 0.2), value: navigationIsPressed)
         .shadow(
             color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
             radius: 12,
@@ -265,9 +311,8 @@ struct ContentView: View {
             }
             .onEnded { value in
                 if navigationDragHasStarted {
-                    navigationDragHasStarted = false
-
                     let destination = navigationSection(forHighlightOffset: navigationHighlightOffset)
+                    navigationDragHasStarted = false
                     selectSection(destination)
                     return
                 }
@@ -323,18 +368,26 @@ struct ContentView: View {
         return min(max(0, rawOffset), navigationContentWidth - navigationHighlightWidth)
     }
 
-    /// The highlight grows only while the user is actively moving it. The
-    /// values stay deliberately small so the control retains its compact feel.
-    private var navigationDragProgress: CGFloat {
-        min(1, abs(navigationDragTranslation) / navigationItemStride)
+    /// Pressing the selected item immediately enters the enlarged state;
+    /// enlargement does not depend on how far the user has dragged.
+    private var navigationPressedProgress: CGFloat {
+        navigationIsPressed ? 1 : 0
     }
 
     private var navigationHighlightWidth: CGFloat {
-        navigationItemSize + 6 * navigationDragProgress
+        navigationItemSize + 8 * navigationPressedProgress
     }
 
     private var navigationHighlightVerticalScale: CGFloat {
-        1 + 0.025 * navigationDragProgress
+        1 + 0.035 * navigationPressedProgress
+    }
+
+    private var navigationBarHorizontalScale: CGFloat {
+        1 + ((234.47 / 228) - 1) * navigationPressedProgress
+    }
+
+    private var navigationBarVerticalScale: CGFloat {
+        1 + ((62.28 / 60) - 1) * navigationPressedProgress
     }
 
     private var navigationContentWidth: CGFloat {

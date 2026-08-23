@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import UIKit
 import XCTest
 @testable import TravelCompanion
 
@@ -11,6 +12,14 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(ItineraryListPresentation.timelineLabel(day, true), "今日 六")
         XCTAssertEqual(ItineraryListPresentation.monthDay(for: day), "09.12")
         XCTAssertEqual(ItineraryListPresentation.weekday(for: day), "六")
+    }
+
+    func testItineraryListFormatsRouteDistanceAndDurationLikeReference() {
+        XCTAssertEqual(CardLegEstimateView.itineraryListDistanceText(218), "218m")
+        XCTAssertEqual(CardLegEstimateView.itineraryListDistanceText(2_828_003), "2828km")
+        XCTAssertEqual(CardLegEstimateView.itineraryListDistanceText(27_740), "27.7km")
+        XCTAssertEqual(CardLegEstimateView.itineraryListDurationText(1), "1min")
+        XCTAssertEqual(CardLegEstimateView.itineraryListDurationText(4_020), "67min")
     }
 
     func testItineraryListDerivesEightCharacterSummaryInPersistedOrder() {
@@ -45,6 +54,58 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(ItineraryListPresentation.selectedIndex(date: nil, in: days), 0)
         XCTAssertEqual(ItineraryListPresentation.selectedIndex(date: "2026-09-13", in: days), 1)
         XCTAssertEqual(ItineraryListPresentation.todayIndex(in: days, today: today), 1)
+    }
+
+    func testItineraryListMarksOnlyCurrentOrImmediatelyUpcomingCard() throws {
+        let formatter = ISO8601DateFormatter()
+        let current = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "当前活动",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-12T09:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-09-12T10:00:00Z")),
+            position: 0
+        )
+        let next = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "下一活动",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-12T11:00:00Z")),
+            position: 1
+        )
+        let day = TripDaySnapshot(date: "2026-09-12", position: 0, cards: [next, current])
+
+        XCTAssertEqual(
+            ItineraryListPresentation.currentOrNextCardID(
+                in: [day],
+                now: try XCTUnwrap(formatter.date(from: "2026-09-12T09:30:00Z"))
+            ),
+            current.id
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.currentOrNextCardID(
+                in: [day],
+                now: try XCTUnwrap(formatter.date(from: "2026-09-12T10:30:00Z"))
+            ),
+            next.id
+        )
+        XCTAssertNil(
+            ItineraryListPresentation.currentOrNextCardID(
+                in: [day],
+                now: try XCTUnwrap(formatter.date(from: "2026-09-12T14:00:01Z"))
+            )
+        )
+    }
+
+    func testLargeImageCardUsesReferenceImageGeometry() {
+        XCTAssertEqual(ItineraryLargeImageCardLayout.outerPadding, 12)
+        XCTAssertEqual(ItineraryLargeImageCardLayout.contentSpacing, 12)
+        XCTAssertEqual(ItineraryLargeImageCardLayout.imageAspectRatio, 38.0 / 21.0)
+        XCTAssertEqual(
+            ItineraryLargeImageCardLayout.imageHeight(cardWidth: 366),
+            189,
+            accuracy: 0.001
+        )
     }
 
     @MainActor
@@ -94,26 +155,7 @@ final class TravelCardsTests: XCTestCase {
         )
     }
 
-    func testItineraryDragRequiresMovementAfterLongPressAndUsesVariableEdgeSpeed() {
-        XCTAssertFalse(
-            ItineraryDragInteraction.shouldActivateCardDrag(
-                translation: CGSize(width: 0, height: 2.9),
-                alreadyActive: false
-            )
-        )
-        XCTAssertTrue(
-            ItineraryDragInteraction.shouldActivateCardDrag(
-                translation: CGSize(width: 0, height: 3),
-                alreadyActive: false
-            )
-        )
-        XCTAssertTrue(
-            ItineraryDragInteraction.shouldActivateCardDrag(
-                translation: .zero,
-                alreadyActive: true
-            )
-        )
-
+    func testItineraryDragUsesVariableEdgeSpeedAndReleasePosition() {
         let viewport = CGRect(x: 0, y: 100, width: 390, height: 500)
         XCTAssertEqual(ItineraryDragInteraction.autoScrollVelocity(fingerY: viewport.midY, viewport: viewport), 0)
         let upperSlow = ItineraryDragInteraction.autoScrollVelocity(fingerY: 190, viewport: viewport)
@@ -136,7 +178,31 @@ final class TravelCardsTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testItineraryAutoScrollControllerScrollsWhileManualPanIsLocked() {
+        let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 390, height: 500))
+        scrollView.contentSize = CGSize(width: 390, height: 2_000)
+        let controller = ItineraryListScrollController()
+        controller.connect(to: scrollView)
+
+        controller.setDragLocked(true)
+        XCTAssertFalse(scrollView.panGestureRecognizer.isEnabled)
+        XCTAssertEqual(controller.scroll(by: 120), 120)
+        XCTAssertEqual(scrollView.contentOffset.y, 120)
+        XCTAssertEqual(controller.scroll(by: 5_000), 1_500)
+        XCTAssertEqual(scrollView.contentOffset.y, 1_500)
+        XCTAssertEqual(controller.scroll(by: -5_000), 0)
+        XCTAssertEqual(scrollView.contentOffset.y, 0)
+
+        controller.setDragLocked(false)
+        XCTAssertTrue(scrollView.panGestureRecognizer.isEnabled)
+    }
+
     func testItineraryCardSwipeDistinguishesHorizontalIntentAndSnapsActions() {
+        XCTAssertEqual(ItineraryCardSwipeInteraction.actionWidth, 68)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.actionCount, 3)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.actionsWidth, 204)
+
         XCTAssertTrue(
             ItineraryCardSwipeInteraction.shouldBeginSwipe(
                 CGSize(width: -40, height: 8),
@@ -193,28 +259,30 @@ final class TravelCardsTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            ItineraryCardSwipeInteraction.clampedOffset(baseOffset: 0, translation: -200),
+            ItineraryCardSwipeInteraction.clampedOffset(baseOffset: 0, translation: -300),
             -ItineraryCardSwipeInteraction.actionsWidth
         )
         XCTAssertEqual(
             ItineraryCardSwipeInteraction.clampedOffset(
                 baseOffset: -ItineraryCardSwipeInteraction.actionsWidth,
-                translation: 200
+                translation: 300
             ),
             0
         )
-        XCTAssertTrue(ItineraryCardSwipeInteraction.shouldRevealActions(currentOffset: -40, projectedOffset: -80))
+        XCTAssertTrue(ItineraryCardSwipeInteraction.shouldRevealActions(currentOffset: -52, projectedOffset: -90))
         XCTAssertFalse(ItineraryCardSwipeInteraction.shouldRevealActions(currentOffset: -12, projectedOffset: -100))
         XCTAssertFalse(ItineraryCardSwipeInteraction.shouldRevealActions(currentOffset: -40, projectedOffset: -40))
 
-        XCTAssertEqual(ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: 40), -20)
-        XCTAssertEqual(ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: 72), -36)
-        XCTAssertEqual(ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: 100), -50)
-        XCTAssertEqual(ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: 144), -72)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.drawerOffset(slotFromTrailing: 1, revealedWidth: 30), -10)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.drawerOffset(slotFromTrailing: 2, revealedWidth: 30), -20)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.drawerOffset(slotFromTrailing: 1, revealedWidth: 102), -34)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.drawerOffset(slotFromTrailing: 2, revealedWidth: 102), -68)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.drawerOffset(slotFromTrailing: 1, revealedWidth: 204), -68)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.drawerOffset(slotFromTrailing: 2, revealedWidth: 204), -136)
         XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 0), 0)
         XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 12), 0.5)
         XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 24), 1)
-        XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 144), 1)
+        XCTAssertEqual(ItineraryCardSwipeInteraction.actionVisibility(revealedWidth: 204), 1)
 
         XCTAssertEqual(
             ItineraryCardSwipeInteraction.projectedOffset(
@@ -222,9 +290,35 @@ final class TravelCardsTests: XCTestCase {
                 translation: -30,
                 predictedTranslation: -300
             ),
-            -69.6,
+            -67.4,
             accuracy: 0.001
         )
+    }
+
+    func testItineraryCardAgentPromptIncludesSelectedCardContext() {
+        let card = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "上海公安局（第二航厦）",
+            startAt: Date(timeIntervalSince1970: 1_725_600_600),
+            endAt: Date(timeIntervalSince1970: 1_725_602_400),
+            place: PlaceSnapshot(
+                id: 9,
+                name: "上海浦东机场",
+                address: nil,
+                latitude: nil,
+                longitude: nil,
+                placeId: nil,
+                cityCode: nil,
+                updatedAt: .now
+            )
+        )
+
+        let prompt = ItineraryListPresentation.agentPrompt(for: card, date: "2026-09-12")
+        XCTAssertTrue(prompt.contains("上海公安局（第二航厦）"))
+        XCTAssertTrue(prompt.contains("2026-09-12"))
+        XCTAssertTrue(prompt.contains("上海浦东机场"))
+        XCTAssertTrue(prompt.contains("时间："))
     }
 
     @MainActor
@@ -332,6 +426,25 @@ final class TravelCardsTests: XCTestCase {
         // An absolute URL is returned unchanged.
         XCTAssertEqual(CardImageURL.resolve("https://cdn.example.com/x.png")?.absoluteString, "https://cdn.example.com/x.png")
         XCTAssertNil(CardImageURL.resolve(nil))
+    }
+
+    func testCardSnapshotDecodesServerLargeImageDecisionAndKeepsOldSnapshotsCompact() throws {
+        let immersiveJSON = Data("""
+        {"id":8,"dayId":1,"kind":"activity","title":"丽江古城","startAt":"2026-10-01T09:00:00Z",
+         "images":["/v1/files/lijiang.jpg"],"imageScore":94,"showLargeImage":true,
+         "position":0,"updatedAt":"2026-10-01T08:00:00Z"}
+        """.utf8)
+        let immersive = try JSONDecoder.sharedTrip.decode(TravelCardSnapshot.self, from: immersiveJSON)
+        XCTAssertEqual(immersive.imageScore, 94)
+        XCTAssertTrue(immersive.showLargeImage)
+
+        let legacyJSON = Data("""
+        {"id":9,"dayId":1,"kind":"activity","title":"上海公安局","startAt":"2026-10-01T10:00:00Z",
+         "images":["/v1/files/office.jpg"],"position":1,"updatedAt":"2026-10-01T08:00:00Z"}
+        """.utf8)
+        let legacy = try JSONDecoder.sharedTrip.decode(TravelCardSnapshot.self, from: legacyJSON)
+        XCTAssertEqual(legacy.imageScore, 0)
+        XCTAssertFalse(legacy.showLargeImage)
     }
 
     func testCardPriceFormatsMinorUnitsByCurrency() {

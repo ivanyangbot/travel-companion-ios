@@ -1299,7 +1299,15 @@ final class SyncEngine: ObservableObject {
         updated.ticketPriceMinor = request.ticketPriceMinor ?? (request.fieldsToClear.contains("ticketPriceMinor") ? nil : updated.ticketPriceMinor)
         updated.stayDurationMinutes = request.stayDurationMinutes ?? (request.fieldsToClear.contains("stayDurationMinutes") ? nil : updated.stayDurationMinutes)
         updated.tips = request.tips ?? (request.fieldsToClear.contains("tips") ? nil : updated.tips)
-        updated.images = request.images ?? (request.fieldsToClear.contains("images") ? nil : updated.images)
+        if let images = request.images {
+            updated.images = images
+            updated.imageScore = 0
+            updated.showLargeImage = false
+        } else if request.fieldsToClear.contains("images") {
+            updated.images = nil
+            updated.imageScore = 0
+            updated.showLargeImage = false
+        }
         updated.notes = request.notes ?? (request.fieldsToClear.contains("notes") ? nil : updated.notes)
         if let position = request.position { updated.position = position }
         updated.updatedAt = .now

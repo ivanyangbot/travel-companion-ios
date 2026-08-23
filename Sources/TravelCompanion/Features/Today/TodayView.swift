@@ -1,4 +1,5 @@
 import MapKit
+import OSLog
 import SwiftData
 import SwiftUI
 import UIKit
@@ -106,7 +107,8 @@ struct TodayView: View {
     private func mapContent(days: [TripDaySnapshot], currentIndex: Int, baseIndex: Int) -> some View {
         let day = days[currentIndex]
         let pois = poiCards(in: day)
-        let showsPOIOverlay = !pois.isEmpty && isPOIOverlayExpanded
+        let showsPOISwiper = !pois.isEmpty && isPOIOverlayExpanded
+        let showsTimeline = pois.isEmpty || isPOIOverlayExpanded
         ZStack {
             MapLibreTodayMapCanvas(
                 points: mapPoints(pois: pois),
@@ -117,11 +119,10 @@ struct TodayView: View {
                 cameraFocus: cameraFocus,
                 cameraFocusPointID: cameraFocusPointID,
                 cameraRequestID: cameraRequestID,
-                // While the overlay is visible, its live timeline frame is
-                // the bottom pin boundary and follows card expansion. Once
-                // the header button hides the entire overlay, `nil` switches
-                // the map to the floating tab bar's upper edge.
-                timelineTopInGlobal: showsPOIOverlay ? lastTimelineTopInGlobal : nil,
+                // While the timeline is visible, its live frame is the bottom
+                // pin boundary and follows card expansion. A date without POIs
+                // keeps this boundary because its timeline remains on screen.
+                timelineTopInGlobal: showsTimeline ? lastTimelineTopInGlobal : nil,
                 overviewBottomInset: isPOIOverlayExpanded ? 240 : 112,
                 routeRefreshID: 0
             ) { _ in
@@ -154,7 +155,7 @@ struct TodayView: View {
                     baseIndex: baseIndex
                 )
                 Spacer()
-                if showsPOIOverlay {
+                if showsTimeline {
                     let timelineWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
                     VStack(spacing: 8) {
                         TodayDateTimeline(
@@ -177,12 +178,14 @@ struct TodayView: View {
                             }
                         }
 
-                        poiSwiper(
-                            pois: pois,
-                            days: days,
-                            currentDayIndex: currentIndex,
-                            userLocation: userLocationProvider.coordinate
-                        )
+                        if showsPOISwiper {
+                            poiSwiper(
+                                pois: pois,
+                                days: days,
+                                currentDayIndex: currentIndex,
+                                userLocation: userLocationProvider.coordinate
+                            )
+                        }
                     }
                     .padding(.bottom, 112)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -225,16 +228,24 @@ struct TodayView: View {
         currentIndex: Int,
         baseIndex: Int
     ) -> some View {
-        ZStack(alignment: .top) {
+        ZStack {
             Text(mapHeaderTitle(for: day, currentIndex: currentIndex, baseIndex: baseIndex))
-                .font(.custom("PingFangTC-Semibold", size: 24))
-                .tracking(0.024)
-                .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36)
+                .font(.system(size: 20, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 48)
                 .foregroundStyle(.white)
                 .contentShape(Rectangle())
                 .simultaneousGesture(daySwipeGesture(days: days, currentIndex: currentIndex))
 
             HStack(spacing: 0) {
+                TodayPOIOverlayToggleButton(isExpanded: $isPOIOverlayExpanded) { isExpanded in
+                    guard isExpanded else { return }
+                    fitAll(pois: pois)
+                }
+                .disabled(pois.isEmpty)
+                .opacity(pois.isEmpty ? 0.45 : 1)
+
+                Spacer(minLength: 0)
+
                 Button {
                     withAnimation(.snappy(duration: 0.28)) { section = .itinerary }
                 } label: {
@@ -261,51 +272,13 @@ struct TodayView: View {
                     y: 12
                 )
                 .accessibilityLabel("查看旅程计划")
-
-                Spacer(minLength: 0)
-
-                TodayPOIOverlayToggleButton(isExpanded: $isPOIOverlayExpanded) { isExpanded in
-                    guard isExpanded else { return }
-                    fitAll(pois: pois)
-                }
-                .disabled(pois.isEmpty)
-                .opacity(pois.isEmpty ? 0.45 : 1)
             }
         }
         .padding(.horizontal, 20)
     }
 
     private func mapHeaderTitle(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> String {
-        if let dateText = monthDayChineseLabel(for: day) {
-            if currentIndex == baseIndex, let weekday = weekdayLabel(for: day), !weekday.isEmpty {
-                return "今日 \(weekday)"
-            }
-            return dateText
-        }
-        guard let date = Self.dayFormatter.date(from: day.date) else { return day.date }
-        let fallback = Self.displayFormatter.string(from: date)
-        if currentIndex == baseIndex, let weekday = weekdayLabel(for: day), !weekday.isEmpty {
-            return "今日 \(weekday)"
-        }
-        return fallback
-    }
-
-    private func chineseNumber(_ value: Int) -> String {
-        let digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
-        switch value {
-        case 0...9:
-            return digits[value]
-        case 10:
-            return "十"
-        case 11...19:
-            return "十\(digits[value % 10])"
-        case 20...31:
-            let tens = digits[value / 10]
-            let ones = value % 10
-            return ones == 0 ? "\(tens)十" : "\(tens)十\(digits[ones])"
-        default:
-            return String(value)
-        }
+        ItineraryListPresentation.timelineLabel(day, currentIndex == baseIndex)
     }
 
     @ViewBuilder
@@ -545,6 +518,13 @@ struct TodayView: View {
                         poiSwipeStartIndex = nil
                         poiSwipeStartExpansionProgress = nil
                         selectDay(days: days, index: currentDayIndex + 1)
+                    } else if movesBackward,
+                              startIndex == 0,
+                              currentDayIndex > 0 {
+                        poiSwipeTranslation = 0
+                        poiSwipeStartIndex = nil
+                        poiSwipeStartExpansionProgress = nil
+                        selectDay(days: days, index: currentDayIndex - 1)
                     } else {
                         withAnimation(.smooth(duration: 0.22)) {
                             poiSwipeTranslation = 0
@@ -650,31 +630,6 @@ struct TodayView: View {
             max(0, min(6, Self.utcCalendar.component(.weekday, from: date) - 1))
         ]
         return symbol
-    }
-
-    private func monthDayChineseLabel(for day: TripDaySnapshot) -> String? {
-        guard let date = Self.dayFormatter.date(from: day.date) else { return nil }
-        return monthDayChineseLabel(for: date)
-    }
-
-    private func monthDayChineseLabel(for date: Date) -> String? {
-        let components = Self.utcCalendar.dateComponents([.month, .day], from: date)
-        guard let month = components.month, let day = components.day else { return nil }
-        return "\(chineseNumber(month))月\(chineseDayWithLeadingZero(day))"
-    }
-
-    private func chineseDayWithLeadingZero(_ value: Int) -> String {
-        guard (1...31).contains(value) else { return String(value) }
-        let digits = ["〇", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
-        if value < 10 { return "〇\(digits[value])" }
-        if value < 20 { return "十\(value == 10 ? "" : digits[value % 10])" }
-        if value == 20 { return "廿" }
-        if value < 30 {
-            return "廿\(digits[value - 20])"
-        }
-        if value == 30 { return "三十" }
-        if value == 31 { return "三十一" }
-        return String(value)
     }
 
     private func fitAll(pois: [TravelCardSnapshot]) {
@@ -812,8 +767,16 @@ struct TodayDateTimeline: View {
     /// Only a preceding direct drag is allowed to choose a new day.
     @State private var isUserDraggingTimeline = false
     @State private var hasSettledCurrentTimelineDrag = false
+    /// A drag settle centers the chosen date immediately. Remember that one
+    /// selection so the parent-driven `selectedIndex` update does not launch
+    /// a second, overlapping `scrollTo` animation for the same destination.
+    @State private var internallyCenteredSelectionIndex: Int?
 
     private let coordinateSpaceName = "today-date-timeline-viewport"
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "TravelCompanion",
+        category: "TodayTimeline"
+    )
 
     var body: some View {
         ScrollViewReader { scrollProxy in
@@ -839,6 +802,9 @@ struct TodayDateTimeline: View {
             }
             .coordinateSpace(name: coordinateSpaceName)
             .onScrollPhaseChange { _, phase in
+                Self.logger.debug(
+                    "scroll phase=\(String(describing: phase), privacy: .public) selected=\(selectedIndex) anchored=\(anchoredIndex ?? -1)"
+                )
                 switch phase {
                 case .tracking, .interacting:
                     isUserDraggingTimeline = true
@@ -886,6 +852,14 @@ struct TodayDateTimeline: View {
             }
             .onChange(of: selectedIndex) {
                 anchoredIndex = selectedIndex
+                if internallyCenteredSelectionIndex == selectedIndex {
+                    internallyCenteredSelectionIndex = nil
+                    Self.logger.notice(
+                        "skip duplicate parent center index=\(selectedIndex)"
+                    )
+                    return
+                }
+                internallyCenteredSelectionIndex = nil
                 centerDate(at: selectedIndex, using: scrollProxy, animated: true)
             }
         }
@@ -911,11 +885,12 @@ struct TodayDateTimeline: View {
 
     private var pinnedTodaySide: PinnedTodaySide? {
         guard todayFrame != .null else { return nil }
-        // Swap into the fixed button before the whole chip disappears, so
-        // there is no moment where the way back to today is lost.
-        let edgeThreshold: CGFloat = 48
-        if todayFrame.maxX < edgeThreshold { return .leading }
-        if todayFrame.minX > width - edgeThreshold { return .trailing }
+        // Pin before the scrolling chip reaches the viewport edge. Waiting
+        // until it is mostly gone causes the "today" label to be visibly
+        // clipped, then appear again as the fixed control.
+        let edgeInset: CGFloat = 12
+        if todayFrame.minX <= edgeInset { return .leading }
+        if todayFrame.maxX >= width - edgeInset { return .trailing }
         return nil
     }
 
@@ -974,6 +949,9 @@ struct TodayDateTimeline: View {
         settlesImmediately: Bool = false
     ) {
         guard days.indices.contains(index) else { return }
+        Self.logger.debug(
+            "center date index=\(index) animated=\(animated) immediate=\(settlesImmediately)"
+        )
         let scroll = {
             scrollProxy.scrollTo(days[index].id, anchor: .center)
         }
@@ -1002,8 +980,12 @@ struct TodayDateTimeline: View {
             abs($0.frame.midX - anchorX) < abs($1.frame.midX - anchorX)
         }), let index = days.firstIndex(where: { $0.id == closest.day.id }) else { return }
 
+        Self.logger.notice(
+            "settle date index=\(index) previous=\(selectedIndex) distance=\(abs(closest.frame.midX - anchorX), format: .fixed(precision: 2))"
+        )
         anchoredIndex = index
         if index != selectedIndex {
+            internallyCenteredSelectionIndex = index
             onSelect(index)
             centerDate(
                 at: index,

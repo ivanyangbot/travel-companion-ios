@@ -1,6 +1,11 @@
 import SwiftUI
 import SwiftData
 
+enum CardLegEstimatePresentation {
+    case standard
+    case itineraryList
+}
+
 /// 相邻两张有坐标的卡片之间的出行时间预估。默认驾车，每段可单独切换并持久化；
 /// 首次无缓存时通过 Apple MapKit 静默估算一次，之后仅显示缓存值（含过期），点刷新才再次请求。
 struct CardLegEstimateView: View {
@@ -8,6 +13,7 @@ struct CardLegEstimateView: View {
     let destinationCard: TravelCardSnapshot
     let originPoint: RoutePoint
     let destinationPoint: RoutePoint
+    var presentation: CardLegEstimatePresentation = .standard
 
     @Environment(\.modelContext) private var modelContext
     @StateObject private var mapLinkHandler = MapLinkHandler()
@@ -19,6 +25,25 @@ struct CardLegEstimateView: View {
     private var legKey: String { CardLegStore.legKey(origin: originCard, destination: destinationCard) }
 
     var body: some View {
+        Group {
+            switch presentation {
+            case .standard:
+                standardContent
+            case .itineraryList:
+                itineraryListContent
+            }
+        }
+        .task(id: legKey) {
+            await load()
+        }
+        .alert("无法打开地图", isPresented: Binding(get: { mapLinkHandler.alertMessage != nil }, set: { if !$0 { mapLinkHandler.alertMessage = nil } })) {
+            Button("好", role: .cancel) { mapLinkHandler.alertMessage = nil }
+        } message: {
+            Text(mapLinkHandler.alertMessage ?? "")
+        }
+    }
+
+    private var standardContent: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.down").font(.caption).foregroundStyle(.tertiary)
             if isFetching {
@@ -75,14 +100,107 @@ struct CardLegEstimateView: View {
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
         .glassEffect(in: Capsule())
-        .task(id: legKey) {
-            await load()
+    }
+
+    private var itineraryListContent: some View {
+        Button(action: openRoute) {
+            HStack(spacing: 8) {
+                itineraryListModeIcon
+
+                Group {
+                    if isFetching {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在估算")
+                    } else if let estimate {
+                        Text(
+                            "\(Self.itineraryListDistanceText(estimate.estimate.distanceMeters)) • "
+                                + Self.itineraryListDurationText(estimate.estimate.durationSeconds)
+                        )
+                    } else {
+                        Text(fetchFailed ? "无法估算" : "预计时间")
+                    }
+                }
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.white.opacity(0.82))
+
+                Spacer(minLength: 8)
+
+                Image("icon-right-outline")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .frame(width: 20, height: 20)
+                    .foregroundStyle(.white.opacity(0.82))
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 18)
+            .contentShape(Rectangle())
         }
-        .alert("无法打开地图", isPresented: Binding(get: { mapLinkHandler.alertMessage != nil }, set: { if !$0 { mapLinkHandler.alertMessage = nil } })) {
-            Button("好", role: .cancel) { mapLinkHandler.alertMessage = nil }
-        } message: {
-            Text(mapLinkHandler.alertMessage ?? "")
+        .buttonStyle(.plain)
+        .contextMenu {
+            Section("出行方式") {
+                ForEach(RouteMode.allCases) { option in
+                    Button {
+                        changeMode(option)
+                    } label: {
+                        Label(option.title, systemImage: option.systemImage)
+                    }
+                }
+            }
+
+            Button {
+                Task { await refresh() }
+            } label: {
+                Label("刷新预计时间", systemImage: "arrow.clockwise")
+            }
+            .disabled(isFetching)
         }
+        .accessibilityLabel(itineraryListAccessibilityLabel)
+        .accessibilityHint("打开 Apple 地图路线；长按可切换出行方式或刷新")
+    }
+
+    @ViewBuilder
+    private var itineraryListModeIcon: some View {
+        if mode == .walking {
+            itineraryListAssetIcon("icon-walk-outline")
+        } else if mode == .driving {
+            itineraryListAssetIcon("icon-car-outline")
+        } else {
+            Image(systemName: mode.systemImage)
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 20, height: 20)
+                .foregroundStyle(.white.opacity(0.82))
+        }
+    }
+
+    private func itineraryListAssetIcon(_ name: String) -> some View {
+        Image(name)
+            .resizable()
+            .renderingMode(.template)
+            .scaledToFit()
+            .frame(width: 20, height: 20)
+            .foregroundStyle(.white.opacity(0.82))
+    }
+
+    private var itineraryListAccessibilityLabel: String {
+        if isFetching {
+            return "\(mode.title)，正在估算路线"
+        }
+        if let estimate {
+            return "\(mode.title)，距离\(Self.distanceText(estimate.estimate.distanceMeters))，预计\(Self.durationText(estimate.estimate.durationSeconds))"
+        }
+        return "\(mode.title)，\(fetchFailed ? "无法估算路线" : "预计时间")"
+    }
+
+    private func openRoute() {
+        mapLinkHandler.openRoute(
+            origin: originPoint,
+            originName: originCard.place?.name ?? originCard.title,
+            destination: destinationPoint,
+            destinationName: destinationCard.place?.name ?? destinationCard.title,
+            mode: mode
+        )
     }
 
     private func load() async {
@@ -143,5 +261,18 @@ struct CardLegEstimateView: View {
     private static func durationText(_ seconds: Int) -> String {
         let minutes = max(1, Int(ceil(Double(seconds) / 60)))
         return minutes >= 60 ? "\(minutes / 60) 小时 \(minutes % 60) 分" : "约 \(minutes) 分"
+    }
+
+    static func itineraryListDistanceText(_ meters: Int) -> String {
+        guard meters >= 1_000 else { return "\(meters)m" }
+        let kilometers = Double(meters) / 1_000
+        let formatted = String(format: "%.1f", kilometers)
+        return formatted.hasSuffix(".0")
+            ? "\(formatted.dropLast(2))km"
+            : "\(formatted)km"
+    }
+
+    static func itineraryListDurationText(_ seconds: Int) -> String {
+        "\(max(1, Int(ceil(Double(seconds) / 60))))min"
     }
 }

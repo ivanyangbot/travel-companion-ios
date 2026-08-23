@@ -20,13 +20,31 @@ struct WalletSection: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("本机卡包").font(.title3.bold())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("本机卡包")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("仅保存在这台设备")
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
                 Spacer()
-                Button("添加卡片", systemImage: "plus") { editor = .new }
-                    .buttonStyle(.glass)
+                Button { editor = .new } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            PrimaryTabPalette.elevatedSurface,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("添加卡片")
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 16)
             .padding(.top, 8)
+            .padding(.bottom, 10)
 
             if items.isEmpty {
                 ContentUnavailableView(
@@ -34,18 +52,25 @@ struct WalletSection: View {
                     systemImage: "wallet.pass",
                     description: Text("保存护照号、会员号等旅行常用号码；它们不会上传或同步。")
                 )
-                .padding(.top, 48)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, 112)
             } else {
-                List {
-                    if !unreadableItemIDs.isEmpty { recoveryNotice }
-                    ForEach(items) { item in
-                        walletRow(item)
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if !unreadableItemIDs.isEmpty {
+                            recoveryNotice
+                        }
+                        ForEach(items) { item in
+                            walletRow(item)
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 128)
                 }
-                .listStyle(.insetGrouped)
+                .scrollIndicators(.hidden)
             }
         }
+        .background(PrimaryTabPalette.background)
         .frame(maxHeight: .infinity, alignment: .top)
         .sheet(item: $editor) { target in
             WalletEditorView(syncEngine: syncEngine, item: target.item, existingSecret: target.item.flatMap { decryptedSecrets[$0.id] }) {
@@ -94,6 +119,8 @@ struct WalletSection: View {
                 onEdit: { editor = .edit(item) },
                 onDelete: { pendingDeletion = item }
             )
+            .padding(14)
+            .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
         } else if unreadableItemIDs.contains(item.id) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.label).font(.headline)
@@ -101,26 +128,32 @@ struct WalletSection: View {
                     .font(.subheadline)
                     .foregroundStyle(.red)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
         } else {
             HStack {
                 Text(item.label)
                 Spacer()
                 ProgressView()
             }
+            .padding(14)
+            .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
         }
     }
 
     private var recoveryNotice: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("部分卡包数据无法解密", systemImage: "lock.trianglebadge.exclamationmark")
-                    .foregroundStyle(.red)
-                Text("这通常发生在设备迁移或钥匙串被清除后。为保护隐私，数据不会上传或恢复；你可以安全地清除此设备上无法读取的项目。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Button("清除无法读取的项目", role: .destructive, action: clearUnreadableItems)
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            Label("部分卡包数据无法解密", systemImage: "lock.trianglebadge.exclamationmark")
+                .foregroundStyle(.red)
+            Text("这通常发生在设备迁移或钥匙串被清除后。为保护隐私，数据不会上传或恢复；你可以安全地清除此设备上无法读取的项目。")
+                .font(.footnote)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+            Button("清除无法读取的项目", role: .destructive, action: clearUnreadableItems)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 15)
     }
 
     private func loadSecrets() {
@@ -195,29 +228,46 @@ private struct WalletItemRow: View {
             artworkThumbnail
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(item.label).font(.headline)
+                    Text(item.label)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
                     Spacer()
                     Menu {
                         Button("编辑", systemImage: "pencil", action: onEdit)
                         Button("删除", systemImage: "trash", role: .destructive, action: onDelete)
                     } label: {
-                        Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44)
+                        Image(systemName: "ellipsis")
+                            .foregroundStyle(.white.opacity(0.82))
+                            .frame(minWidth: 44, minHeight: 44)
                     }
                     .accessibilityLabel("\(item.label) 的更多操作")
                 }
                 Text(isRevealed ? secret.number : WalletMasker.masked(secret.number))
                     .font(.body.monospaced())
+                    .foregroundStyle(.white.opacity(0.82))
                     .textSelection(.disabled)
                 if let note = secret.note, !note.isEmpty {
-                    Text(note).font(.subheadline).foregroundStyle(.secondary)
+                    Text(note)
+                        .font(.subheadline)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
                 HStack(spacing: 12) {
                     Button(isRevealed ? "隐藏" : "显示", systemImage: isRevealed ? "eye.slash" : "eye") {
                         toggleReveal()
                     }
-                    .buttonStyle(.glass)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 36)
+                    .background(PrimaryTabPalette.surface, in: Capsule())
+                    .buttonStyle(.plain)
                     Button("复制", systemImage: "doc.on.doc", action: onCopy)
-                        .buttonStyle(.borderedProminent)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 36)
+                        .background(.white, in: Capsule())
+                        .buttonStyle(.plain)
                 }
             }
         }

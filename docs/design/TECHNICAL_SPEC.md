@@ -58,7 +58,7 @@ sequenceDiagram
 | 本机卡包 | `docs/design/features/local-wallet.md` | 加密本地号码、遮挡和复制 | SwiftData、Keychain |
 | AI 填入行程 | `docs/design/features/ai-itinerary.md` | 后端生成结构化草案、确认导入 | 行程卡片、LLM 配置 |
 | 双人协作 | `docs/design/features/collaboration.md` | 5 秒短轮询、离线队列和 LWW 提示 | 所有共享资源 |
-| Pin Gooey 视觉调参 Demo | `docs/design/features/pin-gooey-demo.md` | SwiftUI Canvas 双 Pin 二维自由拖动、360° 轮廓、稳定数字成员过渡与实时参数面板 | 无业务依赖 |
+| Pin Gooey 视觉调参 Demo | `docs/design/features/pin-gooey-demo.md` | SwiftUI Canvas 2...12 个可见 Pin、手动逐 Pin/首页式相机自动双模式、模拟地图平移缩放、首页贴边/直角、共享 Gooey 轮廓、活动 Pin 优先重选目标及单体/聚合通用数字过渡 | 无业务依赖 |
 | 首页 Pin 动态边界与聚合 | `docs/design/features/home-edge-pin.md` | resolver 唯一决定 placement；成员集合变化直接应用最新稳定 Pin | Today MapLibre、Core Animation |
 
 ## Today Map Pin Rendering Contract

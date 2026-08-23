@@ -1,4 +1,18 @@
 import Foundation
+import SwiftUI
+
+/// Ephemeral Fliggy realtime-search chip state for the current turn. Like
+/// ``AgentV2RunState/status`` it is pure UI progress: it never enters the
+/// persisted session, drafts, or the commit payload.
+struct AgentV2FliggyProgress: Equatable {
+    enum Phase: Equatable {
+        case running
+        case completed(ok: Bool, count: Int?)
+    }
+    var kind: AgentV2FliggySearchKind
+    var term: String?
+    var phase: Phase
+}
 
 /// Long-lived state for one in-flight Agent turn. ContentView owns this
 /// object, so dismissing and reopening the sheet does not cancel or visually
@@ -13,6 +27,12 @@ final class AgentV2RunState: ObservableObject {
     @Published var error: String?
     @Published private(set) var isGenerating = false
     @Published var isCommitting = false
+    @Published private(set) var fliggyProgress: AgentV2FliggyProgress?
+
+    /// How long a successful Fliggy completion chip lingers before fading
+    /// out. Injectable so tests can verify the fade without real waits.
+    var fliggyFadeInterval: TimeInterval = 1.5
+    private var fliggyFadeTask: Task<Void, Never>?
 
     private(set) var generationTask: Task<Void, Never>?
     private var generationID: UUID?
@@ -36,6 +56,7 @@ final class AgentV2RunState: ObservableObject {
         generationTask = nil
         isGenerating = false
         status = nil
+        clearFliggyProgress()
     }
 
     func cancelGeneration() {
@@ -44,6 +65,7 @@ final class AgentV2RunState: ObservableObject {
         generationTask = nil
         isGenerating = false
         status = nil
+        clearFliggyProgress()
     }
 
     func prepareForTurn() {
@@ -53,6 +75,7 @@ final class AgentV2RunState: ObservableObject {
         liveCards = []
         status = "正在理解你的需求…"
         error = nil
+        clearFliggyProgress()
     }
 
     func clearTransientState() {
@@ -63,6 +86,53 @@ final class AgentV2RunState: ObservableObject {
         liveCards = []
         error = nil
         isCommitting = false
+        clearFliggyProgress()
+    }
+
+    // MARK: - Fliggy realtime-search chip
+
+    /// A tool call started. Overwrites any lingering completion chip so
+    /// back-to-back Fliggy calls always animate from a fresh running state.
+    func fliggySearchStarted(_ start: AgentV2FliggySearchStart) {
+        clearFliggyProgress()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            fliggyProgress = AgentV2FliggyProgress(
+                kind: AgentV2FliggySearchKind(raw: start.searchType),
+                term: start.searchTerm,
+                phase: .running
+            )
+        }
+    }
+
+    /// A tool call finished. `ok == true` shows the result count and fades
+    /// the chip out after ``fliggyFadeInterval``; `ok == false` keeps the
+    /// degradation notice visible until the turn ends — the model falls back
+    /// to other sources and the stream keeps flowing, so this is never an
+    /// error state.
+    func fliggySearchCompleted(_ completion: AgentV2FliggySearchCompletion) {
+        let previousTerm = fliggyProgress?.term
+        clearFliggyProgress()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            fliggyProgress = AgentV2FliggyProgress(
+                kind: AgentV2FliggySearchKind(raw: completion.searchType),
+                term: previousTerm,
+                phase: .completed(ok: completion.ok, count: completion.count)
+            )
+        }
+        guard completion.ok else { return }
+        fliggyFadeTask = Task { [weak self, interval = fliggyFadeInterval] in
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled, let self else { return }
+            withAnimation(.easeOut(duration: 0.3)) {
+                self.fliggyProgress = nil
+            }
+        }
+    }
+
+    func clearFliggyProgress() {
+        fliggyFadeTask?.cancel()
+        fliggyFadeTask = nil
+        fliggyProgress = nil
     }
 }
 

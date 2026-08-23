@@ -1,9 +1,62 @@
 import SwiftData
 import Foundation
+import UIKit
 import XCTest
 @testable import TravelCompanion
 
 final class AITests: XCTestCase {
+    func testAgentImageUnderThreeMegabytesKeepsItsOriginalEncoding() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32))
+        let source = try XCTUnwrap(renderer.image { context in
+            UIColor.systemIndigo.setFill()
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }.pngData())
+
+        let prepared = try AgentImageAttachmentProcessor.prepare(source)
+
+        XCTAssertEqual(prepared.data, source)
+        XCTAssertEqual(prepared.mediaType, "image/png")
+    }
+
+    func testAgentImageOverThreeMegabytesIsAutomaticallyCompressed() throws {
+        let width = 2_048
+        let height = 2_048
+        var pixels = Data(count: width * height * 4)
+        pixels.withUnsafeMutableBytes { rawBuffer in
+            guard let bytes = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var state: UInt32 = 0x1234_5678
+            for offset in stride(from: 0, to: width * height * 4, by: 4) {
+                state = 1_664_525 &* state &+ 1_013_904_223
+                bytes[offset] = UInt8(truncatingIfNeeded: state)
+                bytes[offset + 1] = UInt8(truncatingIfNeeded: state >> 8)
+                bytes[offset + 2] = UInt8(truncatingIfNeeded: state >> 16)
+                bytes[offset + 3] = 255
+            }
+        }
+        let provider = try XCTUnwrap(CGDataProvider(data: pixels as CFData))
+        let image = try XCTUnwrap(CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        ))
+        let source = try XCTUnwrap(UIImage(cgImage: image).jpegData(compressionQuality: 1))
+        XCTAssertGreaterThan(source.count, AgentImageAttachmentProcessor.maximumBytes)
+
+        let prepared = try AgentImageAttachmentProcessor.prepare(source)
+
+        XCTAssertLessThanOrEqual(prepared.data.count, AgentImageAttachmentProcessor.maximumBytes)
+        XCTAssertEqual(prepared.mediaType, "image/jpeg")
+        XCTAssertTrue(prepared.dataURI.hasPrefix("data:image/jpeg;base64,"))
+    }
+
     func testDraftDecodesAsSelectedEditableCards() throws {
         let data = Data("""
         {"data":{"days":[{"date":"2026-10-01","cards":[{"kind":"activity","title":"故宫","date":"2026-10-01","time":"09:00","place":{"name":"故宫博物院","address":"北京","latitude":39.9163,"longitude":116.3972,"placeId":"ChIJg","cityCode":null},"notes":null}]}]}}
@@ -226,6 +279,106 @@ final class AITests: XCTestCase {
         XCTAssertEqual(request.url?.path, "/v1/journal")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Trip-ID"), "42")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
+    }
+
+    func testJournalLivePhotoMetadataRoundTrips() throws {
+        let json = Data(#"""
+        {
+            "key":"travel-companion/journal/42/photo.heic",
+            "url":"https://example.test/photo.heic",
+            "kind":"livePhoto",
+            "contentType":"image/heic",
+            "fileName":"IMG_0001.HEIC",
+            "sizeBytes":3145728,
+            "pairedVideo":{
+                "key":"travel-companion/journal/42/photo.mov",
+                "url":"https://example.test/photo.mov",
+                "contentType":"video/quicktime",
+                "fileName":"IMG_0001.MOV",
+                "sizeBytes":4194304
+            }
+        }
+        """#.utf8)
+
+        let image = try JSONDecoder().decode(JournalImage.self, from: json)
+
+        XCTAssertEqual(image.kind, "livePhoto")
+        XCTAssertEqual(image.contentType, "image/heic")
+        XCTAssertEqual(image.sizeBytes, 3 * 1024 * 1024)
+        XCTAssertEqual(image.pairedVideo?.contentType, "video/quicktime")
+        XCTAssertEqual(image.pairedVideo?.sizeBytes, 4 * 1024 * 1024)
+        XCTAssertEqual(image.uploadReference.primaryKey, image.key)
+    }
+
+    func testJournalRequestEncodesLegacyAndStructuredMediaReferences() throws {
+        let request = JournalEntryRequest(
+            groupId: nil,
+            title: "原始媒体",
+            content: nil,
+            imageKeys: [
+                .legacy("travel-companion/journal/42/legacy.jpg"),
+                .item(.init(
+                    key: "travel-companion/journal/42/photo.heic",
+                    kind: "livePhoto",
+                    contentType: "image/heic",
+                    fileName: "IMG_0001.HEIC",
+                    sizeBytes: 3 * 1024 * 1024,
+                    pairedVideo: .init(
+                        key: "travel-companion/journal/42/photo.mov",
+                        contentType: "video/quicktime",
+                        fileName: "IMG_0001.MOV",
+                        sizeBytes: 4 * 1024 * 1024
+                    )
+                ))
+            ]
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        )
+        let media = try XCTUnwrap(object["imageKeys"] as? [Any])
+        XCTAssertEqual(media[0] as? String, "travel-companion/journal/42/legacy.jpg")
+        let livePhoto = try XCTUnwrap(media[1] as? [String: Any])
+        XCTAssertEqual(livePhoto["kind"] as? String, "livePhoto")
+        XCTAssertEqual(
+            (livePhoto["pairedVideo"] as? [String: Any])?["contentType"] as? String,
+            "video/quicktime"
+        )
+    }
+
+    func testJournalAttachmentLimitIsFiveGiBPerResource() {
+        XCTAssertEqual(JournalAttachment.maximumResourceBytes, 5 * 1024 * 1024 * 1024)
+    }
+
+    func testJournalOnlyAutomaticallySyncsOnUnmeteredWiFi() {
+        XCTAssertTrue(JournalNetworkAccess.wifi.allowsAutomaticSync)
+        XCTAssertFalse(JournalNetworkAccess.metered.allowsAutomaticSync)
+        XCTAssertFalse(JournalNetworkAccess.offline.allowsAutomaticSync)
+        XCTAssertFalse(JournalNetworkAccess.other.allowsAutomaticSync)
+    }
+
+    @MainActor
+    func testJournalSyncCheckpointSurvivesRetryAndRemovesCompletedEntry() throws {
+        let suiteName = "journal-sync-tests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = LocalJournalStore(defaults: defaults)
+        try store.createGroup(.init(name: "本地分组", color: "indigo", position: 0))
+        let groupID = try XCTUnwrap(store.snapshot.groups.first?.id)
+        try store.save(
+            entryID: nil,
+            request: .init(groupId: groupID, title: "待同步", content: nil, imageKeys: []),
+            attachments: []
+        )
+        let entryID = try XCTUnwrap(store.snapshot.entries.first?.id)
+
+        try store.recordSyncedGroup(localID: groupID, remoteID: 81, tripID: 42)
+        XCTAssertEqual(try store.syncGroupIDs(for: 42)[groupID], 81)
+        XCTAssertThrowsError(try store.syncGroupIDs(for: 99))
+
+        try store.markEntrySynced(entryID)
+        XCTAssertTrue(store.snapshot.entries.isEmpty)
+        XCTAssertEqual(try store.syncGroupIDs(for: 42)[groupID], 81)
     }
 
     @MainActor

@@ -71,6 +71,6 @@ All icons in this table are [Lucide Static](https://lucide.dev/), released under
 
 - Use one outline weight and a single semantic tint system; card kind must also have a text label, so color is never the only differentiator.
 - Use 20–24 pt icons in standard controls and retain a 44 pt minimum hit target.
-- The list-card swipe actions map edit to the local `icon-edit-outline` asset and delete to the local vector `icon-delete-outline` (`trash-2`) asset; both render as white templates over semantic gray/red action fills.
+- The list-card swipe actions map edit to `icon-edit-outline`, Agent chat to the user-provided local vector `icon-chat-outline`, and delete to `icon-delete-outline` (`trash-2`); all render as white templates over semantic gray/orange/red action fills.
 - Do not use emoji as replacements for any icon listed here.
 - Do not show third-party logos as an endorsement or imply private API access; the integration actions only open saved public links, a browser fallback, or the iOS share sheet.

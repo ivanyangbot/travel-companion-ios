@@ -11,7 +11,7 @@ struct ItineraryView: View {
     @State private var showsTripEditor = false
     @State private var showsNewTripEditor = false
     @State private var showsSignOutConfirmation = false
-    @State private var showsAIItinerary = false
+    @State private var agentSheet: ItineraryAgentSheet?
     @State private var dayPendingDeletion: TripDaySnapshot?
     @State private var activeCardEditor: CardEditorTarget?
     @State private var detailCard: TravelCardSnapshot?
@@ -51,6 +51,8 @@ struct ItineraryView: View {
     @State private var dragAutoScrollVelocity: CGFloat = 0
     @State private var dragAutoScrollTask: Task<Void, Never>?
     @State private var itineraryScrollPosition = ScrollPosition()
+    @State private var itineraryNow = Date.now
+    @StateObject private var itineraryListScrollController = ItineraryListScrollController()
     @StateObject private var linkHandler = ExternalLinkHandler()
 
     var body: some View {
@@ -154,8 +156,11 @@ struct ItineraryView: View {
                     Task { await syncEngine.createTrip(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
                 }
             }
-            .sheet(isPresented: $showsAIItinerary) {
-                AgentWorkbenchView(syncEngine: syncEngine)
+            .sheet(item: $agentSheet) { sheet in
+                AgentWorkbenchView(
+                    syncEngine: syncEngine,
+                    initialMessage: sheet.initialMessage
+                )
             }
             .sheet(item: $detailCard) { card in
                 CardDetailView(card: card, currency: syncEngine.trip?.currency)
@@ -289,6 +294,26 @@ struct ItineraryView: View {
                 draggedItineraryCardOverlay(days: days)
             }
             .coordinateSpace(name: "itinerary-list-root")
+            .gesture(
+                ItineraryLongPressDragGesture(
+                    isEnabled: listCardSwipeGestureCardID == nil && revealedListCardID == nil,
+                    canBegin: { location in
+                        listCardDragTarget(at: location, days: days) != nil
+                    },
+                    onBegan: { location in
+                        handleRootListCardLongPressBegan(at: location, days: days)
+                    },
+                    onChanged: { translation in
+                        handleRootListCardLongPressChanged(translation, days: days)
+                    },
+                    onEnded: { translation in
+                        handleRootListCardLongPressEnded(translation, days: days)
+                    },
+                    onCancelled: {
+                        cancelActiveListCardLongPress()
+                    }
+                )
+            )
             .background(Color.black)
             .onAppear {
                 if selectedListDate == nil {
@@ -306,6 +331,16 @@ struct ItineraryView: View {
                 settlingListCardTask?.cancel()
                 suppressedListCardTapReleaseTask?.cancel()
             }
+            .task {
+                while !Task.isCancelled {
+                    itineraryNow = .now
+                    do {
+                        try await Task.sleep(for: .seconds(30))
+                    } catch {
+                        break
+                    }
+                }
+            }
         }
     }
 
@@ -316,7 +351,11 @@ struct ItineraryView: View {
            let card = day.cards.first(where: { $0.id == draggedListCard.cardID }),
            let startFrame = draggedListCardStartFrame {
             let index = orderedListCards(for: day).firstIndex(where: { $0.id == card.id }) ?? 0
-            itineraryCompactCardContent(card, index: index)
+            itineraryCompactCardContent(
+                card,
+                index: index,
+                showsTimeAccent: isCurrentOrNext(card, in: days)
+            )
                 .frame(width: startFrame.width, height: startFrame.height)
                 .scaleEffect(1.025)
                 .position(
@@ -332,7 +371,8 @@ struct ItineraryView: View {
         if let settlingListCard {
             itineraryCompactCardContent(
                 settlingListCard.card,
-                index: settlingListCard.destinationIndex
+                index: settlingListCard.destinationIndex,
+                showsTimeAccent: isCurrentOrNext(settlingListCard.card, in: days)
             )
             .frame(width: settlingListCard.startFrame.width, height: settlingListCard.startFrame.height)
             .scaleEffect(settlingListCardIsAnimating ? 1 : 1.025)
@@ -357,11 +397,35 @@ struct ItineraryView: View {
     ) -> some View {
         VStack(spacing: 9) {
             ZStack {
-                Text("详细行程")
-                    .font(.system(size: 17, weight: .semibold))
+                Text(
+                    days.indices.contains(selectedIndex)
+                        ? ItineraryListPresentation.timelineLabel(
+                            days[selectedIndex],
+                            selectedIndex == todayIndex
+                        )
+                        : ""
+                )
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
 
                 HStack(spacing: 0) {
+                    Button {
+                        showsSharingSheet = true
+                    } label: {
+                        Image("icon-link-outline")
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .frame(width: 40, height: 40)
+                    }
+                    .itineraryHeaderButtonStyle()
+                    .disabled(!syncEngine.isUserAuthenticated || syncEngine.selectedTripID == nil)
+                    .accessibilityLabel("分享行程")
+
+                    Spacer(minLength: 0)
+
                     Button {
                         withAnimation(.snappy(duration: 0.28)) { section = .today }
                     } label: {
@@ -371,12 +435,10 @@ struct ItineraryView: View {
                             .scaledToFit()
                             .foregroundStyle(.white)
                             .frame(width: 24, height: 24)
-                            .frame(width: 40, height: 40)
+                        .frame(width: 40, height: 40)
                     }
                     .itineraryHeaderButtonStyle()
                     .accessibilityLabel("切换到地图模式")
-
-                    Spacer(minLength: 0)
                 }
             }
             .frame(height: 48)
@@ -433,9 +495,15 @@ struct ItineraryView: View {
     ) -> some View {
         ScrollViewReader { scrollProxy in
             ScrollView {
+                ItineraryScrollViewBridge(
+                    controller: itineraryListScrollController,
+                    isDragLocked: draggedListCard != nil
+                )
+                .frame(height: 0)
+                .allowsHitTesting(false)
+
                 if !appleSignIn.isAuthenticated {
                     signInBanner
-                        .padding(.horizontal, 16)
                         .padding(.top, 12)
                 }
 
@@ -459,13 +527,22 @@ struct ItineraryView: View {
                     }
                 }
                 .scrollTargetLayout()
-                .padding(.horizontal, 16)
                 .padding(.bottom, 112)
             }
             .coordinateSpace(name: "itinerary-day-scroll")
             .scrollPosition($itineraryScrollPosition)
-            .scrollDisabled(draggedListCard != nil)
             .scrollIndicators(.hidden)
+            .background(JourneyPalette.listSurface)
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 20,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 20,
+                    style: .continuous
+                )
+            )
+            .padding(.horizontal, 16)
             .background {
                 GeometryReader { proxy in
                     Color.clear.preference(
@@ -581,7 +658,8 @@ struct ItineraryView: View {
                                 originCard: card,
                                 destinationCard: cards[index + 1],
                                 originPoint: originPoint,
-                                destinationPoint: destinationPoint
+                                destinationPoint: destinationPoint,
+                                presentation: .itineraryList
                             )
                             .id(CardLegStore.legKey(origin: card, destination: cards[index + 1]))
                             .padding(.horizontal, 2)
@@ -636,7 +714,7 @@ struct ItineraryView: View {
         let isDragging = draggedListCard?.cardID == card.id || settlingListCard?.card.id == card.id
 
         if canReorder {
-            itinerarySwipeableCard(card, index: index, day: day)
+            itinerarySwipeableCard(card, index: index, day: day, days: days)
                 .background {
                     GeometryReader { proxy in
                         Color.clear.preference(
@@ -645,39 +723,10 @@ struct ItineraryView: View {
                         )
                     }
                 }
-                .gesture(
-                    ItineraryLongPressDragGesture(
-                        isEnabled: listCardSwipeGestureCardID == nil
-                            && (draggedListCard == nil || draggedListCard?.cardID == card.id),
-                        onBegan: {
-                            handleListCardLongPressBegan(card)
-                        },
-                        onChanged: { translation in
-                            handleListCardLongPressChanged(
-                                card,
-                                day: day,
-                                days: days,
-                                translation: translation
-                            )
-                        },
-                        onEnded: { translation in
-                            handleListCardLongPressEnded(
-                                card,
-                                day: day,
-                                cards: cards,
-                                days: days,
-                                translation: translation
-                            )
-                        },
-                        onCancelled: {
-                            handleListCardLongPressCancelled(card)
-                        }
-                    )
-                )
                 .opacity(isDragging ? 0 : 1)
                 .accessibilityHint("打开详情；长按并拖动可调整顺序")
         } else {
-            itinerarySwipeableCard(card, index: index, day: day)
+            itinerarySwipeableCard(card, index: index, day: day, days: days)
                 .accessibilityHint("打开详情；卡片同步完成后可长按拖动排序")
         }
     }
@@ -685,7 +734,8 @@ struct ItineraryView: View {
     private func itinerarySwipeableCard(
         _ card: TravelCardSnapshot,
         index: Int,
-        day: TripDaySnapshot
+        day: TripDaySnapshot,
+        days: [TripDaySnapshot]
     ) -> some View {
         let swipeOffset = listCardSwipeOffset(for: card.id)
         let revealedWidth = -swipeOffset
@@ -705,16 +755,78 @@ struct ItineraryView: View {
                     .scaledToFit()
                     .foregroundStyle(.white)
                     .frame(width: 29, height: 29)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: ItineraryCardSwipeInteraction.actionWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             }
             .buttonStyle(.plain)
-            .frame(width: ItineraryCardSwipeInteraction.actionWidth)
-            .background(
-                Color(red: 0.88, green: 0, blue: 0.20),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .frame(
+                width: ItineraryCardSwipeInteraction.actionButtonWidth,
+                alignment: .trailing
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(
+                Color(red: 213 / 255, green: 0, blue: 55 / 255),
+                in: UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 15,
+                    topTrailingRadius: 15,
+                    style: .continuous
+                )
+            )
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 15,
+                    topTrailingRadius: 15,
+                    style: .continuous
+                )
+            )
             .accessibilityLabel("删除行程卡片")
+            .opacity(actionVisibility)
+            .allowsHitTesting(actionsAreOpen)
+
+            Button {
+                openAgent(for: card, in: day)
+            } label: {
+                Image("icon-chat-outline")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(.white)
+                    .frame(width: 29, height: 29)
+                    .frame(width: ItineraryCardSwipeInteraction.actionWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            }
+            .buttonStyle(.plain)
+            .frame(
+                width: ItineraryCardSwipeInteraction.actionButtonWidth,
+                alignment: .trailing
+            )
+            .background(
+                Color(red: 1, green: 110 / 255, blue: 0),
+                in: UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 15,
+                    topTrailingRadius: 15,
+                    style: .continuous
+                )
+            )
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 15,
+                    topTrailingRadius: 15,
+                    style: .continuous
+                )
+            )
+            .offset(x: ItineraryCardSwipeInteraction.drawerOffset(
+                slotFromTrailing: 1,
+                revealedWidth: revealedWidth
+            ))
+            .accessibilityLabel("询问 Agent")
             .opacity(actionVisibility)
             .allowsHitTesting(actionsAreOpen)
 
@@ -728,22 +840,52 @@ struct ItineraryView: View {
                     .scaledToFit()
                     .foregroundStyle(.white)
                     .frame(width: 29, height: 29)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: ItineraryCardSwipeInteraction.actionWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             }
             .buttonStyle(.plain)
-            .frame(width: ItineraryCardSwipeInteraction.actionWidth)
-            .background(
-                Color(red: 0.29, green: 0.29, blue: 0.29),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .frame(
+                width: ItineraryCardSwipeInteraction.actionButtonWidth,
+                alignment: .trailing
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .offset(x: ItineraryCardSwipeInteraction.editDrawerOffset(revealedWidth: revealedWidth))
+            .background(
+                Color(red: 71 / 255, green: 71 / 255, blue: 71 / 255),
+                in: UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 15,
+                    topTrailingRadius: 15,
+                    style: .continuous
+                )
+            )
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 15,
+                    topTrailingRadius: 15,
+                    style: .continuous
+                )
+            )
+            .offset(x: ItineraryCardSwipeInteraction.drawerOffset(
+                slotFromTrailing: 2,
+                revealedWidth: revealedWidth
+            ))
             .accessibilityLabel("编辑行程卡片")
             .opacity(actionVisibility)
             .allowsHitTesting(actionsAreOpen)
 
-            itineraryCompactCardContent(card, index: index)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            itineraryCompactCardContent(
+                card,
+                index: index,
+                showsTimeAccent: isCurrentOrNext(card, in: days)
+            )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 15,
+                        style: .continuous
+                    )
+                )
                 .offset(x: swipeOffset)
         }
         .clipped()
@@ -771,6 +913,9 @@ struct ItineraryView: View {
             closeListCardActions()
             activeCardEditor = .edit(day, card)
         }
+        .accessibilityAction(named: "询问 Agent") {
+            openAgent(for: card, in: day)
+        }
         .accessibilityAction(named: "删除") {
             closeListCardActions()
             cardPendingDeletion = card
@@ -778,11 +923,36 @@ struct ItineraryView: View {
         .animation(.snappy(duration: 0.22), value: revealedListCardID)
     }
 
+    @ViewBuilder
     private func itineraryCompactCardContent(
         _ card: TravelCardSnapshot,
-        index: Int
+        index: Int,
+        showsTimeAccent: Bool
     ) -> some View {
-        Button {
+        if card.showLargeImage, CardImageURL.resolve(card.images?.first) != nil {
+            itineraryLargeImageCardContent(
+                card,
+                index: index,
+                showsTimeAccent: showsTimeAccent
+            )
+        } else {
+            itineraryOrdinaryCardContent(
+                card,
+                index: index,
+                showsTimeAccent: showsTimeAccent
+            )
+        }
+    }
+
+    private func itineraryOrdinaryCardContent(
+        _ card: TravelCardSnapshot,
+        index: Int,
+        showsTimeAccent: Bool
+    ) -> some View {
+        let summary = ItineraryListPresentation.cardSummary(for: card)
+        let price = compactCardPrice(for: card)
+
+        return Button {
             guard suppressedListCardTapID != card.id else { return }
             if revealedListCardID != nil {
                 closeListCardActions()
@@ -790,42 +960,194 @@ struct ItineraryView: View {
                 detailCard = card
             }
         } label: {
-            HStack(alignment: .top, spacing: 10) {
-                itineraryCardCover(card)
-                    .frame(width: 58, height: 58)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack(alignment: .top, spacing: 12) {
+                VStack(spacing: 12) {
+                    itineraryCardCover(card)
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
 
-                VStack(alignment: .leading, spacing: 4) {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "camera")
+                            .font(.system(size: 17, weight: .medium))
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 8, weight: .semibold))
+                            .offset(x: 5, y: -4)
+                    }
+                    .foregroundStyle(.white.opacity(0.64))
+                    .frame(width: 25, height: 22)
+                    .accessibilityHidden(true)
+                }
+                .frame(width: 64)
+
+                VStack(alignment: .leading, spacing: 8) {
                     Text("\(index + 1).\(card.title)")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.78)
 
-                    Label(ItineraryListPresentation.timeRange(for: card), systemImage: card.kind.systemImage)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.62))
-                        .lineLimit(1)
+                    HStack(spacing: 14) {
+                        compactCardMetadata(
+                            icon: "icon-pin-outline",
+                            text: ItineraryListPresentation.timeRange(for: card)
+                        )
 
-                    if let summary = ItineraryListPresentation.cardSummary(for: card) {
+                        if let price {
+                            compactCardMetadata(icon: "icon-ticket-outline", text: price)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let summary {
                         Text(summary)
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .lineLimit(2)
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.82))
+                            .lineSpacing(2)
+                            .lineLimit(4)
                             .multilineTextAlignment(.leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .background(
+                                Color(red: 26 / 255, green: 26 / 255, blue: 26 / 255),
+                                in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            )
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.36))
-                    .frame(height: 58)
             }
-            .padding(7)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .background(JourneyPalette.cardSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 126, alignment: .topLeading)
+            .background(
+                JourneyPalette.cardSurface,
+                in: RoundedRectangle(cornerRadius: 15, style: .continuous)
+            )
+            .overlay(alignment: .leading) {
+                if showsTimeAccent {
+                    Capsule()
+                        .fill(Color(red: 1, green: 110 / 255, blue: 0))
+                        .frame(width: 4)
+                        .padding(.vertical, 12)
+                }
+            }
         }
         .buttonStyle(ItineraryCardNoFadeButtonStyle())
+    }
+
+    private func itineraryLargeImageCardContent(
+        _ card: TravelCardSnapshot,
+        index: Int,
+        showsTimeAccent: Bool
+    ) -> some View {
+        let summary = ItineraryListPresentation.cardSummary(for: card)
+        let price = compactCardPrice(for: card)
+
+        return Button {
+            guard suppressedListCardTapID != card.id else { return }
+            if revealedListCardID != nil {
+                closeListCardActions()
+            } else {
+                detailCard = card
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: ItineraryLargeImageCardLayout.contentSpacing) {
+                ZStack(alignment: .bottomLeading) {
+                    itineraryCardCover(card)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
+
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.12), .black.opacity(0.88)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("\(index + 1).\(card.title)")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.76)
+
+                        HStack(spacing: 14) {
+                            compactCardMetadata(
+                                icon: "icon-pin-outline",
+                                text: ItineraryListPresentation.timeRange(for: card)
+                            )
+                            if let price {
+                                compactCardMetadata(icon: "icon-ticket-outline", text: price)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 13)
+                }
+                .frame(maxWidth: .infinity)
+                .aspectRatio(ItineraryLargeImageCardLayout.imageAspectRatio, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                if let summary {
+                    Text(summary)
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .lineSpacing(2)
+                        .lineLimit(4)
+                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .background(
+                            Color(red: 26 / 255, green: 26 / 255, blue: 26 / 255),
+                            in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        )
+                }
+            }
+            .padding(ItineraryLargeImageCardLayout.outerPadding)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(
+                JourneyPalette.cardSurface,
+                in: RoundedRectangle(cornerRadius: 15, style: .continuous)
+            )
+            .overlay(alignment: .leading) {
+                if showsTimeAccent {
+                    Capsule()
+                        .fill(Color(red: 1, green: 110 / 255, blue: 0))
+                        .frame(width: 4)
+                        .padding(.leading, ItineraryLargeImageCardLayout.outerPadding)
+                        .padding(.vertical, ItineraryLargeImageCardLayout.outerPadding)
+                }
+            }
+        }
+        .buttonStyle(ItineraryCardNoFadeButtonStyle())
+    }
+
+    private func isCurrentOrNext(
+        _ card: TravelCardSnapshot,
+        in days: [TripDaySnapshot]
+    ) -> Bool {
+        ItineraryListPresentation.currentOrNextCardID(in: days, now: itineraryNow) == card.id
+    }
+
+    private func compactCardMetadata(icon: String, text: String) -> some View {
+        HStack(spacing: 5) {
+            Image(icon)
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .frame(width: 16, height: 16)
+            Text(text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .font(.system(size: 15, weight: .medium))
+        .foregroundStyle(.white.opacity(0.76))
+    }
+
+    private func compactCardPrice(for card: TravelCardSnapshot) -> String? {
+        let currency = syncEngine.trip?.currency
+        return CardPrice.format(minor: card.actualPriceMinor, currency: currency)
+            ?? CardPrice.format(minor: card.priceMinor, currency: currency)
+            ?? CardPrice.format(minor: card.ticketPriceMinor, currency: currency)
     }
 
     private func handleListCardSwipeChanged(_ card: TravelCardSnapshot, translation: CGFloat) {
@@ -896,6 +1218,13 @@ struct ItineraryView: View {
         resetListCardSwipeGesture()
     }
 
+    private func openAgent(for card: TravelCardSnapshot, in day: TripDaySnapshot) {
+        closeListCardActions()
+        agentSheet = ItineraryAgentSheet(
+            initialMessage: ItineraryListPresentation.agentPrompt(for: card, date: day.date)
+        )
+    }
+
     private func resetListCardSwipeGesture() {
         listCardSwipeGestureCardID = nil
         listCardSwipeTranslation = 0
@@ -918,9 +1247,101 @@ struct ItineraryView: View {
         }
     }
 
-    private func handleListCardLongPressBegan(_ card: TravelCardSnapshot) {
+    private func listCardDragTarget(
+        at location: CGPoint,
+        days: [TripDaySnapshot]
+    ) -> (day: TripDaySnapshot, card: TravelCardSnapshot, cards: [TravelCardSnapshot])? {
+        for day in days {
+            let cards = orderedListCards(for: day)
+            let canReorder = !syncEngine.isUserAuthenticated || cards.allSatisfy { $0.serverID != nil }
+            guard canReorder else { continue }
+            for card in cards.reversed() {
+                if itineraryCardFrames[card.id]?.contains(location) == true {
+                    return (day, card, cards)
+                }
+            }
+        }
+        return nil
+    }
+
+    private func listCardDragTarget(
+        cardID: UUID?,
+        days: [TripDaySnapshot]
+    ) -> (day: TripDaySnapshot, card: TravelCardSnapshot, cards: [TravelCardSnapshot])? {
+        guard let cardID else { return nil }
+        for day in days {
+            let cards = orderedListCards(for: day)
+            if let card = cards.first(where: { $0.id == cardID }) {
+                return (day, card, cards)
+            }
+        }
+        return nil
+    }
+
+    private func handleRootListCardLongPressBegan(
+        at location: CGPoint,
+        days: [TripDaySnapshot]
+    ) {
+        guard let target = listCardDragTarget(at: location, days: days) else { return }
+        handleListCardLongPressBegan(target.card, in: target.day)
+    }
+
+    private func handleRootListCardLongPressChanged(
+        _ translation: CGSize,
+        days: [TripDaySnapshot]
+    ) {
+        guard let target = listCardDragTarget(cardID: longPressedListCardID, days: days) else {
+            cancelActiveListCardLongPress()
+            return
+        }
+        handleListCardLongPressChanged(
+            target.card,
+            day: target.day,
+            days: days,
+            translation: translation
+        )
+    }
+
+    private func handleRootListCardLongPressEnded(
+        _ translation: CGSize,
+        days: [TripDaySnapshot]
+    ) {
+        guard let target = listCardDragTarget(cardID: longPressedListCardID, days: days) else {
+            cancelActiveListCardLongPress()
+            return
+        }
+        handleListCardLongPressEnded(
+            target.card,
+            day: target.day,
+            cards: target.cards,
+            days: days,
+            translation: translation
+        )
+    }
+
+    private func cancelActiveListCardLongPress() {
+        let cardID = longPressedListCardID
+        if draggedListCard != nil {
+            stopDragAutoScroll()
+            withAnimation(.snappy(duration: 0.18)) {
+                resetActiveListCardDrag()
+            }
+        }
+        longPressedListCardID = nil
+        if let cardID {
+            releaseListCardTapSuppression(cardID)
+        }
+    }
+
+    private func handleListCardLongPressBegan(
+        _ card: TravelCardSnapshot,
+        in day: TripDaySnapshot
+    ) {
         longPressedListCardID = card.id
         suppressListCardTap(card.id)
+        // Lift the card as soon as the long press is recognized. Translation
+        // only moves an already-active drag; it must not gate the lift state.
+        beginDragging(card, in: day)
     }
 
     private func handleListCardLongPressChanged(
@@ -931,11 +1352,7 @@ struct ItineraryView: View {
     ) {
         guard longPressedListCardID == card.id else { return }
         suppressListCardTap(card.id)
-        guard ItineraryDragInteraction.shouldActivateCardDrag(
-            translation: translation,
-            alreadyActive: draggedListCard?.cardID == card.id
-        ) else { return }
-        beginDragging(card, in: day)
+        guard draggedListCard?.cardID == card.id else { return }
         draggedListCardTranslation = translation
         draggedListCardFingerY = (draggedListCardStartFrame?.midY ?? 0) + translation.height
         updateDragAutoScroll(forFingerY: draggedListCardFingerY)
@@ -952,16 +1369,6 @@ struct ItineraryView: View {
         defer { releaseListCardLongPress(card) }
         guard draggedListCard?.cardID == card.id else { return }
         finishDragging(card, in: day, cards: cards, days: days, translation: translation)
-    }
-
-    private func handleListCardLongPressCancelled(_ card: TravelCardSnapshot) {
-        if draggedListCard?.cardID == card.id {
-            stopDragAutoScroll()
-            withAnimation(.snappy(duration: 0.18)) {
-                resetActiveListCardDrag()
-            }
-        }
-        releaseListCardLongPress(card)
     }
 
     private func releaseListCardLongPress(_ card: TravelCardSnapshot) {
@@ -1256,10 +1663,16 @@ struct ItineraryView: View {
             while !Task.isCancelled, draggedListCard != nil {
                 try? await Task.sleep(for: .milliseconds(16))
                 guard !Task.isCancelled else { break }
+                let scrollDelta = dragAutoScrollVelocity / 60
+                if let actualOffset = itineraryListScrollController.scroll(by: scrollDelta) {
+                    itineraryScrollOffsetY = actualOffset
+                    refreshDragDestinationForCurrentScroll()
+                    continue
+                }
                 let maximumOffset = max(0, itineraryScrollContentHeight - itineraryScrollViewportHeight)
                 let nextOffset = min(
                     maximumOffset,
-                    max(0, itineraryScrollOffsetY + dragAutoScrollVelocity / 60)
+                    max(0, itineraryScrollOffsetY + scrollDelta)
                 )
                 if abs(nextOffset - itineraryScrollOffsetY) > 0.1 {
                     itineraryScrollOffsetY = nextOffset
@@ -1457,7 +1870,7 @@ struct ItineraryView: View {
             .accessibilityLabel("退出登录")
 
             Button {
-                showsAIItinerary = true
+                agentSheet = ItineraryAgentSheet(initialMessage: nil)
             } label: {
                 Image("icon-ai-outline")
                     .journeyActionIcon()
@@ -1930,13 +2343,14 @@ private struct ItineraryHorizontalPanGesture: UIGestureRecognizerRepresentable {
 
 private struct ItineraryLongPressDragGesture: UIGestureRecognizerRepresentable {
     var isEnabled: Bool
-    var onBegan: () -> Void
+    var canBegin: (CGPoint) -> Bool
+    var onBegan: (CGPoint) -> Void
     var onChanged: (CGSize) -> Void
     var onEnded: (CGSize) -> Void
     var onCancelled: () -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator(configuration: self)
+        Coordinator(configuration: self, converter: converter)
     }
 
     func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
@@ -1953,6 +2367,7 @@ private struct ItineraryLongPressDragGesture: UIGestureRecognizerRepresentable {
 
     func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
         context.coordinator.configuration = self
+        context.coordinator.converter = context.converter
         if recognizer.isEnabled != isEnabled {
             recognizer.isEnabled = isEnabled
         }
@@ -1963,7 +2378,7 @@ private struct ItineraryLongPressDragGesture: UIGestureRecognizerRepresentable {
         switch recognizer.state {
         case .began:
             coordinator.startLocation = recognizer.location(in: nil)
-            coordinator.configuration.onBegan()
+            coordinator.configuration.onBegan(coordinator.locationInListRoot())
         case .changed:
             coordinator.configuration.onChanged(coordinator.translation(for: recognizer))
         case .ended:
@@ -1980,10 +2395,19 @@ private struct ItineraryLongPressDragGesture: UIGestureRecognizerRepresentable {
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var configuration: ItineraryLongPressDragGesture
+        var converter: CoordinateSpaceConverter
         var startLocation: CGPoint?
 
-        init(configuration: ItineraryLongPressDragGesture) {
+        init(
+            configuration: ItineraryLongPressDragGesture,
+            converter: CoordinateSpaceConverter
+        ) {
             self.configuration = configuration
+            self.converter = converter
+        }
+
+        func locationInListRoot() -> CGPoint {
+            converter.location(in: .named("itinerary-list-root"))
         }
 
         func translation(for recognizer: UILongPressGestureRecognizer) -> CGSize {
@@ -1996,7 +2420,11 @@ private struct ItineraryLongPressDragGesture: UIGestureRecognizerRepresentable {
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            configuration.isEnabled
+            guard configuration.isEnabled,
+                  gestureRecognizer is UILongPressGestureRecognizer else {
+                return false
+            }
+            return configuration.canBegin(locationInListRoot())
         }
 
         func gestureRecognizer(
@@ -2004,6 +2432,142 @@ private struct ItineraryLongPressDragGesture: UIGestureRecognizerRepresentable {
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             true
+        }
+    }
+}
+
+@MainActor
+final class ItineraryListScrollController: ObservableObject {
+    private weak var scrollView: UIScrollView?
+    private var isDragLocked = false
+
+    func connect(to scrollView: UIScrollView) {
+        guard self.scrollView !== scrollView else {
+            applyDragLock()
+            return
+        }
+        self.scrollView?.panGestureRecognizer.isEnabled = true
+        self.scrollView = scrollView
+        applyDragLock()
+    }
+
+    func disconnect(from scrollView: UIScrollView) {
+        guard self.scrollView === scrollView else { return }
+        scrollView.panGestureRecognizer.isEnabled = true
+        self.scrollView = nil
+    }
+
+    func setDragLocked(_ isDragLocked: Bool) {
+        self.isDragLocked = isDragLocked
+        applyDragLock()
+    }
+
+    @discardableResult
+    func scroll(by delta: CGFloat) -> CGFloat? {
+        guard let scrollView, abs(delta) > 0.001 else { return nil }
+        scrollView.layoutIfNeeded()
+        let insets = scrollView.adjustedContentInset
+        let minimumOffsetY = -insets.top
+        let maximumOffsetY = max(
+            minimumOffsetY,
+            scrollView.contentSize.height - scrollView.bounds.height + insets.bottom
+        )
+        let targetOffsetY = min(
+            maximumOffsetY,
+            max(minimumOffsetY, scrollView.contentOffset.y + delta)
+        )
+        guard abs(targetOffsetY - scrollView.contentOffset.y) > 0.05 else {
+            return scrollView.contentOffset.y + insets.top
+        }
+        scrollView.setContentOffset(
+            CGPoint(x: scrollView.contentOffset.x, y: targetOffsetY),
+            animated: false
+        )
+        return targetOffsetY + insets.top
+    }
+
+    private func applyDragLock() {
+        guard let scrollView,
+              scrollView.panGestureRecognizer.isEnabled == isDragLocked else { return }
+        scrollView.panGestureRecognizer.isEnabled = !isDragLocked
+    }
+}
+
+private struct ItineraryScrollViewBridge: UIViewRepresentable {
+    let controller: ItineraryListScrollController
+    let isDragLocked: Bool
+
+    func makeUIView(context: Context) -> TrackingView {
+        let view = TrackingView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        view.controller = controller
+        view.isDragLocked = isDragLocked
+        return view
+    }
+
+    func updateUIView(_ view: TrackingView, context: Context) {
+        view.controller = controller
+        view.isDragLocked = isDragLocked
+        view.connectToAncestorScrollView()
+    }
+
+    static func dismantleUIView(_ view: TrackingView, coordinator: Void) {
+        if let scrollView = view.connectedScrollView {
+            view.controller?.disconnect(from: scrollView)
+        }
+    }
+
+    @MainActor
+    final class TrackingView: UIView {
+        weak var controller: ItineraryListScrollController?
+        weak var connectedScrollView: UIScrollView?
+        var isDragLocked = false {
+            didSet { controller?.setDragLocked(isDragLocked) }
+        }
+
+        override func didMoveToSuperview() {
+            super.didMoveToSuperview()
+            connectToAncestorScrollView()
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            connectToAncestorScrollView()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            connectToAncestorScrollView()
+        }
+
+        func connectToAncestorScrollView() {
+            var ancestor = superview
+            while let view = ancestor {
+                if let scrollView = view as? UIScrollView {
+                    if connectedScrollView !== scrollView {
+                        connectedScrollView = scrollView
+                        controller?.connect(to: scrollView)
+                    }
+                    controller?.setDragLocked(isDragLocked)
+                    return
+                }
+                ancestor = view.superview
+            }
+
+            Task { @MainActor [weak self] in
+                guard let self, self.window != nil else { return }
+                var ancestor = self.superview
+                while let view = ancestor {
+                    if let scrollView = view as? UIScrollView {
+                        self.connectedScrollView = scrollView
+                        self.controller?.connect(to: scrollView)
+                        self.controller?.setDragLocked(self.isDragLocked)
+                        return
+                    }
+                    ancestor = view.superview
+                }
+            }
         }
     }
 }
@@ -2046,6 +2610,11 @@ private struct ItineraryScrollMetrics: Equatable {
     let viewportHeight: CGFloat
 }
 
+private struct ItineraryAgentSheet: Identifiable {
+    let id = UUID()
+    let initialMessage: String?
+}
+
 private struct ItineraryDraggedCard: Equatable {
     let dayID: UUID
     let cardID: UUID
@@ -2065,14 +2634,6 @@ private struct ItinerarySettlingCard {
 }
 
 enum ItineraryDragInteraction {
-    static func shouldActivateCardDrag(
-        translation: CGSize,
-        alreadyActive: Bool,
-        movementThreshold: CGFloat = 3
-    ) -> Bool {
-        alreadyActive || hypot(translation.width, translation.height) >= movementThreshold
-    }
-
     static func releaseCenter(startFrame: CGRect, translation: CGSize) -> CGPoint {
         CGPoint(
             x: startFrame.midX + translation.width,
@@ -2104,8 +2665,11 @@ enum ItineraryDragInteraction {
 }
 
 enum ItineraryCardSwipeInteraction {
-    static let actionWidth: CGFloat = 72
-    static let actionsWidth: CGFloat = actionWidth * 2
+    static let actionWidth: CGFloat = 68
+    static let actionOverlap: CGFloat = 15
+    static let actionButtonWidth = actionWidth + actionOverlap
+    static let actionCount = 3
+    static let actionsWidth: CGFloat = actionWidth * CGFloat(actionCount)
 
     static func shouldBeginSwipe(
         _ translation: CGSize,
@@ -2147,13 +2711,25 @@ enum ItineraryCardSwipeInteraction {
         currentOffset <= -24 && projectedOffset <= -actionsWidth * 0.42
     }
 
-    static func editDrawerOffset(revealedWidth: CGFloat) -> CGFloat {
-        -min(actionWidth, max(0, revealedWidth / 2))
+    static func drawerOffset(slotFromTrailing: Int, revealedWidth: CGFloat) -> CGFloat {
+        let slot = min(actionCount - 1, max(0, slotFromTrailing))
+        let progressOffset = max(0, revealedWidth) * CGFloat(slot) / CGFloat(actionCount)
+        return -min(actionWidth * CGFloat(slot), progressOffset)
     }
 
     static func actionVisibility(revealedWidth: CGFloat) -> CGFloat {
         min(1, max(0, revealedWidth / 24))
     }
+}
+
+enum ItineraryLargeImageCardLayout {
+    static let outerPadding: CGFloat = 12
+    static let contentSpacing: CGFloat = 12
+    static let imageAspectRatio: CGFloat = 38 / 21
+    static func imageHeight(cardWidth: CGFloat) -> CGFloat {
+        max(0, cardWidth - outerPadding * 2) / imageAspectRatio
+    }
+
 }
 
 enum ItineraryListPresentation {
@@ -2231,6 +2807,29 @@ enum ItineraryListPresentation {
         return "\(start)~\(timeFormatter.string(from: endAt))"
     }
 
+    static func currentOrNextCardID(
+        in days: [TripDaySnapshot],
+        now: Date
+    ) -> UUID? {
+        let cards = days
+            .flatMap(\.cards)
+            .sorted {
+                if $0.startAt != $1.startAt { return $0.startAt < $1.startAt }
+                if $0.position != $1.position { return $0.position < $1.position }
+                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+        guard !cards.isEmpty else { return nil }
+
+        for index in cards.indices.reversed() where cards[index].startAt <= now {
+            let defaultEnd = cards[index].startAt.addingTimeInterval(2 * 60 * 60)
+            let nextStart = cards.indices.contains(index + 1) ? cards[index + 1].startAt : nil
+            let inferredEnd = nextStart.map { min(defaultEnd, $0) } ?? defaultEnd
+            let effectiveEnd = cards[index].endAt ?? inferredEnd
+            if now < effectiveEnd { return cards[index].id }
+        }
+        return cards.first(where: { $0.startAt > now })?.id
+    }
+
     static func cardSummary(for card: TravelCardSnapshot) -> String? {
         for candidate in [card.description, card.notes] {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2238,6 +2837,19 @@ enum ItineraryListPresentation {
         }
         let tips = card.tips?.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return tips?.isEmpty == false ? tips?.joined(separator: " · ") : nil
+    }
+
+    static func agentPrompt(for card: TravelCardSnapshot, date: String) -> String {
+        var context = [
+            "日期：\(date)",
+            "行程卡：\(card.title)",
+            "时间：\(timeRange(for: card))"
+        ]
+        if let place = card.place?.name.trimmingCharacters(in: .whitespacesAndNewlines),
+           !place.isEmpty {
+            context.append("地点：\(place)")
+        }
+        return "请帮我优化下面这张行程卡，并结合前后行程检查时间、地点和衔接。请先给出建议，再询问我想修改什么。\n" + context.joined(separator: "\n")
     }
 
     private static let dayFormatter: DateFormatter = {

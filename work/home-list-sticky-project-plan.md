@@ -9,14 +9,14 @@
 
 ## Project Locations
 - Frontend: `/Users/yangzhiyuan/Documents/indo/travel-companion-ios`
-- Backend: 不涉及
+- Backend: `/Users/yangzhiyuan/nuanxinban/backend/biz-platform/travel-companion-api`
 - Public hostname: 不涉及
 
 ## Assumptions
 - Target platform: 现有 iOS App，竖屏手机尺寸优先。
-- Data ownership: 沿用已有行程与日期快照，不改变本地/远端数据归属。
+- Data ownership: 行程内容沿用现有归属；图片最终评分与大图决策由后端持有，客户端只读。
 - Deployment target: 本次完成本地实现与构建验证，不发布 TestFlight。
-- MVP scope: 首页列表模式、复用地图模式时间轴、行程标题/时间轴/每日标题分层吸顶。
+- MVP scope: 首页列表模式、复用地图模式时间轴、分层吸顶、卡片拖动/左滑、图片评分驱动的双形态卡片和当前/下一项时间指示条。
 - Expected deliverables: SwiftUI 实现、必要的自动化测试、模拟器截图或等价视觉验证、需求与设计记录。
 - Interaction detail: 每日标题固定在全局时间轴下方；后一天标题上推并替代前一天标题，向回滚动时行为对称。
 

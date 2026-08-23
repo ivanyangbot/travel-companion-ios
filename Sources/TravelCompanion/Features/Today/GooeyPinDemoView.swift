@@ -107,11 +107,13 @@ enum GooeyPinSnapResolver {
 enum GooeyPinNumberScenarioID: String, CaseIterable {
     case rightEdge
     case upperLeft
+    case generated
 
     var title: String {
         switch self {
         case .rightEdge: "4 · 右侧"
         case .upperLeft: "3 · 左上"
+        case .generated: "随机"
         }
     }
 }
@@ -177,6 +179,7 @@ struct GooeyPinNumberScenario: Equatable {
         switch id {
         case .rightEdge: .rightEdge
         case .upperLeft: .upperLeft
+        case .generated: .rightEdge
         }
     }
 
@@ -225,6 +228,82 @@ struct GooeyPinNumberScenario: Equatable {
         let length = hypot(point.x, point.y)
         guard length.isFinite, length > 0.0001 else { return CGVector(dx: 1, dy: 0) }
         return CGVector(dx: point.x / length, dy: point.y / length)
+    }
+}
+
+struct GooeyPinSupplementalPin: Identifiable, Equatable {
+    let id: String
+    let text: String
+    var position: GooeyPinNormalizedPoint
+}
+
+struct GooeyPinRandomLayout: Equatable {
+    let numberScenario: GooeyPinNumberScenario
+    let supplementalPins: [GooeyPinSupplementalPin]
+
+    var visiblePinCount: Int { 2 + supplementalPins.count }
+}
+
+enum GooeyPinRandomLayoutGenerator {
+    static let pinCountRange = 2...12
+
+    static func make(pinCount requestedCount: Int) -> GooeyPinRandomLayout {
+        var generator = SystemRandomNumberGenerator()
+        return make(pinCount: requestedCount, using: &generator)
+    }
+
+    static func make<Generator: RandomNumberGenerator>(
+        pinCount requestedCount: Int,
+        using generator: inout Generator
+    ) -> GooeyPinRandomLayout {
+        let pinCount = min(
+            pinCountRange.upperBound,
+            max(pinCountRange.lowerBound, requestedCount)
+        )
+        let template: GooeyPinNumberScenario = Bool.random(using: &generator)
+            ? .rightEdge
+            : .upperLeft
+        let angle = CGFloat.random(in: 0..<(2 * .pi), using: &generator)
+        let direction = CGVector(dx: cos(angle), dy: sin(angle))
+        let aggregatePosition = GooeyPinNormalizedPoint(
+            x: CGFloat.random(in: 0.32...0.68, using: &generator),
+            y: CGFloat.random(in: 0.32...0.68, using: &generator)
+        )
+        let separation = CGFloat.random(in: 0.34...0.48, using: &generator)
+        let singlePosition = GooeyPinNormalizedPoint(
+            x: min(0.92, max(0.08, aggregatePosition.x + direction.dx * separation)),
+            y: min(0.92, max(0.08, aggregatePosition.y + direction.dy * separation))
+        )
+        let numberScenario = GooeyPinNumberScenario(
+            id: .generated,
+            members: template.members,
+            extractedMemberID: template.extractedMemberID,
+            aggregatePosition: aggregatePosition,
+            singlePosition: singlePosition
+        )
+        let supplementalPins = (0..<max(0, pinCount - 2)).map { index in
+            GooeyPinSupplementalPin(
+                id: "generated-pin-\(index)",
+                text: randomPinText(using: &generator),
+                position: GooeyPinNormalizedPoint(
+                    x: CGFloat.random(in: 0.08...0.92, using: &generator),
+                    y: CGFloat.random(in: 0.08...0.92, using: &generator)
+                )
+            )
+        }
+        return GooeyPinRandomLayout(
+            numberScenario: numberScenario,
+            supplementalPins: supplementalPins
+        )
+    }
+
+    private static func randomPinText<Generator: RandomNumberGenerator>(
+        using generator: inout Generator
+    ) -> String {
+        let memberCount = Int.random(in: 1...4, using: &generator)
+        return (0..<memberCount)
+            .map { _ in String(Int.random(in: 1...12, using: &generator)) }
+            .joined(separator: ".")
     }
 }
 
@@ -298,6 +377,306 @@ struct GooeyPinNumberPresentation: Equatable {
 
     func placement(for memberID: String) -> GooeyPinNumberPlacement? {
         memberPlacements.first { $0.id == memberID }
+    }
+}
+
+struct GooeyPinVisualNumberNode: Identifiable, Equatable {
+    static let primaryAggregateID = "primary-aggregate"
+    static let primarySingleID = "primary-single"
+
+    let id: String
+    let members: [GooeyPinNumberMember]
+    let frame: CGRect
+}
+
+struct GooeyPinNumberMergePair: Equatable {
+    let firstNodeID: String
+    let secondNodeID: String
+    let surfaceGap: CGFloat
+    let mergeProgress: CGFloat
+}
+
+enum GooeyPinMultiNumberLayout {
+    private static let labelFont = UIFont.systemFont(ofSize: 16, weight: .medium)
+
+    static func presentation(
+        nodes: [GooeyPinVisualNumberNode],
+        primaryScenario: GooeyPinNumberScenario,
+        parameters: GooeyPinDemoParameters,
+        movingNodeID: String?
+    ) -> GooeyPinNumberPresentation {
+        let pair = activePair(
+            nodes: nodes,
+            parameters: parameters,
+            movingNodeID: movingNodeID
+        )
+        var positions: [String: CGPoint] = [:]
+        var membersByID: [String: GooeyPinNumberMember] = [:]
+        var separators: [String: GooeyPinNumberSeparatorPlacement] = [:]
+
+        for node in nodes {
+            let nodeSlots = slots(for: node.members, centeredAt: center(of: node.frame))
+            positions.merge(nodeSlots) { _, new in new }
+            for member in node.members { membersByID[member.id] = member }
+            for (id, point) in separatorPositions(for: node.members, slots: nodeSlots) {
+                separators[id] = GooeyPinNumberSeparatorPlacement(
+                    id: id,
+                    position: point,
+                    opacity: 1
+                )
+            }
+        }
+
+        guard let pair,
+              let first = nodes.first(where: { $0.id == pair.firstNodeID }),
+              let second = nodes.first(where: { $0.id == pair.secondNodeID }) else {
+            return presentation(
+                positions: positions,
+                membersByID: membersByID,
+                separators: separators,
+                progress: 0
+            )
+        }
+
+        let mergedMembers = mergedOrder(
+            first: first,
+            second: second,
+            primaryScenario: primaryScenario
+        )
+        let host = mergeHost(first: first, second: second, movingNodeID: movingNodeID)
+        let mergedSlots = slots(for: mergedMembers, centeredAt: center(of: host.frame))
+        for member in mergedMembers {
+            guard let start = positions[member.id], let target = mergedSlots[member.id] else { continue }
+            positions[member.id] = interpolate(
+                from: start,
+                to: target,
+                progress: pair.mergeProgress
+            )
+        }
+
+        let pairMemberIDs = Set(first.members.map(\.id) + second.members.map(\.id))
+        separators = separators.filter { separator in
+            let memberIDs = separator.key.components(separatedBy: "→")
+            return !memberIDs.allSatisfy(pairMemberIDs.contains)
+        }
+        let firstSlots = slots(for: first.members, centeredAt: center(of: first.frame))
+        let secondSlots = slots(for: second.members, centeredAt: center(of: second.frame))
+        let initialSeparators = separatorPositions(for: first.members, slots: firstSlots)
+            .merging(separatorPositions(for: second.members, slots: secondSlots)) { _, new in new }
+        let mergedSeparators = separatorPositions(for: mergedMembers, slots: mergedSlots)
+        for id in Set(initialSeparators.keys).union(mergedSeparators.keys) {
+            switch (initialSeparators[id], mergedSeparators[id]) {
+            case let (.some(start), .some(target)):
+                separators[id] = GooeyPinNumberSeparatorPlacement(
+                    id: id,
+                    position: interpolate(from: start, to: target, progress: pair.mergeProgress),
+                    opacity: 1
+                )
+            case let (.some(start), .none):
+                separators[id] = GooeyPinNumberSeparatorPlacement(
+                    id: id,
+                    position: start,
+                    opacity: 1 - pair.mergeProgress
+                )
+            case let (.none, .some(target)):
+                separators[id] = GooeyPinNumberSeparatorPlacement(
+                    id: id,
+                    position: target,
+                    opacity: pair.mergeProgress
+                )
+            case (.none, .none):
+                break
+            }
+        }
+
+        return presentation(
+            positions: positions,
+            membersByID: membersByID,
+            separators: separators,
+            progress: pair.mergeProgress
+        )
+    }
+
+    static func activePair(
+        nodes: [GooeyPinVisualNumberNode],
+        parameters: GooeyPinDemoParameters,
+        movingNodeID: String? = nil
+    ) -> GooeyPinNumberMergePair? {
+        guard nodes.count >= 2 else { return nil }
+        var candidates: [GooeyPinNumberMergePair] = []
+        for firstIndex in nodes.indices {
+            for secondIndex in nodes.indices where secondIndex > firstIndex {
+                let first = nodes[firstIndex]
+                let second = nodes[secondIndex]
+                let gap = capsuleSurfaceGap(first.frame, second.frame)
+                let mergeProgress = 1 - GooeyPinNumberLayout.visualExtractionProgress(
+                    surfaceGap: gap,
+                    parameters: parameters
+                )
+                guard mergeProgress > 0.0001 else { continue }
+                candidates.append(
+                    GooeyPinNumberMergePair(
+                        firstNodeID: first.id,
+                        secondNodeID: second.id,
+                        surfaceGap: gap,
+                        mergeProgress: mergeProgress
+                    )
+                )
+            }
+        }
+        let eligibleCandidates: [GooeyPinNumberMergePair]
+        if let movingNodeID {
+            let movingCandidates = candidates.filter {
+                $0.firstNodeID == movingNodeID || $0.secondNodeID == movingNodeID
+            }
+            eligibleCandidates = movingCandidates.isEmpty ? candidates : movingCandidates
+        } else {
+            eligibleCandidates = candidates
+        }
+        return eligibleCandidates.max {
+            if abs($0.mergeProgress - $1.mergeProgress) > 0.0001 {
+                return $0.mergeProgress < $1.mergeProgress
+            }
+            return $0.surfaceGap > $1.surfaceGap
+        }
+    }
+
+    static func capsuleSurfaceGap(_ first: CGRect, _ second: CGRect) -> CGFloat {
+        let firstRadius = max(0, min(first.width, first.height) / 2)
+        let secondRadius = max(0, min(second.width, second.height) / 2)
+        let firstRange = (first.minX + firstRadius)...(first.maxX - firstRadius)
+        let secondRange = (second.minX + secondRadius)...(second.maxX - secondRadius)
+        let horizontalGap: CGFloat
+        if firstRange.upperBound < secondRange.lowerBound {
+            horizontalGap = secondRange.lowerBound - firstRange.upperBound
+        } else if secondRange.upperBound < firstRange.lowerBound {
+            horizontalGap = firstRange.lowerBound - secondRange.upperBound
+        } else {
+            horizontalGap = 0
+        }
+        return hypot(horizontalGap, abs(first.midY - second.midY)) - firstRadius - secondRadius
+    }
+
+    private static func mergedOrder(
+        first: GooeyPinVisualNumberNode,
+        second: GooeyPinVisualNumberNode,
+        primaryScenario: GooeyPinNumberScenario
+    ) -> [GooeyPinNumberMember] {
+        let pairIDs = Set([first.id, second.id])
+        if pairIDs == Set([
+            GooeyPinVisualNumberNode.primaryAggregateID,
+            GooeyPinVisualNumberNode.primarySingleID
+        ]) {
+            return primaryScenario.orderedMembers
+        }
+
+        if first.members.count == 1, second.members.count > 1 {
+            return inserting(single: first, into: second)
+        }
+        if second.members.count == 1, first.members.count > 1 {
+            return inserting(single: second, into: first)
+        }
+        let orderedNodes = [first, second].sorted { lhs, rhs in
+            if abs(lhs.frame.midX - rhs.frame.midX) > 0.001 {
+                return lhs.frame.midX < rhs.frame.midX
+            }
+            return lhs.frame.midY < rhs.frame.midY
+        }
+        return orderedNodes.flatMap(\.members)
+    }
+
+    private static func inserting(
+        single: GooeyPinVisualNumberNode,
+        into aggregate: GooeyPinVisualNumberNode
+    ) -> [GooeyPinNumberMember] {
+        let dx = single.frame.midX - aggregate.frame.midX
+        let dy = single.frame.midY - aggregate.frame.midY
+        let length = hypot(dx, dy)
+        let normalizedX = length > 0.0001 ? dx / length : 1
+        let horizontalProgress = min(1, max(0, (normalizedX + 1) / 2))
+        let insertionIndex = min(
+            aggregate.members.count,
+            max(0, Int((horizontalProgress * CGFloat(aggregate.members.count)).rounded()))
+        )
+        var result = aggregate.members
+        result.insert(single.members[0], at: insertionIndex)
+        return result
+    }
+
+    private static func mergeHost(
+        first: GooeyPinVisualNumberNode,
+        second: GooeyPinVisualNumberNode,
+        movingNodeID: String?
+    ) -> GooeyPinVisualNumberNode {
+        if movingNodeID == first.id { return second }
+        if movingNodeID == second.id { return first }
+        if first.members.count == 1, second.members.count > 1 { return second }
+        if second.members.count == 1, first.members.count > 1 { return first }
+        return first.frame.width >= second.frame.width ? first : second
+    }
+
+    private static func presentation(
+        positions: [String: CGPoint],
+        membersByID: [String: GooeyPinNumberMember],
+        separators: [String: GooeyPinNumberSeparatorPlacement],
+        progress: CGFloat
+    ) -> GooeyPinNumberPresentation {
+        GooeyPinNumberPresentation(
+            extractionProgress: 1 - progress,
+            memberPlacements: positions.keys.sorted().compactMap { id in
+                guard let member = membersByID[id], let position = positions[id] else { return nil }
+                return GooeyPinNumberPlacement(id: id, value: member.value, position: position)
+            },
+            separatorPlacements: separators.values.sorted { $0.id < $1.id },
+            fontSize: labelFont.pointSize
+        )
+    }
+
+    private static func slots(
+        for members: [GooeyPinNumberMember],
+        centeredAt center: CGPoint
+    ) -> [String: CGPoint] {
+        guard !members.isEmpty else { return [:] }
+        let widths = members.map { measuredWidth(of: $0.value) }
+        let separatorWidth = measuredWidth(of: ".")
+        let totalWidth = widths.reduce(0, +)
+            + separatorWidth * CGFloat(max(0, members.count - 1))
+        var cursor = center.x - totalWidth / 2
+        var result: [String: CGPoint] = [:]
+        for (index, member) in members.enumerated() {
+            result[member.id] = CGPoint(x: cursor + widths[index] / 2, y: center.y)
+            cursor += widths[index]
+            if index < members.count - 1 { cursor += separatorWidth }
+        }
+        return result
+    }
+
+    private static func separatorPositions(
+        for members: [GooeyPinNumberMember],
+        slots: [String: CGPoint]
+    ) -> [String: CGPoint] {
+        Dictionary(uniqueKeysWithValues: zip(members, members.dropFirst()).compactMap { lhs, rhs in
+            guard let lhsPoint = slots[lhs.id], let rhsPoint = slots[rhs.id] else { return nil }
+            return (
+                lhs.id + "→" + rhs.id,
+                CGPoint(x: (lhsPoint.x + rhsPoint.x) / 2, y: (lhsPoint.y + rhsPoint.y) / 2)
+            )
+        })
+    }
+
+    private static func interpolate(from: CGPoint, to: CGPoint, progress: CGFloat) -> CGPoint {
+        CGPoint(
+            x: from.x + (to.x - from.x) * progress,
+            y: from.y + (to.y - from.y) * progress
+        )
+    }
+
+    private static func measuredWidth(of text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: labelFont]).width)
+    }
+
+    private static func center(of frame: CGRect) -> CGPoint {
+        CGPoint(x: frame.midX, y: frame.midY)
     }
 }
 
@@ -480,13 +859,246 @@ enum GooeyPinAdaptiveLayout {
     }
 }
 
+struct GooeyPinSupplementalLayout: Equatable {
+    let frame: CGRect
+    let centerBounds: CGRect
+}
+
+enum GooeyPinSupplementalGeometry {
+    static func layout(
+        for pin: GooeyPinSupplementalPin,
+        stageSize: CGSize,
+        effectPadding: CGFloat
+    ) -> GooeyPinSupplementalLayout {
+        let stageWidth = stageSize.width.isFinite ? max(GooeyPinDemoLayout.pinHeight, stageSize.width) : 520
+        let stageHeight = stageSize.height.isFinite ? max(GooeyPinDemoLayout.pinHeight, stageSize.height) : 280
+        let maximumPadding = max(
+            0,
+            min(
+                (stageWidth - GooeyPinDemoLayout.pinHeight) / 2,
+                (stageHeight - GooeyPinDemoLayout.pinHeight) / 2
+            )
+        )
+        let padding = effectPadding.isFinite
+            ? min(maximumPadding, max(0, effectPadding))
+            : 0
+        let content = CGRect(
+            x: padding,
+            y: padding,
+            width: max(GooeyPinDemoLayout.pinHeight, stageWidth - padding * 2),
+            height: max(GooeyPinDemoLayout.pinHeight, stageHeight - padding * 2)
+        )
+        let requestedWidth = MapLibrePinLabelGeometry.size(for: pin.text).width
+        let width = min(content.width, max(GooeyPinDemoLayout.pinHeight, requestedWidth))
+        let height = GooeyPinDemoLayout.pinHeight
+        let bounds = CGRect(
+            x: content.minX + width / 2,
+            y: content.minY + height / 2,
+            width: max(0, content.width - width),
+            height: max(0, content.height - height)
+        )
+        let center = GooeyPinDemoGeometry.center(for: pin.position, in: bounds)
+        return GooeyPinSupplementalLayout(
+            frame: CGRect(
+                x: center.x - width / 2,
+                y: center.y - height / 2,
+                width: width,
+                height: height
+            ),
+            centerBounds: bounds
+        )
+    }
+
+    static func draggedPosition(
+        startCenter: CGPoint,
+        translation: CGSize,
+        centerBounds: CGRect
+    ) -> GooeyPinNormalizedPoint {
+        let dx = translation.width.isFinite ? translation.width : 0
+        let dy = translation.height.isFinite ? translation.height : 0
+        return GooeyPinDemoGeometry.normalizedPosition(
+            for: CGPoint(x: startCenter.x + dx, y: startCenter.y + dy),
+            in: centerBounds
+        )
+    }
+}
+
+struct GooeyPinDemoCameraState: Equatable {
+    static let standard = Self(scale: 1, offset: .zero)
+
+    var scale: CGFloat
+    var offset: CGSize
+
+    func normalized() -> Self {
+        Self(
+            scale: scale.isFinite ? min(3, max(0.5, scale)) : 1,
+            offset: CGSize(
+                width: offset.width.isFinite ? offset.width : 0,
+                height: offset.height.isFinite ? offset.height : 0
+            )
+        )
+    }
+}
+
+struct GooeyPinDemoScreenPlacement: Equatable {
+    let center: CGPoint
+    let pointingCorner: MapLibreEdgePinPointingCorner?
+    let edge: MapLibreEdgePinEdge?
+
+    var isEdgePinned: Bool { edge != nil }
+}
+
+struct GooeyPinDemoRenderedShape: Equatable {
+    let frame: CGRect
+    let pointingCorner: MapLibreEdgePinPointingCorner?
+}
+
+enum GooeyPinDemoMapGeometry {
+    static func screenPlacement(
+        worldCenter: CGPoint,
+        pinSize: CGSize,
+        stageSize: CGSize,
+        effectPadding: CGFloat,
+        camera requestedCamera: GooeyPinDemoCameraState
+    ) -> GooeyPinDemoScreenPlacement {
+        let width = stageSize.width.isFinite ? max(1, stageSize.width) : 1
+        let height = stageSize.height.isFinite ? max(1, stageSize.height) : 1
+        let stageBounds = CGRect(x: 0, y: 0, width: width, height: height)
+        let stageCenter = CGPoint(x: stageBounds.midX, y: stageBounds.midY)
+        let camera = requestedCamera.normalized()
+        let rawCenter = CGPoint(
+            x: stageCenter.x + (worldCenter.x - stageCenter.x) * camera.scale + camera.offset.width,
+            y: stageCenter.y + (worldCenter.y - stageCenter.y) * camera.scale + camera.offset.height
+        )
+        guard MapLibreEdgePinTrigger.isOutsideScreen(rawCenter, screenBounds: stageBounds) else {
+            return GooeyPinDemoScreenPlacement(center: rawCenter, pointingCorner: nil, edge: nil)
+        }
+
+        let requestedInset = effectPadding.isFinite ? max(12, effectPadding) : 12
+        let maximumInset = max(0, min((width - pinSize.width) / 2, (height - pinSize.height) / 2))
+        let inset = min(requestedInset, maximumInset)
+        let safeRect = stageBounds.insetBy(dx: inset, dy: inset)
+        guard let projection = MapLibreEdgePinGeometry.landingProjection(
+            safeRect: safeRect,
+            numberCenter: rawCenter,
+            labelSize: pinSize,
+            topExtent: pinSize.height / 2,
+            bottomExtent: pinSize.height / 2,
+            rayOrigin: stageCenter
+        ) else {
+            return GooeyPinDemoScreenPlacement(
+                center: CGPoint(
+                    x: min(stageBounds.maxX, max(stageBounds.minX, rawCenter.x)),
+                    y: min(stageBounds.maxY, max(stageBounds.minY, rawCenter.y))
+                ),
+                pointingCorner: nil,
+                edge: nil
+            )
+        }
+        return GooeyPinDemoScreenPlacement(
+            center: projection.point,
+            pointingCorner: MapLibreEdgePinGeometry.pointingCorner(
+                for: projection,
+                safeRect: safeRect
+            ),
+            edge: projection.edge
+        )
+    }
+
+    static func displayedLayout(
+        from worldLayout: GooeyPinDemoLayout,
+        camera: GooeyPinDemoCameraState
+    ) -> (layout: GooeyPinDemoLayout, shapes: [GooeyPinDemoRenderedShape]) {
+        let aggregate = screenPlacement(
+            worldCenter: CGPoint(x: worldLayout.aggregateFrame.midX, y: worldLayout.aggregateFrame.midY),
+            pinSize: worldLayout.aggregateFrame.size,
+            stageSize: worldLayout.stageSize,
+            effectPadding: worldLayout.effectPadding,
+            camera: camera
+        )
+        let single = screenPlacement(
+            worldCenter: CGPoint(x: worldLayout.singleFrame.midX, y: worldLayout.singleFrame.midY),
+            pinSize: worldLayout.singleFrame.size,
+            stageSize: worldLayout.stageSize,
+            effectPadding: worldLayout.effectPadding,
+            camera: camera
+        )
+        let aggregateFrame = frame(size: worldLayout.aggregateFrame.size, center: aggregate.center)
+        let singleFrame = frame(size: worldLayout.singleFrame.size, center: single.center)
+        let layout = GooeyPinDemoLayout(
+            stageSize: worldLayout.stageSize,
+            effectPadding: worldLayout.effectPadding,
+            contentFrame: worldLayout.contentFrame,
+            aggregateCenterBounds: worldLayout.aggregateCenterBounds,
+            singleCenterBounds: worldLayout.singleCenterBounds,
+            aggregateFrame: aggregateFrame,
+            singleFrame: singleFrame,
+            metrics: GooeyPinDemoGeometry.spatialMetrics(
+                aggregateFrame: aggregateFrame,
+                singleFrame: singleFrame,
+                fallbackDirection: worldLayout.metrics.direction
+            )
+        )
+        return (
+            layout,
+            [
+                GooeyPinDemoRenderedShape(
+                    frame: aggregateFrame,
+                    pointingCorner: aggregate.pointingCorner
+                ),
+                GooeyPinDemoRenderedShape(
+                    frame: singleFrame,
+                    pointingCorner: single.pointingCorner
+                )
+            ]
+        )
+    }
+
+    static func displayedSupplementalLayout(
+        from worldLayout: GooeyPinSupplementalLayout,
+        stageSize: CGSize,
+        effectPadding: CGFloat,
+        camera: GooeyPinDemoCameraState
+    ) -> (layout: GooeyPinSupplementalLayout, shape: GooeyPinDemoRenderedShape) {
+        let placement = screenPlacement(
+            worldCenter: CGPoint(x: worldLayout.frame.midX, y: worldLayout.frame.midY),
+            pinSize: worldLayout.frame.size,
+            stageSize: stageSize,
+            effectPadding: effectPadding,
+            camera: camera
+        )
+        let displayedFrame = frame(size: worldLayout.frame.size, center: placement.center)
+        return (
+            GooeyPinSupplementalLayout(
+                frame: displayedFrame,
+                centerBounds: worldLayout.centerBounds
+            ),
+            GooeyPinDemoRenderedShape(
+                frame: displayedFrame,
+                pointingCorner: placement.pointingCorner
+            )
+        )
+    }
+
+    private static func frame(size: CGSize, center: CGPoint) -> CGRect {
+        CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+}
+
 struct GooeyPinDemoState: Equatable {
     static let standard: Self = {
         let scenario = GooeyPinNumberScenario.rightEdge
         return Self(
             parameters: .standard,
             numberScenarioID: scenario.id,
+            numberScenarioDefinition: scenario,
             numberMemberOrderIDs: scenario.orderedMembers.map(\.id),
+            supplementalPins: [],
             aggregatePosition: scenario.aggregatePosition,
             singlePosition: scenario.singlePosition,
             snapState: .separated,
@@ -497,7 +1109,9 @@ struct GooeyPinDemoState: Equatable {
 
     var parameters: GooeyPinDemoParameters
     var numberScenarioID: GooeyPinNumberScenarioID
+    var numberScenarioDefinition: GooeyPinNumberScenario
     var numberMemberOrderIDs: [String]
+    var supplementalPins: [GooeyPinSupplementalPin]
     var aggregatePosition: GooeyPinNormalizedPoint
     var singlePosition: GooeyPinNormalizedPoint
     var snapState: GooeyPinSnapState
@@ -505,9 +1119,7 @@ struct GooeyPinDemoState: Equatable {
     var lastActivePin: GooeyPinID
 
     var numberScenario: GooeyPinNumberScenario {
-        GooeyPinNumberScenario
-            .scenario(for: numberScenarioID)
-            .applyingMemberOrder(numberMemberOrderIDs)
+        numberScenarioDefinition.applyingMemberOrder(numberMemberOrderIDs)
     }
 
     func position(for pin: GooeyPinID) -> GooeyPinNormalizedPoint {
@@ -527,12 +1139,35 @@ struct GooeyPinDemoState: Equatable {
     mutating func applyNumberScenario(_ id: GooeyPinNumberScenarioID) {
         let scenario = GooeyPinNumberScenario.scenario(for: id)
         numberScenarioID = id
+        numberScenarioDefinition = scenario
         numberMemberOrderIDs = scenario.orderedMembers.map(\.id)
+        supplementalPins = []
         aggregatePosition = scenario.aggregatePosition
         singlePosition = scenario.singlePosition
         snapState = .separated
         lastDirection = scenario.separationDirection
         lastActivePin = .single
+    }
+
+    mutating func applyGeneratedLayout(_ layout: GooeyPinRandomLayout) {
+        let scenario = layout.numberScenario
+        numberScenarioID = scenario.id
+        numberScenarioDefinition = scenario
+        numberMemberOrderIDs = scenario.orderedMembers.map(\.id)
+        supplementalPins = layout.supplementalPins
+        aggregatePosition = scenario.aggregatePosition
+        singlePosition = scenario.singlePosition
+        snapState = .separated
+        lastDirection = scenario.separationDirection
+        lastActivePin = .single
+    }
+
+    mutating func setSupplementalPosition(
+        _ position: GooeyPinNormalizedPoint,
+        id: String
+    ) {
+        guard let index = supplementalPins.firstIndex(where: { $0.id == id }) else { return }
+        supplementalPins[index].position = position.normalized()
     }
 
     mutating func updateNumberOrderForMerge(direction: CGVector) {
@@ -773,7 +1408,7 @@ enum GooeyPinDemoGeometry {
             height: max(pinHeight, stageHeight - padding * 2)
         )
         let minimumAggregateWidth = min(pinHeight, content.width)
-        let maximumAggregateWidth = min(180, content.width)
+        let maximumAggregateWidth = content.width
         let aggregateWidth = finiteClamp(
             requestedWidth,
             minimumAggregateWidth...maximumAggregateWidth,
@@ -1048,16 +1683,32 @@ enum GooeyPinInteraction {
 }
 
 struct GooeyPinDemoView: View {
+    private static let initialPinCount = 5
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var demoState = GooeyPinDemoState.standard
+    @State private var demoState: GooeyPinDemoState
+    @State private var requestedPinCount: Int
     @State private var aggregateDragStartCenter: CGPoint?
     @State private var singleDragStartCenter: CGPoint?
     @State private var activeDragPin: GooeyPinID?
+    @State private var activeSupplementalPinID: String?
+    @State private var preferredNumberNodeID: String?
+    @State private var supplementalDragStartCenters: [String: CGPoint] = [:]
     @State private var numberOrderLockedForDrag: Bool?
     @State private var stageMetrics = GooeyPinStageMetrics.standard
     @State private var previousStagePlacement: GooeyPinStagePlacement?
+    @State private var mapCamera = GooeyPinDemoCameraState.standard
+    @State private var manualControlEnabled = true
+
+    init() {
+        let layout = GooeyPinRandomLayoutGenerator.make(pinCount: Self.initialPinCount)
+        var initialState = GooeyPinDemoState.standard
+        initialState.applyGeneratedLayout(layout)
+        _demoState = State(initialValue: initialState)
+        _requestedPinCount = State(initialValue: Self.initialPinCount)
+    }
 
     private var numberScenario: GooeyPinNumberScenario {
         demoState.numberScenario
@@ -1092,6 +1743,13 @@ struct GooeyPinDemoView: View {
         .onChange(of: demoState.parameters.splitThreshold) { _, _ in
             resolveSnapState(using: stageMetrics.surfaceGap)
         }
+        .onChange(of: manualControlEnabled) { _, enabled in
+            clearDragStarts()
+            preferredNumberNodeID = nil
+            if !enabled {
+                resolveSnapState(using: stageMetrics.surfaceGap)
+            }
+        }
     }
 
     private var stage: some View {
@@ -1110,7 +1768,7 @@ struct GooeyPinDemoView: View {
                 .foregroundStyle(.secondary)
             }
             Text(
-                "融合 \(numberScenario.fusedText) · 分离 \(numberScenario.separatedAggregateText) + \(numberScenario.extractedMember.value)"
+                "主示例：融合 \(numberScenario.fusedText) · 分离 \(numberScenario.separatedAggregateText) + \(numberScenario.extractedMember.value)"
             )
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
@@ -1121,9 +1779,16 @@ struct GooeyPinDemoView: View {
                 fallbackDirection: demoState.lastDirection,
                 parameters: demoState.parameters.normalized(),
                 numberScenario: numberScenario,
+                supplementalPins: demoState.supplementalPins,
+                camera: $mapCamera,
                 activeDragPin: activeDragPin,
+                activeSupplementalPinID: activeSupplementalPinID,
+                preferredNumberNodeID: preferredNumberNodeID,
+                manualControlEnabled: manualControlEnabled,
                 onDragChanged: dragChanged,
                 onDragEnded: dragEnded,
+                onSupplementalDragChanged: supplementalDragChanged,
+                onSupplementalDragEnded: supplementalDragEnded,
                 onAccessibilityAction: accessibilityAction
             )
             .frame(maxWidth: .infinity)
@@ -1155,25 +1820,63 @@ struct GooeyPinDemoView: View {
 
     private var layoutPanel: some View {
         parameterGroup("布局") {
-            Picker(
-                "数字分离示例",
-                selection: Binding(
-                    get: { demoState.numberScenarioID },
-                    set: { newValue in selectNumberScenario(newValue) }
+            Toggle("手动控制", isOn: $manualControlEnabled)
+                .accessibilityHint(
+                    manualControlEnabled
+                        ? "开启时可直接拖动每个 Pin"
+                        : "关闭时由地图平移和缩放自动驱动 Pin 融合与分离"
                 )
+
+            Stepper(
+                value: $requestedPinCount,
+                in: GooeyPinRandomLayoutGenerator.pinCountRange
             ) {
-                ForEach(GooeyPinNumberScenarioID.allCases, id: \.self) { scenarioID in
-                    Text(scenarioID.title).tag(scenarioID)
+                HStack {
+                    Text("生成 Pin 数量")
+                    Spacer()
+                    Text("\(requestedPinCount)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
             }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("数字分离示例")
-            Text("数字先按成员相对位置稳定排序；分离成员沿自身方位移动，其他数字连续补位。")
+            .accessibilityLabel("生成 Pin 数量")
+            .accessibilityValue("\(requestedPinCount) 个")
+
+            Button {
+                regenerateRandomLayout()
+            } label: {
+                Label("随机生成布局", systemImage: "die.face.5.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityHint("生成新的成员相对位置、抽取成员和分离方位")
+
+            Text("当前舞台有 \(2 + demoState.supplementalPins.count) 个可见 Pin；聚合 Pin 无论包含多少数字都只计为 1 个。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(
+                manualControlEnabled
+                    ? "可直接拖动任意 Pin；接近时融合数字，拖离后可按新相对位置插入另一个 Pin。"
+                    : "首页自动模式：Pin 不可单独拖动；拖拽地图或双指缩放改变屏幕位置，碰撞时自动聚合，离开时自动分离。"
+            )
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Label("聚合 Pin 宽度按首页文字测量规则自动适配", systemImage: "textformat.size")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            HStack {
+                Label(
+                    "地图缩放 \(Double(mapCamera.scale).formatted(.number.precision(.fractionLength(2))))×",
+                    systemImage: "map"
+                )
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                Spacer()
+                Button("重置视角") {
+                    animateAssistance { mapCamera = .standard }
+                }
+                .font(.caption)
+            }
         }
     }
 
@@ -1225,26 +1928,69 @@ struct GooeyPinDemoView: View {
 
     private var resetButton: some View {
         Button {
-            clearDragStarts()
-            previousStagePlacement = nil
-            animateAssistance {
-                demoState.reset()
-            }
+            regenerateRandomLayout(resetParameters: true)
         } label: {
             Label("恢复默认", systemImage: "arrow.counterclockwise")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .accessibilityLabel("恢复全部 Gooey 参数、数字示例和 Pin 位置默认值")
+        .accessibilityLabel("恢复全部 Gooey 参数并重新随机生成布局")
     }
 
-    private func selectNumberScenario(_ id: GooeyPinNumberScenarioID) {
-        guard id != demoState.numberScenarioID else { return }
+    private func regenerateRandomLayout() {
+        regenerateRandomLayout(resetParameters: false)
+    }
+
+    private func regenerateRandomLayout(resetParameters: Bool) {
+        let layout = GooeyPinRandomLayoutGenerator.make(pinCount: requestedPinCount)
         clearDragStarts()
         previousStagePlacement = nil
+        mapCamera = .standard
+        preferredNumberNodeID = nil
         animateAssistance {
-            demoState.applyNumberScenario(id)
+            if resetParameters {
+                demoState.parameters = .standard
+                manualControlEnabled = true
+            }
+            demoState.applyGeneratedLayout(layout)
         }
+    }
+
+    private func supplementalDragChanged(
+        _ id: String,
+        translation: CGSize,
+        layout: GooeyPinSupplementalLayout
+    ) {
+        if activeSupplementalPinID == nil {
+            activeSupplementalPinID = id
+        }
+        guard activeSupplementalPinID == id, activeDragPin == nil else { return }
+        preferredNumberNodeID = id
+        if supplementalDragStartCenters[id] == nil {
+            supplementalDragStartCenters[id] = CGPoint(
+                x: layout.frame.midX,
+                y: layout.frame.midY
+            )
+        }
+        guard let startCenter = supplementalDragStartCenters[id] else { return }
+        demoState.setSupplementalPosition(
+            GooeyPinSupplementalGeometry.draggedPosition(
+                startCenter: startCenter,
+                translation: translation,
+                centerBounds: layout.centerBounds
+            ),
+            id: id
+        )
+    }
+
+    private func supplementalDragEnded(
+        _ id: String,
+        translation: CGSize,
+        layout: GooeyPinSupplementalLayout
+    ) {
+        supplementalDragChanged(id, translation: translation, layout: layout)
+        supplementalDragStartCenters[id] = nil
+        activeSupplementalPinID = nil
     }
 
     private func dragChanged(
@@ -1252,10 +1998,15 @@ struct GooeyPinDemoView: View {
         translation: CGSize,
         layout: GooeyPinDemoLayout
     ) {
+        guard activeSupplementalPinID == nil else { return }
         if activeDragPin == nil {
             activeDragPin = pin
         }
         guard activeDragPin == pin else { return }
+        preferredNumberNodeID = switch pin {
+        case .aggregate: GooeyPinVisualNumberNode.primaryAggregateID
+        case .single: GooeyPinVisualNumberNode.primarySingleID
+        }
         if numberOrderLockedForDrag == nil {
             numberOrderLockedForDrag = demoState.snapState == .fused
         }
@@ -1402,6 +2153,8 @@ struct GooeyPinDemoView: View {
         aggregateDragStartCenter = nil
         singleDragStartCenter = nil
         activeDragPin = nil
+        activeSupplementalPinID = nil
+        supplementalDragStartCenters.removeAll()
         numberOrderLockedForDrag = nil
     }
 
@@ -1505,15 +2258,25 @@ private struct GooeyPinStage: View {
     let fallbackDirection: CGVector
     let parameters: GooeyPinDemoParameters
     let numberScenario: GooeyPinNumberScenario
+    let supplementalPins: [GooeyPinSupplementalPin]
+    @Binding var camera: GooeyPinDemoCameraState
     let activeDragPin: GooeyPinID?
+    let activeSupplementalPinID: String?
+    let preferredNumberNodeID: String?
+    let manualControlEnabled: Bool
     let onDragChanged: (GooeyPinID, CGSize, GooeyPinDemoLayout) -> Void
     let onDragEnded: (GooeyPinID, CGSize, GooeyPinDemoLayout) -> Void
+    let onSupplementalDragChanged: (String, CGSize, GooeyPinSupplementalLayout) -> Void
+    let onSupplementalDragEnded: (String, CGSize, GooeyPinSupplementalLayout) -> Void
     let onAccessibilityAction: (GooeyPinID, GooeyPinAccessibilityAction, GooeyPinDemoLayout) -> Void
+
+    @State private var mapPanStartOffset: CGSize?
+    @State private var mapZoomStartScale: CGFloat?
 
     var body: some View {
         GeometryReader { proxy in
             let padding = GooeyPinEffectGeometry.safePadding(for: parameters)
-            let layout = GooeyPinAdaptiveLayout.layout(
+            let worldLayout = GooeyPinAdaptiveLayout.layout(
                 stageSize: proxy.size,
                 aggregatePosition: aggregatePosition,
                 singlePosition: singlePosition,
@@ -1522,10 +2285,93 @@ private struct GooeyPinStage: View {
                 effectPadding: padding,
                 fallbackDirection: fallbackDirection
             )
+            let displayed = GooeyPinDemoMapGeometry.displayedLayout(
+                from: worldLayout,
+                camera: camera
+            )
+            let worldSupplementalLayouts = Dictionary(
+                uniqueKeysWithValues: supplementalPins.map { pin in
+                    (
+                        pin.id,
+                        GooeyPinSupplementalGeometry.layout(
+                            for: pin,
+                            stageSize: proxy.size,
+                            effectPadding: padding
+                        )
+                    )
+                }
+            )
+            let displayedSupplemental: [
+                String: (
+                    layout: GooeyPinSupplementalLayout,
+                    shape: GooeyPinDemoRenderedShape
+                )
+            ] = Dictionary(
+                uniqueKeysWithValues: supplementalPins.compactMap { pin in
+                    guard let world = worldSupplementalLayouts[pin.id] else { return nil }
+                    return (
+                        pin.id,
+                        GooeyPinDemoMapGeometry.displayedSupplementalLayout(
+                            from: world,
+                            stageSize: proxy.size,
+                            effectPadding: padding,
+                            camera: camera
+                        )
+                    )
+                }
+            )
+            let renderedShapes = displayed.shapes + supplementalPins.compactMap {
+                displayedSupplemental[$0.id]?.shape
+            }
+            let supplementalNumberNodes = supplementalPins.compactMap { pin -> GooeyPinVisualNumberNode? in
+                guard let frame = displayedSupplemental[pin.id]?.layout.frame else { return nil }
+                let members = pin.text
+                    .split(separator: ".")
+                    .enumerated()
+                    .map { index, value in
+                        GooeyPinNumberMember(
+                            id: pin.id + "-member-\(index)",
+                            value: String(value),
+                            relativePosition: .zero
+                        )
+                    }
+                return GooeyPinVisualNumberNode(id: pin.id, members: members, frame: frame)
+            }
+            let numberNodes = [
+                GooeyPinVisualNumberNode(
+                    id: GooeyPinVisualNumberNode.primaryAggregateID,
+                    members: numberScenario.remainingMembers,
+                    frame: displayed.layout.aggregateFrame
+                ),
+                GooeyPinVisualNumberNode(
+                    id: GooeyPinVisualNumberNode.primarySingleID,
+                    members: [numberScenario.extractedMember],
+                    frame: displayed.layout.singleFrame
+                )
+            ] + supplementalNumberNodes
+            let movingNumberNodeID: String? = if manualControlEnabled {
+                if let activeSupplementalPinID {
+                    activeSupplementalPinID
+                } else {
+                    switch activeDragPin {
+                    case .aggregate: GooeyPinVisualNumberNode.primaryAggregateID
+                    case .single: GooeyPinVisualNumberNode.primarySingleID
+                    case nil: preferredNumberNodeID
+                    }
+                }
+            } else {
+                nil
+            }
 
             ZStack(alignment: .topLeading) {
+                GooeyPinMapBackground(camera: camera)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .contentShape(Rectangle())
+                    .gesture(mapPanGesture)
+                    .simultaneousGesture(mapZoomGesture)
+
                 GooeyBlobLayer(
-                    layout: layout,
+                    renderedShapes: renderedShapes,
                     inset: 0,
                     color: Color(red: 1, green: 110 / 255, blue: 0),
                     blurRadius: parameters.blurRadius,
@@ -1534,7 +2380,7 @@ private struct GooeyPinStage: View {
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 GooeyBlobLayer(
-                    layout: layout,
+                    renderedShapes: renderedShapes,
                     inset: parameters.strokeWidth,
                     color: .white,
                     blurRadius: parameters.blurRadius,
@@ -1543,14 +2389,21 @@ private struct GooeyPinStage: View {
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
 
-                GooeyPinNumberLayer(
-                    scenario: numberScenario,
-                    layout: layout,
-                    parameters: parameters
+                GooeyPinMultiNumberLayer(
+                    nodes: numberNodes,
+                    primaryScenario: numberScenario,
+                    parameters: parameters,
+                    movingNodeID: movingNumberNodeID
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
 
-                pinTargets(layout: layout)
+                if manualControlEnabled {
+                    pinTargets(displayLayout: displayed.layout, worldLayout: worldLayout)
+                    supplementalPinTargets(
+                        displayLayouts: displayedSupplemental.mapValues(\.layout),
+                        worldLayouts: worldSupplementalLayouts
+                    )
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .shadow(
@@ -1561,11 +2414,11 @@ private struct GooeyPinStage: View {
             .preference(
                 key: GooeyPinStageMetricsPreferenceKey.self,
                 value: GooeyPinStageMetrics(
-                    surfaceGap: layout.metrics.surfaceGap,
-                    angleDegrees: layout.metrics.angleDegrees,
-                    direction: layout.metrics.direction,
-                    hasDistinctCenters: layout.metrics.hasDistinctCenters,
-                    placement: layout.placement
+                    surfaceGap: displayed.layout.metrics.surfaceGap,
+                    angleDegrees: displayed.layout.metrics.angleDegrees,
+                    direction: displayed.layout.metrics.direction,
+                    hasDistinctCenters: displayed.layout.metrics.hasDistinctCenters,
+                    placement: worldLayout.placement
                 )
             )
             .accessibilityElement(children: .contain)
@@ -1573,8 +2426,11 @@ private struct GooeyPinStage: View {
     }
 
     @ViewBuilder
-    private func pinTargets(layout: GooeyPinDemoLayout) -> some View {
-        let hitGeometry = GooeyPinHitGeometry(layout: layout)
+    private func pinTargets(
+        displayLayout: GooeyPinDemoLayout,
+        worldLayout: GooeyPinDemoLayout
+    ) -> some View {
+        let hitGeometry = GooeyPinHitGeometry(layout: displayLayout)
 
         Color.clear
             .frame(
@@ -1586,27 +2442,27 @@ private struct GooeyPinStage: View {
                 x: hitGeometry.aggregateTargetFrame.midX,
                 y: hitGeometry.aggregateTargetFrame.midY
             )
-            .gesture(dragGesture(for: .aggregate, layout: layout))
-            .allowsHitTesting(activeDragPin != .single)
+            .gesture(dragGesture(for: .aggregate, layout: worldLayout))
+            .allowsHitTesting(activeSupplementalPinID == nil && activeDragPin != .single)
             .zIndex(activeDragPin == .aggregate ? 4 : 1)
             .accessibilityElement()
             .accessibilityLabel("聚合 Pin")
-            .accessibilityValue(accessibilityValue(for: .aggregate, layout: layout))
+            .accessibilityValue(accessibilityValue(for: .aggregate, layout: displayLayout))
             .accessibilityHint("可二维拖动，或使用动作移动、融合和分离")
-            .modifier(PinAccessibilityActions(pin: .aggregate, layout: layout, handler: onAccessibilityAction))
+            .modifier(PinAccessibilityActions(pin: .aggregate, layout: worldLayout, handler: onAccessibilityAction))
 
         Color.clear
             .frame(width: hitGeometry.singleTargetFrame.width, height: hitGeometry.singleTargetFrame.height)
             .contentShape(Circle())
             .position(x: hitGeometry.singleTargetFrame.midX, y: hitGeometry.singleTargetFrame.midY)
-            .gesture(dragGesture(for: .single, layout: layout))
-            .allowsHitTesting(activeDragPin != .aggregate)
+            .gesture(dragGesture(for: .single, layout: worldLayout))
+            .allowsHitTesting(activeSupplementalPinID == nil && activeDragPin != .aggregate)
             .zIndex(activeDragPin == .single ? 4 : 1.25)
             .accessibilityElement()
             .accessibilityLabel("单体 Pin")
-            .accessibilityValue(accessibilityValue(for: .single, layout: layout))
+            .accessibilityValue(accessibilityValue(for: .single, layout: displayLayout))
             .accessibilityHint("可二维拖动，或使用动作移动、融合和分离")
-            .modifier(PinAccessibilityActions(pin: .single, layout: layout, handler: onAccessibilityAction))
+            .modifier(PinAccessibilityActions(pin: .single, layout: worldLayout, handler: onAccessibilityAction))
 
         ForEach(hitGeometry.aggregateEndHandleFrames.indices, id: \.self) { index in
             let frame = hitGeometry.aggregateEndHandleFrames[index]
@@ -1614,8 +2470,8 @@ private struct GooeyPinStage: View {
                 .frame(width: frame.width, height: frame.height)
                 .contentShape(Rectangle())
                 .position(x: frame.midX, y: frame.midY)
-                .gesture(dragGesture(for: .aggregate, layout: layout))
-                .allowsHitTesting(activeDragPin != .single)
+                .gesture(dragGesture(for: .aggregate, layout: worldLayout))
+                .allowsHitTesting(activeSupplementalPinID == nil && activeDragPin != .single)
                 .zIndex(activeDragPin == .aggregate ? 4.5 : 1.5)
                 .accessibilityHidden(true)
         }
@@ -1630,16 +2486,87 @@ private struct GooeyPinStage: View {
                 x: hitGeometry.singlePriorityFrame.midX,
                 y: hitGeometry.singlePriorityFrame.midY
             )
-            .gesture(dragGesture(for: .single, layout: layout))
-            .allowsHitTesting(activeDragPin != .aggregate)
+            .gesture(dragGesture(for: .single, layout: worldLayout))
+            .allowsHitTesting(activeSupplementalPinID == nil && activeDragPin != .aggregate)
             .zIndex(activeDragPin == .single ? 5 : 2)
             .accessibilityHidden(true)
     }
 
+    @ViewBuilder
+    private func supplementalPinTargets(
+        displayLayouts: [String: GooeyPinSupplementalLayout],
+        worldLayouts: [String: GooeyPinSupplementalLayout]
+    ) -> some View {
+        ForEach(supplementalPins) { pin in
+            if let displayLayout = displayLayouts[pin.id],
+               let worldLayout = worldLayouts[pin.id] {
+                let targetWidth = max(GooeyPinHitGeometry.minimumTargetSize, displayLayout.frame.width)
+                Color.clear
+                    .frame(width: targetWidth, height: GooeyPinHitGeometry.minimumTargetSize)
+                    .contentShape(Capsule())
+                    .position(x: displayLayout.frame.midX, y: displayLayout.frame.midY)
+                    .gesture(supplementalDragGesture(for: pin.id, layout: worldLayout))
+                    .allowsHitTesting(
+                        activeDragPin == nil
+                            && (activeSupplementalPinID == nil || activeSupplementalPinID == pin.id)
+                    )
+                    .zIndex(activeSupplementalPinID == pin.id ? 5 : 2.5)
+                    .accessibilityElement()
+                    .accessibilityLabel(pin.text.contains(".") ? "聚合 Pin" : "单体 Pin")
+                    .accessibilityValue("数字 \(pin.text)")
+                    .accessibilityHint("可二维拖动并与其他 Pin 产生 Gooey 融合")
+            }
+        }
+    }
+
     private func dragGesture(for pin: GooeyPinID, layout: GooeyPinDemoLayout) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
-            .onChanged { onDragChanged(pin, $0.translation, layout) }
-            .onEnded { onDragEnded(pin, $0.translation, layout) }
+            .onChanged { onDragChanged(pin, worldTranslation($0.translation), layout) }
+            .onEnded { onDragEnded(pin, worldTranslation($0.translation), layout) }
+    }
+
+    private func supplementalDragGesture(
+        for id: String,
+        layout: GooeyPinSupplementalLayout
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { onSupplementalDragChanged(id, worldTranslation($0.translation), layout) }
+            .onEnded { onSupplementalDragEnded(id, worldTranslation($0.translation), layout) }
+    }
+
+    private var mapPanGesture: some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .local)
+            .onChanged { value in
+                if mapPanStartOffset == nil {
+                    mapPanStartOffset = camera.offset
+                }
+                let start = mapPanStartOffset ?? camera.offset
+                camera.offset = CGSize(
+                    width: start.width + value.translation.width,
+                    height: start.height + value.translation.height
+                )
+            }
+            .onEnded { _ in mapPanStartOffset = nil }
+    }
+
+    private var mapZoomGesture: some Gesture {
+        MagnifyGesture(minimumScaleDelta: 0.01)
+            .onChanged { value in
+                if mapZoomStartScale == nil {
+                    mapZoomStartScale = camera.scale
+                }
+                let start = mapZoomStartScale ?? camera.scale
+                camera.scale = min(3, max(0.5, start * value.magnification))
+            }
+            .onEnded { _ in mapZoomStartScale = nil }
+    }
+
+    private func worldTranslation(_ screenTranslation: CGSize) -> CGSize {
+        let scale = camera.normalized().scale
+        return CGSize(
+            width: screenTranslation.width / scale,
+            height: screenTranslation.height / scale
+        )
     }
 
     private func accessibilityValue(for pin: GooeyPinID, layout: GooeyPinDemoLayout) -> String {
@@ -1690,7 +2617,7 @@ private struct PinAccessibilityActions: ViewModifier {
 }
 
 private struct GooeyBlobLayer: View {
-    let layout: GooeyPinDemoLayout
+    let renderedShapes: [GooeyPinDemoRenderedShape]
     let inset: CGFloat
     let color: Color
     let blurRadius: CGFloat
@@ -1703,20 +2630,86 @@ private struct GooeyBlobLayer: View {
             context.addFilter(.blur(radius: blurRadius))
             context.drawLayer { layer in
                 layer.opacity = sourceOpacity
-                let aggregate = layout.aggregateFrame.insetBy(dx: inset, dy: inset)
-                let single = layout.singleFrame.insetBy(dx: inset, dy: inset)
-                if aggregate.width > 0, aggregate.height > 0 {
-                    layer.fill(
-                        Path(roundedRect: aggregate, cornerRadius: aggregate.height / 2),
-                        with: .color(.white)
-                    )
-                }
-                if single.width > 0, single.height > 0 {
-                    layer.fill(Path(ellipseIn: single), with: .color(.white))
+                for renderedShape in renderedShapes {
+                    let shape = renderedShape.frame.insetBy(dx: inset, dy: inset)
+                    if shape.width > 0, shape.height > 0 {
+                        layer.fill(
+                            Path(
+                                MapLibrePinCornerTransitionGeometry.path(
+                                    in: shape,
+                                    pointingCorner: renderedShape.pointingCorner
+                                )
+                            ),
+                            with: .color(.white)
+                        )
+                    }
                 }
             }
         }
         .allowsHitTesting(false)
+    }
+}
+
+private struct GooeyPinMapBackground: View {
+    let camera: GooeyPinDemoCameraState
+
+    var body: some View {
+        Canvas { context, size in
+            let value = camera.normalized()
+            let spacing = max(24, 44 * value.scale)
+            let startX = value.offset.width.truncatingRemainder(dividingBy: spacing)
+            let startY = value.offset.height.truncatingRemainder(dividingBy: spacing)
+            var grid = Path()
+            var x = startX - spacing
+            while x <= size.width + spacing {
+                grid.move(to: CGPoint(x: x, y: 0))
+                grid.addLine(to: CGPoint(x: x, y: size.height))
+                x += spacing
+            }
+            var y = startY - spacing
+            while y <= size.height + spacing {
+                grid.move(to: CGPoint(x: 0, y: y))
+                grid.addLine(to: CGPoint(x: size.width, y: y))
+                y += spacing
+            }
+            context.stroke(grid, with: .color(.white.opacity(0.055)), lineWidth: 1)
+        }
+        .background(Color(red: 25 / 255, green: 25 / 255, blue: 25 / 255))
+        .accessibilityLabel("模拟地图，可拖拽平移并双指缩放")
+    }
+}
+
+private struct GooeyPinMultiNumberLayer: View {
+    let nodes: [GooeyPinVisualNumberNode]
+    let primaryScenario: GooeyPinNumberScenario
+    let parameters: GooeyPinDemoParameters
+    let movingNodeID: String?
+
+    var body: some View {
+        let presentation = GooeyPinMultiNumberLayout.presentation(
+            nodes: nodes,
+            primaryScenario: primaryScenario,
+            parameters: parameters,
+            movingNodeID: movingNodeID
+        )
+
+        ZStack(alignment: .topLeading) {
+            ForEach(presentation.separatorPlacements) { separator in
+                Text(".")
+                    .font(.system(size: presentation.fontSize, weight: .medium))
+                    .foregroundStyle(.black)
+                    .opacity(separator.opacity)
+                    .position(separator.position)
+            }
+            ForEach(presentation.memberPlacements) { member in
+                Text(member.value)
+                    .font(.system(size: presentation.fontSize, weight: .medium))
+                    .foregroundStyle(.black)
+                    .position(member.position)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

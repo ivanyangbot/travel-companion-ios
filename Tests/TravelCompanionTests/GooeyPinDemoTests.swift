@@ -2,6 +2,15 @@ import CoreGraphics
 import XCTest
 @testable import TravelCompanion
 
+private struct GooeyPinSeededGenerator: RandomNumberGenerator {
+    var state: UInt64
+
+    mutating func next() -> UInt64 {
+        state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        return state
+    }
+}
+
 final class GooeyPinDemoTests: XCTestCase {
     func testNormalizedPointClampsBothAxesAndRejectsNonFiniteValues() {
         XCTAssertEqual(
@@ -681,6 +690,189 @@ final class GooeyPinDemoTests: XCTestCase {
         )
     }
 
+    func testRandomLayoutCountsVisiblePinsInsteadOfNumberMembers() {
+        var generator = GooeyPinSeededGenerator(state: 42)
+
+        let layout = GooeyPinRandomLayoutGenerator.make(
+            pinCount: 8,
+            using: &generator
+        )
+        let scenario = layout.numberScenario
+
+        XCTAssertEqual(scenario.id, .generated)
+        XCTAssertEqual(layout.visiblePinCount, 8)
+        XCTAssertEqual(layout.supplementalPins.count, 6)
+        XCTAssertNotEqual(scenario.members.count, layout.visiblePinCount)
+        XCTAssertTrue(scenario.members.contains { $0.id == scenario.extractedMemberID })
+        XCTAssertTrue(scenario.separationDirection.dx.isFinite)
+        XCTAssertTrue(scenario.separationDirection.dy.isFinite)
+        XCTAssertGreaterThan(hypot(scenario.separationDirection.dx, scenario.separationDirection.dy), 0.999)
+        for position in [scenario.aggregatePosition, scenario.singlePosition] {
+            XCTAssertTrue((0...1).contains(position.x))
+            XCTAssertTrue((0...1).contains(position.y))
+        }
+        XCTAssertEqual(Set(layout.supplementalPins.map(\.id)).count, 6)
+        for pin in layout.supplementalPins {
+            XCTAssertFalse(pin.text.isEmpty)
+            XCTAssertTrue((0...1).contains(pin.position.x))
+            XCTAssertTrue((0...1).contains(pin.position.y))
+        }
+        XCTAssertNotEqual(scenario.aggregatePosition, scenario.singlePosition)
+    }
+
+    func testRandomScenarioClampsConfigurablePinCount() {
+        var lowGenerator = GooeyPinSeededGenerator(state: 1)
+        var highGenerator = GooeyPinSeededGenerator(state: 2)
+
+        let low = GooeyPinRandomLayoutGenerator.make(pinCount: -10, using: &lowGenerator)
+        let high = GooeyPinRandomLayoutGenerator.make(pinCount: 100, using: &highGenerator)
+
+        XCTAssertEqual(low.visiblePinCount, GooeyPinRandomLayoutGenerator.pinCountRange.lowerBound)
+        XCTAssertEqual(high.visiblePinCount, GooeyPinRandomLayoutGenerator.pinCountRange.upperBound)
+    }
+
+    func testApplyingRandomLayoutPreservesGooeyParametersAndReplacesVisiblePins() {
+        var generator = GooeyPinSeededGenerator(state: 99)
+        let layout = GooeyPinRandomLayoutGenerator.make(pinCount: 6, using: &generator)
+        var state = GooeyPinDemoState.standard
+        state.parameters.blurRadius = 17
+
+        state.applyGeneratedLayout(layout)
+
+        XCTAssertEqual(state.numberScenarioID, .generated)
+        XCTAssertEqual(2 + state.supplementalPins.count, 6)
+        XCTAssertEqual(state.parameters.blurRadius, 17)
+        XCTAssertEqual(state.aggregatePosition, layout.numberScenario.aggregatePosition)
+        XCTAssertEqual(state.singlePosition, layout.numberScenario.singlePosition)
+        XCTAssertEqual(state.snapState, .separated)
+    }
+
+    func testSupplementalAggregatePinCountsOnceAndDragsOnBothAxes() {
+        let pin = GooeyPinSupplementalPin(
+            id: "aggregate-example",
+            text: "7.8.12",
+            position: .center
+        )
+        let randomLayout = GooeyPinRandomLayout(
+            numberScenario: .rightEdge,
+            supplementalPins: [pin]
+        )
+        let layout = GooeyPinSupplementalGeometry.layout(
+            for: pin,
+            stageSize: CGSize(width: 361, height: 280),
+            effectPadding: 24
+        )
+        let dragged = GooeyPinSupplementalGeometry.draggedPosition(
+            startCenter: CGPoint(x: layout.frame.midX, y: layout.frame.midY),
+            translation: CGSize(width: 36, height: -28),
+            centerBounds: layout.centerBounds
+        )
+
+        XCTAssertEqual(randomLayout.visiblePinCount, 3)
+        XCTAssertEqual(layout.frame.height, 32)
+        XCTAssertEqual(layout.frame.width, MapLibrePinLabelGeometry.size(for: pin.text).width)
+        XCTAssertGreaterThan(dragged.x, pin.position.x)
+        XCTAssertLessThan(dragged.y, pin.position.y)
+    }
+
+    func testMapCameraPanAndZoomTransformPinAroundViewportCenter() {
+        let placement = GooeyPinDemoMapGeometry.screenPlacement(
+            worldCenter: CGPoint(x: 220, y: 120),
+            pinSize: CGSize(width: 60, height: 32),
+            stageSize: CGSize(width: 360, height: 280),
+            effectPadding: 24,
+            camera: GooeyPinDemoCameraState(
+                scale: 2,
+                offset: CGSize(width: -10, height: 20)
+            )
+        )
+
+        XCTAssertFalse(placement.isEdgePinned)
+        XCTAssertEqual(placement.center.x, 250, accuracy: 0.001)
+        XCTAssertEqual(placement.center.y, 120, accuracy: 0.001)
+    }
+
+    func testAutomaticControlZoomDrivesFusionWithoutMovingWorldPins() throws {
+        let stageSize = CGSize(width: 320, height: 280)
+        let pinSize = CGSize(width: 32, height: 32)
+        let firstWorldCenter = CGPoint(x: 122, y: 140)
+        let secondWorldCenter = CGPoint(x: 198, y: 140)
+
+        func nodes(camera: GooeyPinDemoCameraState) -> [GooeyPinVisualNumberNode] {
+            [firstWorldCenter, secondWorldCenter].enumerated().map { index, worldCenter in
+                let placement = GooeyPinDemoMapGeometry.screenPlacement(
+                    worldCenter: worldCenter,
+                    pinSize: pinSize,
+                    stageSize: stageSize,
+                    effectPadding: 12,
+                    camera: camera
+                )
+                return GooeyPinVisualNumberNode(
+                    id: "automatic-\(index)",
+                    members: [numberMember(id: "automatic-member-\(index)", value: "\(index + 1)")],
+                    frame: CGRect(
+                        x: placement.center.x - pinSize.width / 2,
+                        y: placement.center.y - pinSize.height / 2,
+                        width: pinSize.width,
+                        height: pinSize.height
+                    )
+                )
+            }
+        }
+
+        XCTAssertNil(
+            GooeyPinMultiNumberLayout.activePair(
+                nodes: nodes(camera: .standard),
+                parameters: .standard
+            )
+        )
+        let zoomedPair = try XCTUnwrap(
+            GooeyPinMultiNumberLayout.activePair(
+                nodes: nodes(camera: GooeyPinDemoCameraState(scale: 0.5, offset: .zero)),
+                parameters: .standard
+            )
+        )
+        XCTAssertEqual(
+            Set([zoomedPair.firstNodeID, zoomedPair.secondNodeID]),
+            Set(["automatic-0", "automatic-1"])
+        )
+    }
+
+    func testMapCameraPinsOffscreenRightPinToHomepageRightEdge() {
+        let placement = GooeyPinDemoMapGeometry.screenPlacement(
+            worldCenter: CGPoint(x: 300, y: 140),
+            pinSize: CGSize(width: 80, height: 32),
+            stageSize: CGSize(width: 360, height: 280),
+            effectPadding: 24,
+            camera: GooeyPinDemoCameraState(
+                scale: 1,
+                offset: CGSize(width: 200, height: 0)
+            )
+        )
+
+        XCTAssertTrue(placement.isEdgePinned)
+        XCTAssertEqual(placement.edge, .right)
+        XCTAssertNil(placement.pointingCorner)
+        XCTAssertLessThan(placement.center.x, 360)
+        XCTAssertTrue((0...280).contains(placement.center.y))
+    }
+
+    func testMapCameraTopEdgeUsesHomepageSquarePointingCorner() {
+        let placement = GooeyPinDemoMapGeometry.screenPlacement(
+            worldCenter: CGPoint(x: 80, y: 40),
+            pinSize: CGSize(width: 72, height: 32),
+            stageSize: CGSize(width: 360, height: 280),
+            effectPadding: 24,
+            camera: GooeyPinDemoCameraState(
+                scale: 1,
+                offset: CGSize(width: 0, height: -240)
+            )
+        )
+
+        XCTAssertEqual(placement.edge, .top)
+        XCTAssertEqual(placement.pointingCorner, .topLeft)
+    }
+
     func testFourMergingFromLeftBecomesFirstWithoutReorderingRemainingMembers() {
         var state = GooeyPinDemoState.standard
 
@@ -794,6 +986,131 @@ final class GooeyPinDemoTests: XCTestCase {
             ),
             0,
             accuracy: 0.0001
+        )
+    }
+
+    func testSinglePinRetargetsAfterLeavingPreviousAggregate() throws {
+        let aggregateA = GooeyPinVisualNumberNode(
+            id: "aggregate-a",
+            members: [
+                numberMember(id: "a-6", value: "6"),
+                numberMember(id: "a-9", value: "9")
+            ],
+            frame: CGRect(x: 10, y: 100, width: 76, height: 32)
+        )
+        let aggregateB = GooeyPinVisualNumberNode(
+            id: "aggregate-b",
+            members: [
+                numberMember(id: "b-7", value: "7"),
+                numberMember(id: "b-12", value: "12")
+            ],
+            frame: CGRect(x: 230, y: 100, width: 84, height: 32)
+        )
+        let firstPosition = GooeyPinVisualNumberNode(
+            id: "single-4",
+            members: [numberMember(id: "single-4-member", value: "4")],
+            frame: CGRect(x: 78, y: 100, width: 32, height: 32)
+        )
+        let secondPosition = GooeyPinVisualNumberNode(
+            id: firstPosition.id,
+            members: firstPosition.members,
+            frame: CGRect(x: 218, y: 100, width: 32, height: 32)
+        )
+
+        let firstPair = try XCTUnwrap(
+            GooeyPinMultiNumberLayout.activePair(
+                nodes: [aggregateA, aggregateB, firstPosition],
+                parameters: .standard,
+                movingNodeID: firstPosition.id
+            )
+        )
+        let secondPair = try XCTUnwrap(
+            GooeyPinMultiNumberLayout.activePair(
+                nodes: [aggregateA, aggregateB, secondPosition],
+                parameters: .standard,
+                movingNodeID: secondPosition.id
+            )
+        )
+
+        XCTAssertEqual(Set([firstPair.firstNodeID, firstPair.secondNodeID]), Set([aggregateA.id, firstPosition.id]))
+        XCTAssertEqual(Set([secondPair.firstNodeID, secondPair.secondNodeID]), Set([aggregateB.id, secondPosition.id]))
+    }
+
+    func testDraggingPinOwnPairWinsOverMoreDeeplyMergedBackgroundPair() throws {
+        let moving = GooeyPinVisualNumberNode(
+            id: "moving-4",
+            members: [numberMember(id: "moving-4-member", value: "4")],
+            frame: CGRect(x: 86.2, y: 100, width: 32, height: 32)
+        )
+        let target = GooeyPinVisualNumberNode(
+            id: "target",
+            members: [numberMember(id: "target-7", value: "7")],
+            frame: CGRect(x: 50, y: 100, width: 32, height: 32)
+        )
+        let backgroundA = GooeyPinVisualNumberNode(
+            id: "background-a",
+            members: [numberMember(id: "background-a-member", value: "8")],
+            frame: CGRect(x: 220, y: 100, width: 32, height: 32)
+        )
+        let backgroundB = GooeyPinVisualNumberNode(
+            id: "background-b",
+            members: [numberMember(id: "background-b-member", value: "12")],
+            frame: CGRect(x: 220, y: 100, width: 32, height: 32)
+        )
+
+        let pair = try XCTUnwrap(
+            GooeyPinMultiNumberLayout.activePair(
+                nodes: [moving, target, backgroundA, backgroundB],
+                parameters: .standard,
+                movingNodeID: moving.id
+            )
+        )
+
+        XCTAssertEqual(Set([pair.firstNodeID, pair.secondNodeID]), Set([moving.id, target.id]))
+    }
+
+    func testTwoAggregatePinsAnimateAllMembersIntoStationaryHost() throws {
+        let movingAggregate = GooeyPinVisualNumberNode(
+            id: "moving-aggregate",
+            members: [
+                numberMember(id: "moving-6", value: "6"),
+                numberMember(id: "moving-9", value: "9")
+            ],
+            frame: CGRect(x: 20, y: 100, width: 70, height: 32)
+        )
+        let stationaryAggregate = GooeyPinVisualNumberNode(
+            id: "stationary-aggregate",
+            members: [
+                numberMember(id: "stationary-8", value: "8"),
+                numberMember(id: "stationary-12", value: "12")
+            ],
+            frame: CGRect(x: 76, y: 100, width: 80, height: 32)
+        )
+        let separatedStationary = GooeyPinVisualNumberNode(
+            id: stationaryAggregate.id,
+            members: stationaryAggregate.members,
+            frame: CGRect(x: 240, y: 100, width: 80, height: 32)
+        )
+        let separated = GooeyPinMultiNumberLayout.presentation(
+            nodes: [movingAggregate, separatedStationary],
+            primaryScenario: .rightEdge,
+            parameters: .standard,
+            movingNodeID: movingAggregate.id
+        )
+        let fused = GooeyPinMultiNumberLayout.presentation(
+            nodes: [movingAggregate, stationaryAggregate],
+            primaryScenario: .rightEdge,
+            parameters: .standard,
+            movingNodeID: movingAggregate.id
+        )
+
+        XCTAssertGreaterThan(
+            try XCTUnwrap(fused.placement(for: "moving-6")).position.x,
+            try XCTUnwrap(separated.placement(for: "moving-6")).position.x
+        )
+        XCTAssertGreaterThan(
+            try XCTUnwrap(fused.separatorPlacements.first { $0.id == "moving-9→stationary-8" }).opacity,
+            0
         )
     }
 
@@ -978,6 +1295,10 @@ final class GooeyPinDemoTests: XCTestCase {
             singleFrame: single,
             fallbackDirection: CGVector(dx: 1, dy: 0)
         ).surfaceGap
+    }
+
+    private func numberMember(id: String, value: String) -> GooeyPinNumberMember {
+        GooeyPinNumberMember(id: id, value: value, relativePosition: .zero)
     }
 }
 

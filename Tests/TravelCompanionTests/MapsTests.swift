@@ -197,6 +197,40 @@ final class MapsTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testCameraMutationDeferrerNeverRunsInsideSchedulingCallback() async {
+        let deferrer = MapLibreCameraMutationDeferrer()
+        let mutationRan = expectation(description: "deferred camera mutation ran")
+        var events = ["delegate-entered"]
+
+        XCTAssertTrue(deferrer.schedule {
+            events.append("camera-mutated")
+            mutationRan.fulfill()
+        })
+        XCTAssertTrue(deferrer.isPending)
+        XCTAssertEqual(events, ["delegate-entered"])
+
+        events.append("delegate-returned")
+        await fulfillment(of: [mutationRan], timeout: 1)
+
+        XCTAssertEqual(events, ["delegate-entered", "delegate-returned", "camera-mutated"])
+        XCTAssertFalse(deferrer.isPending)
+    }
+
+    @MainActor
+    func testCameraMutationDeferrerCoalescesAndCancelsPendingMutation() async {
+        let deferrer = MapLibreCameraMutationDeferrer()
+        var mutationCount = 0
+
+        XCTAssertTrue(deferrer.schedule { mutationCount += 1 })
+        XCTAssertFalse(deferrer.schedule { mutationCount += 1 })
+        deferrer.cancel()
+        await Task.yield()
+
+        XCTAssertEqual(mutationCount, 0)
+        XCTAssertFalse(deferrer.isPending)
+    }
+
     func testEdgePinSafeRectRejectsInvalidHeightAndRespondsToResize() {
         let invalid = MapLibreEdgePinGeometry.safeOuterRect(
             screenBounds: CGRect(x: 0, y: 0, width: 430, height: 932),

@@ -16,17 +16,44 @@ struct MemoSection: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("物品清单").font(.title3.bold())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("物品清单")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("行李、待办与明日提醒")
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
                 Spacer()
-                Button("智能生成", systemImage: "sparkles") { showsAssist = true }
-                    .buttonStyle(.glass)
+                Button { showsAssist = true } label: {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            PrimaryTabPalette.elevatedSurface,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
                     .disabled(syncEngine.trip?.isConfigured != true)
                     .accessibilityLabel("根据行程生成明日闹钟、提醒和物品")
-                Button("添加清单", systemImage: "plus") { creatingList = true }
-                    .buttonStyle(.glass)
+                Button { creatingList = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            PrimaryTabPalette.elevatedSurface,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("添加清单")
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 16)
             .padding(.top, 8)
+            .padding(.bottom, 10)
 
             if lists.isEmpty {
                 ContentUnavailableView(
@@ -34,8 +61,8 @@ struct MemoSection: View {
                     systemImage: "checklist",
                     description: Text("添加行李、待办等物品清单；或点「智能生成」让 AI 根据明日行程一键给出建议。")
                 )
-                .padding(.top, 48)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, 112)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
@@ -43,12 +70,13 @@ struct MemoSection: View {
                             listCard(list)
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.top, 12)
-                    .padding(.bottom, 24)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 128)
                 }
+                .scrollIndicators(.hidden)
             }
         }
+        .background(PrimaryTabPalette.background)
         .frame(maxHeight: .infinity, alignment: .top)
         .sheet(isPresented: $creatingList) {
             MemoListEditor(list: nil) { _, _ in }
@@ -79,27 +107,30 @@ struct MemoSection: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Label(list.title, systemImage: list.symbol).font(.headline)
+                    .foregroundStyle(.white)
                 Spacer()
                 if !items.isEmpty {
                     Text("\(checked)/\(items.count)")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .glassEffect(.regular, in: Capsule())
+                        .background(PrimaryTabPalette.surface, in: Capsule())
                 }
                 Menu {
                     Button("编辑", systemImage: "pencil") { editingList = list }
                     Button("删除", systemImage: "trash", role: .destructive) { pendingDeletion = list }
                 } label: {
-                    Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44)
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(.white.opacity(0.82))
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .accessibilityLabel("\(list.title) 的更多操作")
             }
             if items.isEmpty {
                 Text("还没有物品，点「编辑」添加。")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
             } else {
                 ForEach(items) { item in
                     itemRow(item)
@@ -107,7 +138,7 @@ struct MemoSection: View {
             }
         }
         .padding(16)
-        .glassEffect(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
         .contentShape(Rectangle())
         .onTapGesture { editingList = list }
     }
@@ -122,16 +153,18 @@ struct MemoSection: View {
             } label: {
                 Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(item.isChecked ? .indigo : .secondary)
+                    .foregroundStyle(item.isChecked ? PrimaryTabPalette.accent : PrimaryTabPalette.secondaryText)
             }
             .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
                     .font(.subheadline)
-                    .strikethrough(item.isChecked, color: .secondary)
-                    .foregroundStyle(item.isChecked ? .secondary : .primary)
+                    .strikethrough(item.isChecked, color: PrimaryTabPalette.secondaryText)
+                    .foregroundStyle(item.isChecked ? PrimaryTabPalette.secondaryText : .white.opacity(0.82))
                 if let category = item.category, !category.isEmpty {
-                    Text(category).font(.caption2).foregroundStyle(.tertiary)
+                    Text(category)
+                        .font(.caption2)
+                        .foregroundStyle(PrimaryTabPalette.tertiaryText)
                 }
             }
             Spacer(minLength: 4)

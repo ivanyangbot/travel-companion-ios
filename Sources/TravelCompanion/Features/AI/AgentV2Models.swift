@@ -180,7 +180,68 @@ enum AgentV2StreamEvent: Sendable {
     case candidateUpsert(AgentV2Candidate)
     case candidatePatch(id: UUID, candidate: AgentV2Candidate)
     case changeSet([AgentV2Change])
+    case fliggySearchStarted(AgentV2FliggySearchStart)
+    case fliggySearchCompleted(AgentV2FliggySearchCompletion)
     case done
+}
+
+/// Brand-structured progress signal emitted around each Fliggy realtime
+/// tool call. Ephemeral UI progress only: it must never enter the persisted
+/// session, drafts, or logs (see `AgentV2FliggySearchKind`).
+struct AgentV2FliggySearchStart: Decodable, Sendable, Equatable {
+    let searchType: String
+    private let query: String?
+    private let destName: String?
+    private let origin: String?
+    private let destination: String?
+    private let cityName: String?
+
+    /// The first non-empty search term the model filled in (server caps it at
+    /// 120 characters; the client truncates defensively for display).
+    var searchTerm: String? {
+        for value in [query, destName, origin, destination, cityName] {
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { continue }
+            return String(trimmed.prefix(120))
+        }
+        return nil
+    }
+}
+
+/// Terminal signal for one Fliggy tool call. `ok == false` means Fliggy was
+/// unavailable/rate-limited and the model degrades gracefully; the stream
+/// keeps flowing and the client must not treat it as an error.
+struct AgentV2FliggySearchCompletion: Decodable, Sendable, Equatable {
+    let searchType: String
+    let ok: Bool
+    let count: Int?
+}
+
+/// `searchType` of a Fliggy search notification. Unknown server values fall
+/// back to `other` so newer/older servers stay renderable without throwing.
+enum AgentV2FliggySearchKind: String, Sendable, Equatable {
+    case fast
+    case ai
+    case hotel
+    case flight
+    case train
+    case poi
+    case other
+
+    init(raw: String) {
+        self = Self(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .other
+    }
+
+    /// Chip copy while the search is running.
+    var progressTitle: String {
+        switch self {
+        case .hotel: "正在查询飞猪酒店实时价格"
+        case .flight: "正在查询机票实时价格"
+        case .train: "正在查询火车票实时价格"
+        case .poi: "正在查询景点门票实时价格"
+        case .fast, .ai, .other: "正在查询飞猪实时库存"
+        }
+    }
 }
 
 /// Ephemeral, field-by-field card state for the current streaming turn.
