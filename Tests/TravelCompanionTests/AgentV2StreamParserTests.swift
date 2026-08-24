@@ -54,6 +54,36 @@ final class AgentV2StreamParserTests: XCTestCase {
         }
     }
 
+    func testUnscheduledCandidateWithNullScheduleDoesNotAbortStream() throws {
+        // 纯 POI 询问卡的 date/startAt 为 null：必须解码为未排期候选而不是
+        // 让整条流在 candidate_upsert 处中断。
+        let candidateID = UUID().uuidString.lowercased()
+        let fixture = """
+        event: candidate_upsert
+        data: {"id":"\(candidateID)","kind":"activity","title":"热带植物园","date":null,"startAt":null,"endAt":null,"place":null,"placeStatus":"failed","allowsUnverifiedPlace":true,"tips":[],"risks":[],"missingFields":["地图地点待确认"],"selected":false}
+
+        event: done
+        data: {}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var candidate: AgentV2Candidate?
+        var sawDone = false
+        for byte in fixture.utf8 {
+            guard let event = try parser.consume(byte) else { continue }
+            if case .candidateUpsert(let value) = event { candidate = value }
+            if case .done = event { sawDone = true }
+        }
+
+        let decoded = try XCTUnwrap(candidate)
+        XCTAssertEqual(decoded.date, "")
+        XCTAssertEqual(decoded.startAt, "")
+        XCTAssertTrue(decoded.hasAllowedUnverifiedPlace)
+        XCTAssertFalse(decoded.isCommitReady, "未排期候选需先由后续轮次排期才可提交")
+        XCTAssertTrue(sawDone)
+    }
+
     func testFliggyEventsDecodeAsPairedStructuredSignals() throws {
         // Mirrors the backend's observed ordering: flight start → hotel start
         // (term picked from `origin`) → two completions → done.

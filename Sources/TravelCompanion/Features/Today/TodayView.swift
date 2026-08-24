@@ -88,6 +88,9 @@ struct TodayView: View {
         } message: {
             Text(linkHandler.alertMessage ?? "")
         }
+        // 与旅程/账本/手书等主页一致的暗色底，保证空态与加载态不露出浅色背景。
+        .preferredColorScheme(.dark)
+        .background(PrimaryTabPalette.background.ignoresSafeArea())
     }
 
     private func journeySetupPrompt(title: String, description: String) -> some View {

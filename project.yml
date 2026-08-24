@@ -10,6 +10,8 @@ packages:
   MapLibre:
     url: https://github.com/maplibre/maplibre-gl-native-distribution
     exactVersion: 6.25.1
+  ThinkingOrbsKit:
+    path: Packages/ThinkingOrbsKit
 targets:
   TravelCompanion:
     type: application
@@ -24,6 +26,7 @@ targets:
       - target: TravelCompanionShareExtension
         embed: true
       - package: MapLibre
+      - package: ThinkingOrbsKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yangzhiyuan.travelcompanion
@@ -75,6 +78,7 @@ targets:
       - Tests/TravelCompanionTests
     dependencies:
       - target: TravelCompanion
+      - package: ThinkingOrbsKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yangzhiyuan.travelcompanion.tests

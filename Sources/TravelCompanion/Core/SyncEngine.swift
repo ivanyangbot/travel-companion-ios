@@ -348,6 +348,14 @@ final class SyncEngine: ObservableObject {
         await refresh()
     }
 
+    /// 清除当前行程选择：Agent 允许暂不选择任何行程，各页面回到未设置状态。
+    /// 仅影响内存中的选择，不修改任何行程数据。
+    func clearSelectedTrip() async {
+        selectedTripID = nil
+        trip = nil
+        await apiClient.setActiveTripID(nil)
+    }
+
     func createShareInvite() async -> URL? {
         guard let selectedTripID else {
             status = .failed("请先创建一个旅程。")
@@ -617,8 +625,9 @@ final class SyncEngine: ObservableObject {
     }
 
     /// Compact, read-only snapshot of the trip's current cards, sent so the AI
-    /// can enrich rather than duplicate what is already planned.
-    private func existingItinerarySnapshot() -> [AIExistingItineraryDay]? {
+    /// can enrich rather than duplicate what is already planned. Shared by the
+    /// itinerary chat and the agent welcome-screen suggestions.
+    func existingItinerarySnapshot() -> [AIExistingItineraryDay]? {
         guard let trip else { return nil }
         let days = trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }.map { day in
             AIExistingItineraryDay(

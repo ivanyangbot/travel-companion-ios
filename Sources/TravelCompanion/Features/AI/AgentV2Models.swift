@@ -153,6 +153,54 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+extension AgentV2Candidate {
+    /// Unscheduled POI-inquiry cards legitimately carry null `date`/`startAt`
+    /// (the user picks a date later, or asks the agent to schedule them in a
+    /// follow-up turn). Decode those as empty strings so one unscheduled card
+    /// cannot abort the whole SSE stream at `candidate_upsert`. Defined in an
+    /// extension so the memberwise initializer stays available for tests.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decode(TravelCardSnapshot.Kind.self, forKey: .kind)
+        title = try container.decode(String.self, forKey: .title)
+        sourceText = try container.decodeIfPresent(String.self, forKey: .sourceText)
+        allowsUnverifiedPlace = try container.decodeIfPresent(Bool.self, forKey: .allowsUnverifiedPlace)
+        date = try container.decodeIfPresent(String.self, forKey: .date) ?? ""
+        startAt = try container.decodeIfPresent(String.self, forKey: .startAt) ?? ""
+        endAt = try container.decodeIfPresent(String.self, forKey: .endAt)
+        place = try container.decodeIfPresent(AIChatPlace.self, forKey: .place)
+        placeStatus = try container.decode(PlaceStatus.self, forKey: .placeStatus)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        sourceProof = try container.decodeIfPresent(String.self, forKey: .sourceProof)
+        priceMinor = try container.decodeIfPresent(Int64.self, forKey: .priceMinor)
+        ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)
+        stayDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .stayDurationMinutes)
+        tips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
+        bookingCode = try container.decodeIfPresent(String.self, forKey: .bookingCode)
+        fromAirport = try container.decodeIfPresent(String.self, forKey: .fromAirport)
+        toAirport = try container.decodeIfPresent(String.self, forKey: .toAirport)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        risks = try container.decodeIfPresent([String].self, forKey: .risks) ?? []
+        missingFields = try container.decodeIfPresent([String].self, forKey: .missingFields) ?? []
+        selected = try container.decodeIfPresent(Bool.self, forKey: .selected) ?? false
+    }
+}
+
+extension AgentV2TurnRequest {
+    /// The server-side debug conversation caps history at 10 turns (20
+    /// messages) and 2 000 characters per message. Mirror that here so a
+    /// long-lived local session cannot grow the turn payload without bound.
+    static func trimmedHistory(_ messages: [Message], limit: Int = 20, fieldLimit: Int = 2_000) -> [Message] {
+        messages.suffix(limit).map { message in
+            guard message.content.count > fieldLimit else { return message }
+            return Message(id: message.id, role: message.role, content: String(message.content.prefix(fieldLimit)), createdAt: message.createdAt)
+        }
+    }
+}
+
 struct AgentV2Change: Codable, Sendable, Equatable, Identifiable {
     enum Operation: String, Codable, Sendable { case add, replace, remove, move, keep }
     let id: UUID

@@ -374,11 +374,34 @@ struct AIExistingItineraryDay: Encodable, Sendable {
 }
 
 struct AIExistingItineraryCard: Encodable, Sendable {
-    let kind: String
-    let title: String
-    let time: String?
-    let place: String?
-    let notes: String?
+let kind: String
+let title: String
+let time: String?
+let place: String?
+let notes: String?
+}
+
+/// Agent 欢迎页「可以这样问」的三条动态建议请求：独立于 Agent v2 轮次管线的
+/// 轻量一次性调用。行程快照作为只读上下文传入（与 Agent 轮次传入的行程上下文
+/// 同构），服务端不持久化任何内容。
+struct AITripSuggestionsRequest: Encodable, Sendable {
+struct Preferences: Encodable, Sendable {
+let pace: String?
+let companions: String?
+let budget: String?
+let scope: String?
+let interests: [String]?
+}
+let destination: String?
+let startDate: String?
+let endDate: String?
+let currency: String?
+let preferences: Preferences?
+let existingItinerary: [AIExistingItineraryDay]?
+}
+
+struct AITripSuggestionsResult: Decodable, Sendable, Equatable {
+let suggestions: [String]
 }
 
 /// Stateless multi-turn itinerary chat: the client replays the full message

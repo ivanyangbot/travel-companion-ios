@@ -142,9 +142,16 @@ final class AgentV2RunState: ObservableObject {
 @MainActor
 final class AgentV2SessionStore: ObservableObject {
     @Published private(set) var session: AgentV2LocalSession
+    /// Past conversations archived by "新建对话", newest first. Local-only,
+    /// like the active session: nothing here is ever sent to the backend
+    /// unless the user restores a conversation and continues it.
+    @Published private(set) var archives: [AgentV2LocalSession] = []
 
     private let defaults: UserDefaults
     private let key = "agent.v2.local.session"
+    private let archivesKey = "agent.v2.local.archives"
+    /// How many past conversations are kept on-device.
+    static let archiveLimit = 20
     private var isReceivingNewTurn = false
     private var hasStagedResult = false
     private var stagedSummary: AgentV2Summary?
@@ -152,6 +159,10 @@ final class AgentV2SessionStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        if let data = defaults.data(forKey: archivesKey),
+           let decodedArchives = try? JSONDecoder.agentV2.decode([AgentV2LocalSession].self, from: data) {
+            archives = decodedArchives
+        }
         if let data = defaults.data(forKey: key), var decoded = try? JSONDecoder.agentV2.decode(AgentV2LocalSession.self, from: data) {
             let originalDraft = decoded.draft
             decoded.draft = originalDraft.map { $0.sanitizedForPersistence() }
@@ -182,6 +193,63 @@ final class AgentV2SessionStore: ObservableObject {
         resetStaging()
         session = .empty
         defaults.removeObject(forKey: key)
+    }
+
+    // MARK: - Conversation history
+
+    /// A session worth archiving holds at least one message or draft.
+    var currentSessionHasContent: Bool {
+        !session.messages.isEmpty || session.draft != nil
+    }
+
+    /// Archives the current conversation (when it has content) and starts a
+    /// fresh session. Preferences carry over; the archived conversation can
+    /// be restored from the history list.
+    func startNewSession() {
+        archiveCurrentSessionIfNeeded()
+        resetStaging()
+        session = AgentV2LocalSession(
+            id: UUID(),
+            updatedAt: .now,
+            preferences: session.preferences,
+            messages: [],
+            attachments: [],
+            draft: nil,
+            summary: nil
+        )
+        save()
+    }
+
+    /// Makes an archived conversation active again. The current conversation
+    /// takes the archive's slot in the history list so nothing is lost.
+    func restoreSession(id: UUID) {
+        guard let index = archives.firstIndex(where: { $0.id == id }) else { return }
+        let restored = archives.remove(at: index)
+        persistArchives()
+        archiveCurrentSessionIfNeeded()
+        resetStaging()
+        session = restored
+        save()
+    }
+
+    func deleteArchivedSession(id: UUID) {
+        archives.removeAll { $0.id == id }
+        persistArchives()
+    }
+
+    private func archiveCurrentSessionIfNeeded() {
+        guard currentSessionHasContent else { return }
+        archives.removeAll { $0.id == session.id }
+        archives.insert(session, at: 0)
+        if archives.count > Self.archiveLimit {
+            archives = Array(archives.prefix(Self.archiveLimit))
+        }
+        persistArchives()
+    }
+
+    private func persistArchives() {
+        guard let data = try? JSONEncoder.agentV2.encode(archives) else { return }
+        defaults.set(data, forKey: archivesKey)
     }
 
     func append(_ message: AgentV2TurnRequest.Message) {

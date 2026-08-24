@@ -56,6 +56,7 @@
 		85C1F17BA4A204B9FAD64FC0 /* ExpenseListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB2711532E17CBD08B29873 /* ExpenseListView.swift */; };
 		88F0BD210A6E68507174A9E0 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CB3D8B88019BCCC9AE7140D /* SyncEngine.swift */; };
 		8A5B3E462908B377E402461C /* DayEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC53B5FAD8D6AFD665BEF072 /* DayEditor.swift */; };
+		8D338AECF25C59E5D40858AD /* ThinkingOrbsKit in Frameworks */ = {isa = PBXBuildFile; productRef = 30859668C67FCEEA34149DBF /* ThinkingOrbsKit */; };
 		8D987F32B1F3204120D521DA /* CardImageURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E71023CBDA0960AF76B17AE /* CardImageURL.swift */; };
 		9038344B92E77A7B706449EF /* RouteCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB30A60EBABC73ACC172EF1 /* RouteCache.swift */; };
 		9068403E3B53DE6E8BA45DFF /* JournalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2257908B5B0D4672E0FD271 /* JournalModels.swift */; };
@@ -71,6 +72,7 @@
 		A92FD3B481DD54A4B24F93B3 /* TripSetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C42CC5E8251F33492311AC /* TripSetupSheet.swift */; };
 		AADAF1743D75ECEDE43DC8DC /* JournalMediaSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5BEF8FBB530519A885CB28 /* JournalMediaSupport.swift */; };
 		AB651682CAA79075E6E225E1 /* MapsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971BB2C1553DAD49063C4934 /* MapsTests.swift */; };
+		AB74B51337C2DCF204E44AA0 /* ThinkingOrbsKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4777D5D19EED9D085637FBDB /* ThinkingOrbsKit */; };
 		B0F43F3DFD03ED20D7B2CE48 /* TravelCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F5D705DE2E7F9662C9A578 /* TravelCompanionApp.swift */; };
 		CBEEA65C97FD894797DEEF46 /* WalletEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBF3C1C03EE755977735724 /* WalletEditorView.swift */; };
 		D0E1EF0AD5FDC45E7E63724A /* AppleMapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F42D02E361B74E833454FBE1 /* AppleMapService.swift */; };
@@ -128,6 +130,7 @@
 		166A7CE158BD23101732C46C /* TodayWeatherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWeatherTests.swift; sourceTree = "<group>"; };
 		1680BBEB0A853E9295127F80 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		16D3E600510D1900A40A2985 /* AITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AITests.swift; sourceTree = "<group>"; };
+		1752EF00730E2E267A1CC75D /* ThinkingOrbsKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ThinkingOrbsKit; path = Packages/ThinkingOrbsKit; sourceTree = SOURCE_ROOT; };
 		18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TravelCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B6DDEF3EF354A696B98AB2B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1BEF8DAF7AA93B2E6831EFED /* WalletCardScanModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCardScanModels.swift; sourceTree = "<group>"; };
@@ -211,11 +214,20 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		26C1E7885120BBAF6600D1AF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AB74B51337C2DCF204E44AA0 /* ThinkingOrbsKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F240D3B38F2C777A1CB81B03 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				EE22351C0FA0D396E24F2D34 /* MapLibre in Frameworks */,
+				8D338AECF25C59E5D40858AD /* ThinkingOrbsKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -399,6 +411,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		BB2C7AC2A2D0A6D4B13B70FE /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				1752EF00730E2E267A1CC75D /* ThinkingOrbsKit */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
 		C12227DB86BAF3A591AB23A6 /* AI */ = {
 			isa = PBXGroup;
 			children = (
@@ -452,6 +472,7 @@
 			isa = PBXGroup;
 			children = (
 				1B6DDEF3EF354A696B98AB2B /* Assets.xcassets */,
+				BB2C7AC2A2D0A6D4B13B70FE /* Packages */,
 				5C69AA7A6DF9DE8FFE78C294 /* TravelCompanion */,
 				256669ECEE44D7A686153F8E /* TravelCompanionShareExtension */,
 				0E160A4629FE9416B0458ED6 /* TravelCompanionTests */,
@@ -489,6 +510,7 @@
 			name = TravelCompanion;
 			packageProductDependencies = (
 				AC854E7F79A7B22A7D8C464E /* MapLibre */,
+				30859668C67FCEEA34149DBF /* ThinkingOrbsKit */,
 			);
 			productName = TravelCompanion;
 			productReference = 660F4C444ECFE128677DA7F2 /* TravelCompanion.app */;
@@ -517,6 +539,7 @@
 			buildConfigurationList = CF52BCCD679D000823C6AEC3 /* Build configuration list for PBXNativeTarget "TravelCompanionTests" */;
 			buildPhases = (
 				8524D19482F643DD26E8B056 /* Sources */,
+				26C1E7885120BBAF6600D1AF /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -525,6 +548,7 @@
 			);
 			name = TravelCompanionTests;
 			packageProductDependencies = (
+				4777D5D19EED9D085637FBDB /* ThinkingOrbsKit */,
 			);
 			productName = TravelCompanionTests;
 			productReference = 18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */;
@@ -548,6 +572,7 @@
 				};
 			};
 			buildConfigurationList = 2D12571D7BF728CDEE1E18FC /* Build configuration list for PBXProject "TravelCompanion" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -558,9 +583,9 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
+				1147331AAA605A80C5519B12 /* XCLocalSwiftPackageReference "Packages/ThinkingOrbsKit" */,
 			);
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 9C00F592F723C700D8D27F28 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -992,6 +1017,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		1147331AAA605A80C5519B12 /* XCLocalSwiftPackageReference "Packages/ThinkingOrbsKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ThinkingOrbsKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1004,6 +1036,14 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		30859668C67FCEEA34149DBF /* ThinkingOrbsKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ThinkingOrbsKit;
+		};
+		4777D5D19EED9D085637FBDB /* ThinkingOrbsKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ThinkingOrbsKit;
+		};
 		AC854E7F79A7B22A7D8C464E /* MapLibre */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */;

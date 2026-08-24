@@ -480,6 +480,24 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testTrimmedHistoryCapsTurnsAndMessageLength() throws {
+        let longContent = String(repeating: "长", count: 2_500)
+        let messages = (0 ..< 25).map { index in
+            AgentV2TurnRequest.Message(
+                id: UUID(), role: index.isMultiple(of: 2) ? "user" : "assistant",
+                content: index == 24 ? longContent : "消息 \(index)", createdAt: .now
+            )
+        }
+
+        let trimmed = AgentV2TurnRequest.trimmedHistory(messages)
+
+        XCTAssertEqual(trimmed.count, 20)
+        XCTAssertEqual(trimmed.first?.content, "消息 5")
+        XCTAssertEqual(trimmed.last?.content.count, 2_000)
+        XCTAssertEqual(trimmed.last?.id, messages.last?.id, "裁剪只截断文本，不改变消息身份")
+    }
+
+    @MainActor
     func testRunStateRemainsGeneratingUntilSharedTaskFinishes() async throws {
         let state = AgentV2RunState()
         state.prepareForTurn()
@@ -552,6 +570,99 @@ final class AgentV2SessionStoreTests: XCTestCase {
         XCTAssertEqual(AgentV2FliggySearchKind(raw: "fast").progressTitle, "正在查询飞猪实时库存")
         XCTAssertEqual(AgentV2FliggySearchKind(raw: "unexpected").progressTitle, "正在查询飞猪实时库存")
         XCTAssertEqual(AgentV2FliggySearchKind(raw: "unexpected"), .other)
+    }
+
+    @MainActor
+    func testStartNewSessionArchivesCurrentAndKeepsPreferences() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+        store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "帮我规划西双版纳", createdAt: .now))
+        store.updatePreference(\.pace, value: "relaxed")
+        let archivedID = store.session.id
+
+        store.startNewSession()
+
+        XCTAssertTrue(store.session.messages.isEmpty)
+        XCTAssertNil(store.session.draft)
+        XCTAssertNotEqual(store.session.id, archivedID)
+        XCTAssertEqual(store.session.preferences.pace, "relaxed", "preferences carry over to the new conversation")
+        XCTAssertEqual(store.archives.map(\.id), [archivedID])
+        XCTAssertEqual(store.archives.first?.messages.first?.content, "帮我规划西双版纳")
+    }
+
+    @MainActor
+    func testStartNewSessionWithEmptySessionDoesNotArchive() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        store.startNewSession()
+
+        XCTAssertTrue(store.archives.isEmpty)
+    }
+
+    @MainActor
+    func testRestoreSessionSwapsCurrentIntoArchives() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+        store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "第一段对话", createdAt: .now))
+        let firstID = store.session.id
+        store.startNewSession()
+        store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "第二段对话", createdAt: .now))
+        let secondID = store.session.id
+
+        store.restoreSession(id: firstID)
+
+        XCTAssertEqual(store.session.id, firstID)
+        XCTAssertEqual(store.session.messages.first?.content, "第一段对话")
+        XCTAssertEqual(store.archives.map(\.id), [secondID], "the current conversation takes the archive slot")
+    }
+
+    @MainActor
+    func testDeleteArchivedSessionRemovesOnlyThatEntry() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+        store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "第一段", createdAt: .now))
+        let firstID = store.session.id
+        store.startNewSession()
+        store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "第二段", createdAt: .now))
+        let secondID = store.session.id
+        store.startNewSession()
+        XCTAssertEqual(store.archives.map(\.id), [secondID, firstID])
+
+        store.deleteArchivedSession(id: firstID)
+
+        XCTAssertEqual(store.archives.map(\.id), [secondID])
+    }
+
+    @MainActor
+    func testArchivesPersistAcrossStoreInstances() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+        store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "第一段对话", createdAt: .now))
+        store.startNewSession()
+
+        let reloaded = AgentV2SessionStore(defaults: defaults)
+
+        XCTAssertEqual(reloaded.archives.map(\.messages.first?.content), ["第一段对话"])
+    }
+
+    @MainActor
+    func testArchiveListIsCappedAtTheLimit() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+        for index in 0..<(AgentV2SessionStore.archiveLimit + 3) {
+            store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "对话 \(index)", createdAt: .now))
+            store.startNewSession()
+        }
+
+        XCTAssertEqual(store.archives.count, AgentV2SessionStore.archiveLimit)
+        XCTAssertEqual(store.archives.first?.messages.first?.content, "对话 \(AgentV2SessionStore.archiveLimit + 2)", "newest first")
     }
 
     private let defaultsSuite = "AgentV2SessionStoreTests"

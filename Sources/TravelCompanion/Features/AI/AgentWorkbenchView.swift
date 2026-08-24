@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import ThinkingOrbsKit
 import UIKit
 
 /// The PRD's local-first planning workbench. Drafts remain local until the
@@ -14,9 +15,11 @@ struct AgentWorkbenchView: View {
     @State private var message = ""
     @State private var photo: PhotosPickerItem?
     @State private var isShowingContext = false
-    @State private var isConfirmingClear = false
-    @State private var didConsumeInitialMessage = false
-    @State private var didSubmitInitialMessage = false
+    @State private var isShowingHistory = false
+@State private var didConsumeInitialMessage = false
+@State private var didSubmitInitialMessage = false
+@State private var suggestedPrompts: [String] = []
+@State private var suggestionsTripID: Int?
 
     init(
         syncEngine: SyncEngine,
@@ -36,26 +39,41 @@ struct AgentWorkbenchView: View {
                 VStack(spacing: 0) {
                     agentHeader
 
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 22) {
-                                if store.session.messages.isEmpty && store.session.draft == nil {
-                                    welcomeView
-                                } else {
-                                    conversationView
-                                }
-                                Color.clear.frame(height: 1).id("conversation-bottom")
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
-                            .padding(.bottom, 16)
+                    ZStack {
+                        if isWelcomeState {
+                            AgentIntroASCIIBackgroundView()
+                            RadialGradient(
+                                colors: [.clear, PrimaryTabPalette.background.opacity(0.74)],
+                                center: .center,
+                                startRadius: 100,
+                                endRadius: 330
+                            )
+                            .allowsHitTesting(false)
                         }
-                        .scrollIndicators(.hidden)
-                        .scrollDismissesKeyboard(.interactively)
-                        .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
-                        .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
-                        .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
-                        .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
+
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 22) {
+                                    if isWelcomeState {
+                                        welcomeView
+                                    } else {
+                                        conversationView
+                                    }
+                                    Color.clear.frame(height: 1).id("conversation-bottom")
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 12)
+                                .padding(.bottom, 16)
+                            }
+                            .scrollIndicators(.hidden)
+                            .scrollDismissesKeyboard(.interactively)
+                            // 初始页（ASCII 地球欢迎态）固定不可滑动；进入对话后恢复滚动。
+                            .scrollDisabled(isWelcomeState)
+                            .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
+                            .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
+                            .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
+                            .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
+                        }
                     }
                 }
             }
@@ -65,16 +83,19 @@ struct AgentWorkbenchView: View {
             .sheet(isPresented: $isShowingContext) {
                 AgentContextSheet(syncEngine: syncEngine, store: store)
             }
-            .confirmationDialog("清除本机 Agent 草稿？", isPresented: $isConfirmingClear, titleVisibility: .visible) {
-                Button("清除对话与草稿", role: .destructive) { clearSession() }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("已加入行程的内容不会受到影响。")
+            .sheet(isPresented: $isShowingHistory) {
+                AgentHistorySheet(store: store) {
+                    runState.clearTransientState()
+                }
             }
             .alert("无法完成操作", isPresented: Binding(get: { runState.error != nil }, set: { if !$0 { runState.error = nil } })) {
                 Button("知道了", role: .cancel) {}
             } message: { Text(runState.error ?? "") }
-            .onAppear { consumeInitialMessageIfNeeded() }
+            .onAppear {
+                consumeInitialMessageIfNeeded()
+                loadSuggestionsIfNeeded()
+            }
+            .onChange(of: syncEngine.trip?.id) { _, _ in loadSuggestionsIfNeeded() }
             .onChange(of: initialMessage) { _, newValue in
                 guard newValue != nil else { return }
                 didConsumeInitialMessage = false
@@ -84,7 +105,7 @@ struct AgentWorkbenchView: View {
         }
     }
 
-    /// 与各主页面一致的暗色自定义头部：居中标题、左侧旅行上下文胶囊、右侧更多菜单。
+    /// 与各主页面一致的暗色自定义头部：居中标题、左侧行程切换（Liquid Glass 菜单）、右侧历史与新建对话。
     private var agentHeader: some View {
         ZStack {
             Text("旅行 Agent")
@@ -92,7 +113,32 @@ struct AgentWorkbenchView: View {
                 .foregroundStyle(.white)
 
             HStack(spacing: 12) {
-                Button { isShowingContext = true } label: {
+                // 行程切换：可以「暂不选择行程」，仅影响 Agent 的上下文，不修改任何行程数据。
+                Menu {
+                    Button {
+                        Task { await syncEngine.clearSelectedTrip() }
+                    } label: {
+                        if syncEngine.selectedTripID == nil {
+                            Label("暂不选择行程", systemImage: "checkmark")
+                        } else {
+                            Text("暂不选择行程")
+                        }
+                    }
+                    if !syncEngine.trips.isEmpty {
+                        Divider()
+                        ForEach(syncEngine.trips) { summary in
+                            Button {
+                                Task { await syncEngine.selectTrip(summary.id) }
+                            } label: {
+                                if summary.id == syncEngine.selectedTripID {
+                                    Label(summary.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(summary.displayName)
+                                }
+                            }
+                        }
+                    }
+                } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "location.fill")
                             .font(.system(size: 11, weight: .semibold))
@@ -105,33 +151,26 @@ struct AgentWorkbenchView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(PrimaryTabPalette.surface, in: Capsule())
-                    .overlay {
-                        Capsule().strokeBorder(.white.opacity(0.06), lineWidth: 1)
-                    }
                 }
-                .buttonStyle(.plain)
-                .frame(maxWidth: 150, alignment: .leading)
-                .accessibilityLabel("旅行与偏好设置")
+                .buttonStyle(.glass)
+                .frame(maxWidth: 170, alignment: .leading)
+                .accessibilityLabel("切换行程")
+                .accessibilityHint("选择要规划的行程，或打开旅行与偏好设置")
 
                 Spacer(minLength: 0)
 
-                Menu {
-                    Button { isShowingContext = true } label: {
-                        Label("旅行与偏好", systemImage: "slider.horizontal.3")
-                    }
-                    Divider()
-                    Button(role: .destructive) { isConfirmingClear = true } label: {
-                        Label("清除对话与草稿", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .medium))
-                        .primaryTabHeaderButtonStyle()
+                Button { isShowingHistory = true } label: {
+                    Image(systemName: "clock.arrow.circlepath")
                 }
-                .accessibilityLabel("更多操作")
+                .buttonStyle(.glass)
+                .accessibilityLabel("历史对话")
+
+                Button { startNewConversation() } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.glass)
+                .disabled(isWelcomeState)
+                .accessibilityLabel("新建对话")
             }
         }
         .frame(height: 48)
@@ -147,13 +186,17 @@ struct AgentWorkbenchView: View {
         return trip.destination ?? "本次旅行"
     }
 
+    private var isWelcomeState: Bool {
+        store.session.messages.isEmpty && store.session.draft == nil
+    }
+
     private var welcomeView: some View {
         VStack(alignment: .leading, spacing: 24) {
+            AgentIntroGlobeView(diameter: 208)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 12)
+
             VStack(alignment: .leading, spacing: 12) {
-                ZStack {
-                    Circle().fill(PrimaryTabPalette.accent.gradient).frame(width: 52, height: 52)
-                    Image(systemName: "sparkles").font(.title2.weight(.semibold)).foregroundStyle(.white)
-                }
                 Text("一起把旅程安排好")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
@@ -169,7 +212,7 @@ struct AgentWorkbenchView: View {
                 Text("可以这样问")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
-                ForEach(quickPrompts, id: \.self) { prompt in
+                ForEach(displayedPrompts, id: \.self) { prompt in
                     Button { usePrompt(prompt) } label: {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: promptIcon(prompt))
@@ -250,9 +293,11 @@ struct AgentWorkbenchView: View {
             }
 
             if let status = runState.status {
-                AssistantMessageContainer {
+                // The thinking orb already carries the assistant affordance
+                // here, so the generic sparkles avatar would be redundant.
+                AssistantMessageContainer(showsAvatar: false) {
                     HStack(spacing: 10) {
-                        ProgressView().controlSize(.small).tint(PrimaryTabPalette.secondaryText)
+                        ThinkingOrb(state: agentThinkingOrbState(for: status), size: .px20, theme: .dark)
                         Text(status).foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
                 }
@@ -505,14 +550,51 @@ struct AgentWorkbenchView: View {
         if prompt.contains("去小红书找") { return "magnifyingglass" }
         if prompt.contains("父母") { return "figure.2.and.child.holdinghands" }
         if prompt.contains("室内") { return "cloud.rain" }
-        if prompt.contains("500") { return "banknote" }
-        return "photo.stack"
+if prompt.contains("500") { return "banknote" }
+return "sparkles"
     }
 
-    private func usePrompt(_ prompt: String) {
-        message = prompt
-        isComposerFocused = true
-    }
+private func usePrompt(_ prompt: String) {
+message = prompt
+isComposerFocused = true
+}
+
+/// 欢迎页展示的提问：优先使用后端按当前行程生成的三条建议，
+/// 未返回时回退到本地静态提示。
+private var displayedPrompts: [String] {
+suggestedPrompts.isEmpty ? Array(quickPrompts.prefix(3)) : suggestedPrompts
+}
+
+/// 拉取三条动态建议（独立于 Agent 轮次管线的轻量接口）。行程上下文与
+/// Agent 轮次传入的同构：目的地、日期、币种、偏好与行程卡片快照。
+/// 失败时静默回退，不占用错误弹窗。
+private func loadSuggestionsIfNeeded() {
+guard isWelcomeState,
+      let trip = syncEngine.trip, trip.isConfigured,
+      suggestionsTripID != trip.id else { return }
+suggestionsTripID = trip.id
+let preferences = store.session.preferences
+let request = AITripSuggestionsRequest(
+    destination: trip.destination,
+    startDate: trip.startDate,
+    endDate: trip.endDate,
+    currency: trip.currency,
+    preferences: AITripSuggestionsRequest.Preferences(
+        pace: preferences.pace,
+        companions: preferences.companions,
+        budget: preferences.budget,
+        scope: preferences.scope,
+        interests: preferences.interests.isEmpty ? nil : preferences.interests
+    ),
+    existingItinerary: syncEngine.existingItinerarySnapshot()
+)
+Task {
+    guard let suggestions = try? await APIClient().fetchTripSuggestions(request, tripID: trip.id),
+          !suggestions.isEmpty,
+          suggestionsTripID == trip.id else { return }
+    suggestedPrompts = suggestions
+}
+}
 
     private func consumeInitialMessageIfNeeded() {
         guard !didConsumeInitialMessage,
@@ -540,6 +622,12 @@ struct AgentWorkbenchView: View {
         store.clear()
     }
 
+    /// 归档当前对话（可从「历史」恢复）并开启一个全新的本地会话。
+    private func startNewConversation() {
+        runState.clearTransientState()
+        store.startNewSession()
+    }
+
     private func cancelGeneration() {
         runState.cancelGeneration()
         store.discardTurn()
@@ -547,6 +635,12 @@ struct AgentWorkbenchView: View {
 
     private func load(_ item: PhotosPickerItem?) {
         guard let item else { return }
+        // 服务端每轮最多接受 3 张附件；超出会在整轮校验时 400，提前拦截。
+        guard store.session.attachments.count < 3 else {
+            photo = nil
+            runState.error = "每轮最多附带 3 张图片，请先清除对话与草稿后再添加。"
+            return
+        }
         Task {
             defer { photo = nil }
             do {
@@ -648,7 +742,7 @@ struct AgentWorkbenchView: View {
                 AgentV2TurnRequest.Card(id: card.serverID, kind: card.kind.rawValue, title: card.title, startAt: ISO8601DateFormatter().string(from: card.startAt), endAt: card.endAt.map { ISO8601DateFormatter().string(from: $0) }, place: card.place?.name, notes: card.notes)
             })
         }
-        return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: message, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: store.session.messages, activeDraft: store.session.draft, attachments: store.session.attachments)
+        return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: message, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
     }
 
     private func commit() {
@@ -690,6 +784,107 @@ struct AgentWorkbenchView: View {
     }
 }
 
+/// Maps an ephemeral agent status line to a ThinkingOrb state so each agent
+/// behaviour gets its own icon. The status strings originate from the
+/// backend's SSE `status` events (`app/routes/agent_v2.py`) plus the
+/// client-side "正在理解你的需求…" seed; like the status text itself this is
+/// pure UI progress and never persists. Keyword order matters: more specific
+/// activities are matched before generic ones.
+func agentThinkingOrbState(for status: String?) -> OrbState {
+    guard let status else { return .breathing }
+    // 理解用户输入（每轮开始时客户端播种）
+    if status.contains("理解") { return .listening }
+    // 并行验证候选地点 / 从笔记中识别可定位地点
+    if status.contains("验证") || status.contains("识别") { return .solving }
+    // 整理地点 / 挑选高质量笔记
+    if status.contains("整理") || status.contains("挑选") { return .weaving }
+    // Apple Maps 核对地点（先于"生成"匹配：初始状态为"联网核对攻略并生成建议"）
+    if status.contains("核对") { return .searching }
+    // 生成候选卡、整理候选结果
+    if status.contains("生成") || status.contains("候选") { return .composing }
+    // 读取小红书公开笔记、联网获取
+    if status.contains("读取") || status.contains("联网") { return .connecting }
+    // 豆包/小红书/飞猪搜索、实时价格查询
+    if status.contains("搜索") || status.contains("查询") { return .searching }
+    // 默认：模型推理中
+    return .breathing
+}
+
+/// 历史对话列表：展示「新建对话」归档的本地会话，点按恢复、左滑删除。
+/// 全部使用原生控件（List / swipeActions / ContentUnavailableView）。
+private struct AgentHistorySheet: View {
+    @ObservedObject var store: AgentV2SessionStore
+    /// Called after a conversation is restored so the workbench can drop any
+    /// in-flight generation UI for the previous conversation.
+    let onRestore: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if store.archives.isEmpty {
+                    ContentUnavailableView(
+                        "暂无历史对话",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("点击「新建对话」后，当前对话会自动保存在这里。")
+                    )
+                } else {
+                    List {
+                        ForEach(store.archives) { archived in
+                            Button {
+                                store.restoreSession(id: archived.id)
+                                onRestore()
+                                dismiss()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(title(for: archived))
+                                        .font(.body)
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    HStack(spacing: 6) {
+                                        Text(archived.updatedAt, style: .relative)
+                                        Text("· \(archived.messages.count) 条消息")
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    store.deleteArchivedSession(id: archived.id)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
+                            .accessibilityLabel("恢复对话：\(title(for: archived))")
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("历史对话")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    /// First user message as the conversation title, falling back to the
+    /// assistant's opening or a placeholder.
+    private func title(for session: AgentV2LocalSession) -> String {
+        let text = session.messages.first(where: { $0.role == "user" })?.content
+            ?? session.messages.first?.content
+            ?? ""
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "未命名对话" : String(trimmed.prefix(40))
+    }
+}
+
 private struct ChatMessageView: View {
     let message: AgentV2TurnRequest.Message
 
@@ -715,16 +910,20 @@ private struct ChatMessageView: View {
 
 private struct AssistantMessageContainer<Content: View>: View {
     @ViewBuilder let content: Content
+    let showsAvatar: Bool
 
-    init(@ViewBuilder content: () -> Content) {
+    init(showsAvatar: Bool = true, @ViewBuilder content: () -> Content) {
+        self.showsAvatar = showsAvatar
         self.content = content()
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            ZStack {
-                Circle().fill(PrimaryTabPalette.accent.gradient).frame(width: 28, height: 28)
-                Image(systemName: "sparkles").font(.caption2.weight(.bold)).foregroundStyle(.white)
+            if showsAvatar {
+                ZStack {
+                    Circle().fill(PrimaryTabPalette.accent.gradient).frame(width: 28, height: 28)
+                    Image(systemName: "sparkles").font(.caption2.weight(.bold)).foregroundStyle(.white)
+                }
             }
             content
                 .padding(.top, 3)
