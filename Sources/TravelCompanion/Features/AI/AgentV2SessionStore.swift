@@ -142,9 +142,9 @@ final class AgentV2RunState: ObservableObject {
 @MainActor
 final class AgentV2SessionStore: ObservableObject {
     @Published private(set) var session: AgentV2LocalSession
-    /// Past conversations archived by "新建对话", newest first. Local-only,
-    /// like the active session: nothing here is ever sent to the backend
-    /// unless the user restores a conversation and continues it.
+    /// Past conversations archived by "新建对话" or a fresh app launch, newest
+    /// first. Local-only, like the active session: nothing here is ever sent
+    /// to the backend unless the user restores a conversation and continues it.
     @Published private(set) var archives: [AgentV2LocalSession] = []
 
     private let defaults: UserDefaults
@@ -158,7 +158,11 @@ final class AgentV2SessionStore: ObservableObject {
     private var stagedDraft: AgentV2Draft?
     private var stagedProposal: AgentV2TripProposal?
 
-    init(defaults: UserDefaults = .standard) {
+    /// - Parameter startsFreshOnLaunch: 每次冷启动都从全新会话开始——上次
+    ///   有内容的对话自动归档进「历史对话」，主界面（首页 Agent 与工作台）
+    ///   不再直接展示上一次的聊天记录；偏好随新会话延续。应用内切换页面、
+    ///   收起再展开工作台不受影响。
+    init(defaults: UserDefaults = .standard, startsFreshOnLaunch: Bool = false) {
         self.defaults = defaults
         if let data = defaults.data(forKey: archivesKey),
            let decodedArchives = try? JSONDecoder.agentV2.decode([AgentV2LocalSession].self, from: data) {
@@ -177,6 +181,9 @@ final class AgentV2SessionStore: ObservableObject {
             }
         } else {
             session = .empty
+        }
+        if startsFreshOnLaunch, currentSessionHasContent {
+            startNewSession()
         }
     }
 

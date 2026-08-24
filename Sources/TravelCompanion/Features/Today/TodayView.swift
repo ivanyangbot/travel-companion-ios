@@ -81,11 +81,11 @@ struct TodayView: View {
         .background(PrimaryTabPalette.background.ignoresSafeArea())
     }
 
-    /// 无生效行程时的首页内容：复用 Agent 工作台，让用户直接开始对话规划。
-    /// 底部预留悬浮导航栏（60pt）与其 32pt 底边距的高度，避免输入框被遮挡。
+    /// 无生效行程时的首页内容：首页专用 Agent 页（AgentHomeView，独立于
+    /// Agent 工作台可单独调整），让用户直接开始对话规划。悬浮导航栏的
+    /// 底部预留由 AgentHomeView 按欢迎页/对话页状态自行控制。
     private var agentHome: some View {
-        AgentWorkbenchView(syncEngine: syncEngine)
-            .padding(.bottom, 92)
+        AgentHomeView(syncEngine: syncEngine)
     }
 
     @ViewBuilder

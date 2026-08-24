@@ -9,10 +9,14 @@ struct ContentView: View {
     @State private var syncEngine: SyncEngine?
     @StateObject private var sharedLinkStore = PendingSharedLinkStore()
     @StateObject private var appleSignIn = AppleSignInStore()
-    @StateObject private var agentSessionStore = AgentV2SessionStore()
+    // 每次冷启动都从全新会话开始：上次对话归档进「历史对话」，不直接展示。
+    @StateObject private var agentSessionStore = AgentV2SessionStore(startsFreshOnLaunch: true)
     @StateObject private var agentRunState = AgentV2RunState()
     @StateObject private var journalSync = JournalSyncCoordinator()
     @State private var showsAgent = false
+    /// 首页 Agent 进入「拈签定缘」/展开输入条时收起底部悬浮导航（含 Agent
+    /// 按钮），退出流程回到双方块入口后恢复。
+    @State private var agentHomeHidesTabBar = false
     @State private var showsGooeyPinDemo = false
     @State private var agentInitialMessage: String?
     @State private var selectedSection: MainSection = .journey
@@ -60,20 +64,28 @@ struct ContentView: View {
             activeContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            VStack {
-                Spacer()
-                HStack(alignment: .bottom) {
-                    customNavigation
-                    Spacer(minLength: 0)
-                    agentButton
+            // 首页 Agent 进入「拈签定缘」/展开输入条时整体收起（下滑淡出），
+            // 退出流程后恢复；其他 tab 的偏好默认值恒为 false，不受影响。
+            if !agentHomeHidesTabBar {
+                VStack {
+                    Spacer()
+                    HStack(alignment: .bottom) {
+                        customNavigation
+                        Spacer(minLength: 0)
+                        agentButton
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 32)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 32)
+                .transition(.opacity)
             }
         }
         // 两个按钮在同一满屏坐标系中布局，底边均严格距离物理屏幕 32pt。
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(edges: .bottom)
+        .onPreferenceChange(AgentHomeHidesTabBarKey.self) { hidden in
+            withAnimation(.easeInOut(duration: 0.25)) { agentHomeHidesTabBar = hidden }
+        }
         .sheet(isPresented: $showsAgent, onDismiss: { agentInitialMessage = nil }) {
             Group {
                 if let syncEngine {

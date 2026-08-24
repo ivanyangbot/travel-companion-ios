@@ -430,6 +430,61 @@ final class AITests: XCTestCase {
     }
 }
 
+/// The thinking-orb icon follows the backend's ephemeral SSE `status` text
+/// (`app/routes/agent_v2.py`): each agent behaviour maps to a distinct
+/// `OrbState`. These cases pin every status string the server can emit.
+final class AgentThinkingOrbStateTests: XCTestCase {
+    func testNilStatusFallsBackToThinking() {
+        XCTAssertEqual(agentThinkingOrbState(for: nil), .breathing)
+    }
+
+    func testUnderstandingUserIntentIsListening() {
+        XCTAssertEqual(agentThinkingOrbState(for: "正在理解你的需求…"), .listening)
+    }
+
+    func testInitialOnlineCheckIsSearching() {
+        XCTAssertEqual(agentThinkingOrbState(for: "正在联网核对攻略并生成建议…"), .searching)
+    }
+
+    func testAppleMapsVerificationIsSearching() {
+        XCTAssertEqual(agentThinkingOrbState(for: "正在通过 Apple Maps 核对 婆罗浮屠…"), .searching)
+        XCTAssertEqual(agentThinkingOrbState(for: "正在通过 Apple Maps 核对地点…"), .searching)
+    }
+
+    func testReadingXiaohongshuNoteIsConnecting() {
+        XCTAssertEqual(agentThinkingOrbState(for: "正在读取小红书公开笔记…"), .connecting)
+    }
+
+    func testIdentifyingPlacesIsSolving() {
+        XCTAssertEqual(agentThinkingOrbState(for: "笔记读取完成，正在识别可定位地点…"), .solving)
+        XCTAssertEqual(agentThinkingOrbState(for: "正在并行验证候选地点…"), .solving)
+    }
+
+    func testOrganizingResultsIsWeaving() {
+        XCTAssertEqual(agentThinkingOrbState(for: "笔记已解析，正在整理其中的地点…"), .weaving)
+        XCTAssertEqual(agentThinkingOrbState(for: "小红书搜索结果已返回，正在挑选高质量笔记…"), .weaving)
+        XCTAssertEqual(agentThinkingOrbState(for: "飞猪结果已返回，继续整理候选…"), .weaving)
+    }
+
+    func testComposingCandidatesIsComposing() {
+        XCTAssertEqual(agentThinkingOrbState(for: "地点结果已返回，继续生成候选卡…"), .composing)
+        XCTAssertEqual(agentThinkingOrbState(for: "豆包搜索结果已返回，继续生成候选卡…"), .composing)
+        XCTAssertEqual(agentThinkingOrbState(for: "实拍图片已返回，继续生成候选卡…"), .composing)
+    }
+
+    func testSearchToolCallsAreSearching() {
+        XCTAssertEqual(agentThinkingOrbState(for: "正在搜索小红书相关攻略…"), .searching)
+        XCTAssertEqual(agentThinkingOrbState(for: "正在通过豆包搜索攻略信息…"), .searching)
+        XCTAssertEqual(agentThinkingOrbState(for: "正在通过豆包搜索实拍图片…"), .searching)
+        XCTAssertEqual(agentThinkingOrbState(for: "正在通过飞猪查询酒店实时价格…"), .searching)
+        XCTAssertEqual(agentThinkingOrbState(for: "正在通过飞猪查询实时库存…"), .searching)
+    }
+
+    func testUnknownStatusFallsBackToThinking() {
+        XCTAssertEqual(agentThinkingOrbState(for: "某种未预见的状态…"), .breathing)
+    }
+}
+
 private final class APIClientProtocolStub: URLProtocol {
     nonisolated(unsafe) static var requests: [URLRequest] = []
 

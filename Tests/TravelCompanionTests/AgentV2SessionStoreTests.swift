@@ -572,6 +572,62 @@ final class AgentV2SessionStoreTests: XCTestCase {
         XCTAssertEqual(AgentV2FliggySearchKind(raw: "unexpected"), .other)
     }
 
+    @MainActor
+    func testTripProposalPublishesOnDoneAndClearsAfterConfirm() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        let proposal = AgentV2TripProposal(destination: "云南", startDate: "2026-10-01", endDate: "2026-10-07", currency: "CNY", timeZone: "Asia/Shanghai")
+
+        store.beginTurn()
+        store.apply(.tripProposal(proposal))
+        // 提案随事务暂存，done（completeTurn）前不发布到会话
+        XCTAssertNil(store.session.pendingProposal)
+        store.completeTurn()
+        XCTAssertEqual(store.session.pendingProposal, proposal)
+
+        // 新一轮未产出提案：保留原有待确认提案
+        store.beginTurn()
+        store.apply(.summary(AgentV2Summary(text: "继续讨论", coveredDates: [], pending: [])))
+        store.completeTurn()
+        XCTAssertEqual(store.session.pendingProposal, proposal)
+
+        // 新一轮产出新提案：覆盖旧提案
+        let updated = AgentV2TripProposal(destination: "云南", startDate: "2026-11-01", endDate: "2026-11-05", currency: "CNY", timeZone: "Asia/Shanghai")
+        store.beginTurn()
+        store.apply(.tripProposal(updated))
+        store.completeTurn()
+        XCTAssertEqual(store.session.pendingProposal, updated)
+
+        // 提案随会话持久化，重启后可恢复；确认创建旅程后清除
+        let restored = AgentV2SessionStore(defaults: defaults)
+        XCTAssertEqual(restored.session.pendingProposal, updated)
+        restored.clearPendingProposal()
+        XCTAssertNil(restored.session.pendingProposal)
+    }
+
+    @MainActor
+    func testFreshLaunchArchivesPreviousConversationAndStartsEmpty() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+        store.updatePreference(\.pace, value: "packed")
+        store.append(.init(id: UUID(), role: "user", content: "上次的对话", createdAt: .now))
+
+        // 重新进入 app（冷启动）：上次对话自动归档，会话从空白开始，偏好延续。
+        let relaunched = AgentV2SessionStore(defaults: defaults, startsFreshOnLaunch: true)
+        XCTAssertTrue(relaunched.session.messages.isEmpty)
+        XCTAssertNil(relaunched.session.draft)
+        XCTAssertEqual(relaunched.session.preferences.pace, "packed")
+        XCTAssertEqual(relaunched.archives.first?.messages.first?.content, "上次的对话")
+
+        // 上次已是空白会话时再次冷启动：不重复归档。
+        let secondLaunch = AgentV2SessionStore(defaults: defaults, startsFreshOnLaunch: true)
+        XCTAssertEqual(secondLaunch.archives.count, 1)
+        XCTAssertTrue(secondLaunch.session.messages.isEmpty)
+    }
+
     private let defaultsSuite = "AgentV2SessionStoreTests"
     private let sessionKey = "agent.v2.local.session"
 

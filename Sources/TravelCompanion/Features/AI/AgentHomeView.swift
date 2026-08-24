@@ -2,9 +2,21 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-/// The PRD's local-first planning workbench. Drafts remain local until the
-/// user explicitly selects and commits candidate cards.
-struct AgentWorkbenchView: View {
+/// 首页 Agent 进入「拈签定缘」追问或展开输入条（即点按了第一步的两个方块
+/// 入口）时，向上声明隐藏底部悬浮 tab 栏；ContentView 通过 onPreferenceChange
+/// 读取并收起底部导航，退出流程回到双方块入口后自动恢复。
+struct AgentHomeHidesTabBarKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = nextValue() || value
+    }
+}
+
+/// 首页（无生效行程时）内嵌的 Agent 页：从 AgentWorkbenchView 复制而来，
+/// 供首页场景独立调整，与 Agent 主页面互不影响。草稿同样保持在本地，
+/// 用户明确选择并确认后才写入行程。
+struct AgentHomeView: View {
     @ObservedObject var syncEngine: SyncEngine
     let initialMessage: String?
     let onInitialMessageSubmitted: (() -> Void)?
@@ -19,9 +31,34 @@ struct AgentWorkbenchView: View {
     @State private var didSubmitInitialMessage = false
     @State private var isCreatingTripFromProposal = false
     @State private var isReasoningExpanded = false
-    @State private var suggestedPrompts: [String] = []
-    @State private var suggestedIcons: [String] = []
-    @State private var suggestionsTripID: Int?
+    /// 底部输入区是否已展开：折叠态为左右两个等宽正方形入口，
+    /// 点按右侧输入方块后才展开为完整输入条并弹出键盘。
+    @State private var isComposerExpanded = false
+    /// 「拈签定缘」抽签流程：nil 表示未在流程中，否则为当前问题的下标。
+    @State private var lotteryStepIndex: Int?
+    /// 折叠方块与展开输入条之间做连续变形动画（matchedGeometryEffect）的命名空间。
+    @Namespace private var composerMotion
+    /// 抽签流程中已收集的选择（问题 key → 选项文案），最终作为上下文发给 Agent。
+    @State private var lotteryAnswers: [(key: String, value: String)] = []
+    /// 「拈签定缘」的追问序列：逐步收窄范围，最后把所有选择交给 Agent 抽签。
+    private let lotterySteps: [(question: String, key: String, left: String, right: String)] = [
+        ("或许我们可以缩小一下范围？", "范围", "海外", "国内"),
+        ("想要躺平慢游，还是特种兵打卡？", "节奏", "躺平慢游", "特种兵打卡"),
+        ("预算上更偏向哪一边？", "预算", "精打细算", "品质优先")
+    ]
+    /// 右侧输入入口底部滚动展示的目的地灵感（附对应国家的国旗 emoji），
+    /// 循环向上翻滚切换。
+    private let inspirationSuggestions: [(name: String, flag: String)] = [
+        ("巴厘岛", "🇮🇩"), ("马赛马拉", "🇰🇪"), ("京都", "🇯🇵"), ("冰岛", "🇮🇸"),
+        ("圣托里尼", "🇬🇷"), ("清迈", "🇹🇭"), ("新西兰", "🇳🇿"), ("摩洛哥", "🇲🇦"),
+        ("瑞士", "🇨🇭"), ("挪威", "🇳🇴"), ("卡帕多奇亚", "🇹🇷"), ("马丘比丘", "🇵🇪"),
+        ("撒哈拉", "🇩🇿"), ("北海道", "🇯🇵"), ("大理", "🇨🇳"), ("喀纳斯", "🇨🇳"),
+        ("帕劳", "🇵🇼"), ("科莫多", "🇮🇩"), ("托斯卡纳", "🇮🇹"), ("阿马尔菲", "🇮🇹")
+    ]
+    /// 当前滚动到的灵感序号（只增不减，渲染时取模循环）。
+    @State private var inspirationIndex = 0
+    /// 两个入口方块的宽高比（宽/高）：略高于正方形，视觉更稳。
+    private let entryTileAspectRatio: CGFloat = 0.88
 
     init(
         syncEngine: SyncEngine,
@@ -39,11 +76,12 @@ struct AgentWorkbenchView: View {
                 PrimaryTabPalette.background.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    agentHeader
-
                     ZStack {
                         if isWelcomeState {
+                            // 底纹与光晕延伸到输入区下方，让玻璃方块能模糊到底部内容，
+                            // 与主界面悬浮导航栏的材质效果一致。
                             AgentIntroASCIIBackgroundView()
+                                .ignoresSafeArea(edges: .bottom)
                             RadialGradient(
                                 colors: [.clear, PrimaryTabPalette.background.opacity(0.74)],
                                 center: .center,
@@ -51,6 +89,7 @@ struct AgentWorkbenchView: View {
                                 endRadius: 330
                             )
                             .allowsHitTesting(false)
+                            .ignoresSafeArea(edges: .bottom)
                         }
 
                         ScrollViewReader { proxy in
@@ -71,12 +110,43 @@ struct AgentWorkbenchView: View {
                             .scrollDismissesKeyboard(.interactively)
                             // 初始页（ASCII 地球欢迎态）固定不可滑动；进入对话后恢复滚动。
                             .scrollDisabled(isWelcomeState)
+                            // 点按页面空白处：收起键盘并收回为双方块入口，与左上角
+                            // 返回键一致；方块内的按钮仍优先响应各自的点按。
+                            .contentShape(Rectangle())
+                            .onTapGesture { if isComposerExpanded { collapseComposer() } }
                             .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
                             .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
                             .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
                             .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
                         }
                     }
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                // 左上角共用返回键：抽签流程中返回上一步（第一问时退出流程）；
+                // 欢迎页输入条展开时收起，回到双方块入口；对话页返回则归档
+                // 当前对话并完全复位到首页初始状态（双方块入口）。
+                if lotteryStepIndex != nil || isComposerExpanded || !isWelcomeState {
+                    Button {
+                        if lotteryStepIndex != nil {
+                            backLottery()
+                        } else if isWelcomeState {
+                            collapseComposer()
+                        } else {
+                            exitConversation()
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(PrimaryTabPalette.surface, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 16)
+                    .padding(.top, 8)
+                    .transition(.opacity)
+                    .accessibilityLabel("返回")
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -95,10 +165,7 @@ struct AgentWorkbenchView: View {
             } message: { Text(runState.error ?? "") }
             .onAppear {
                 consumeInitialMessageIfNeeded()
-                loadSuggestionsIfNeeded()
             }
-            .onChange(of: syncEngine.trip?.id) { _, _ in loadSuggestionsIfNeeded() }
-            .onChange(of: syncEngine.trip?.isConfigured) { _, _ in loadSuggestionsIfNeeded() }
             .onChange(of: runState.isGenerating) { _, isGenerating in
                 // 新一轮生成从折叠状态开始；生成结束后思考摘要整体隐藏。
                 if !isGenerating { isReasoningExpanded = false }
@@ -110,89 +177,17 @@ struct AgentWorkbenchView: View {
                 consumeInitialMessageIfNeeded()
             }
         }
-    }
-
-    /// 与各主页面一致的暗色自定义头部：居中标题、左侧行程切换（Liquid Glass 菜单）、右侧历史与新建对话。
-    private var agentHeader: some View {
-        ZStack {
-            Text("旅行 Agent")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-
-            HStack(spacing: 12) {
-                // 行程切换：可以「暂不选择行程」，仅影响 Agent 的上下文，不修改任何行程数据。
-                Menu {
-                    Button {
-                        Task { await syncEngine.clearSelectedTrip() }
-                    } label: {
-                        if syncEngine.selectedTripID == nil {
-                            Label("暂不选择行程", systemImage: "checkmark")
-                        } else {
-                            Text("暂不选择行程")
-                        }
-                    }
-                    if !syncEngine.trips.isEmpty {
-                        Divider()
-                        ForEach(syncEngine.trips) { summary in
-                            Button {
-                                // 切换行程即自动开启新对话：当前对话有内容时归档到
-                                // 「历史」（空会话不产生归档）；旧行程的建议立即清掉，
-                                // 新行程的建议由 trip 变更回调重新拉取。
-                                guard summary.id != syncEngine.selectedTripID else { return }
-                                startNewConversation()
-                                suggestedPrompts = []
-                                suggestedIcons = []
-                                Task { await syncEngine.selectTrip(summary.id) }
-                            } label: {
-                                if summary.id == syncEngine.selectedTripID {
-                                    Label(summary.displayName, systemImage: "checkmark")
-                                } else {
-                                    Text(summary.displayName)
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "location.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(PrimaryTabPalette.accent)
-                        Text(tripTitle)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    }
-                }
-                .buttonStyle(.glass)
-                .frame(maxWidth: 170, alignment: .leading)
-                .accessibilityLabel("切换行程")
-                .accessibilityHint("选择要规划的行程，或打开旅行与偏好设置")
-
-                Spacer(minLength: 0)
-
-                Button { isShowingHistory = true } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                }
-                .buttonStyle(.glass)
-                .accessibilityLabel("历史对话")
-
-                Button { startNewConversation() } label: {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.glass)
-                .disabled(isWelcomeState)
-                .accessibilityLabel("新建对话")
-            }
-        }
-        .frame(height: 48)
-        .padding(.horizontal, 20)
-        .padding(.top, 2)
-        // .overlay(alignment: .bottom) {
-        //     Rectangle().fill(PrimaryTabPalette.divider).frame(height: 1)
-        // }
+        // 进入抽签追问、展开输入条或已进入对话（点按了第一步的两个方块之后
+        // 的所有状态）时，通知 ContentView 收起底部悬浮 tab 栏；退出回到
+        // 欢迎入口后恢复。
+        .preference(
+            key: AgentHomeHidesTabBarKey.self,
+            value: hidesTabBar
+        )
+        // tab 栏在场（欢迎页双方块）时为其预留整块高度（栏高 60pt + 底边距
+        // 32pt），双方块悬浮其上；tab 栏隐藏（展开输入条/抽签/对话页）时不
+        // 预留，输入区随 safeAreaInset 贴到屏幕底部安全区之上。
+        .padding(.bottom, hidesTabBar ? 0 : 92)
     }
 
     private var tripTitle: String {
@@ -204,63 +199,58 @@ struct AgentWorkbenchView: View {
         store.session.messages.isEmpty && store.session.draft == nil
     }
 
+    /// 底部悬浮 tab 栏是否处于隐藏状态（进入抽签、展开输入条或已在对话中）。
+    /// 与上报给 ContentView 的偏好值一致；隐藏时输入区整体贴底，不再为
+    /// 悬浮栏预留空间。
+    private var hidesTabBar: Bool {
+        lotteryStepIndex != nil || isComposerExpanded || !isWelcomeState
+    }
+
+    /// 欢迎页主标题：抽签流程中显示当前问题，否则显示默认引导文案。
+    private var welcomeTitle: String {
+        lotteryStepIndex.map { lotterySteps[$0].question } ?? "告诉豆奶你想去哪里。"
+    }
+
     private var welcomeView: some View {
         VStack(alignment: .leading, spacing: 24) {
-ZStack {
-// 与地球同心的圆形橙色光晕，位于下层：字符叠在光晕之上，不会被糊住。
-Circle()
-.fill(
-RadialGradient(
-colors: [PrimaryTabPalette.accent.opacity(0.5), PrimaryTabPalette.accent.opacity(0)],
-center: .center,
-startRadius: 30,
-endRadius: 130
-)
-)
-.frame(width: 260, height: 260)
-.blur(radius: 24)
-.allowsHitTesting(false)
-AgentIntroGlobeView(diameter: 208)
-}
-        .frame(maxWidth: .infinity)
+        // 地球与同心光晕放大到内容区宽度的 70%。
+        GeometryReader { proxy in
+        let globe = proxy.size.width * 0.7
+        ZStack {
+        // 与地球同心的圆形橙色光晕，位于下层：字符叠在光晕之上，不会被糊住。
+        Circle()
+        .fill(
+            RadialGradient(
+                colors: [PrimaryTabPalette.accent.opacity(0.5), PrimaryTabPalette.accent.opacity(0)],
+                center: .center,
+                startRadius: globe * 0.14,
+                endRadius: globe * 0.62
+            )
+        )
+        .frame(width: globe * 1.25, height: globe * 1.25)
+        .blur(radius: globe * 0.12)
+        .allowsHitTesting(false)
+        AgentIntroGlobeView(diameter: globe)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .aspectRatio(1, contentMode: .fit)
         .padding(.top, 12)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("告诉豆奶你想去哪里。")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.white)
-            }
-
-            tripContextCard
-
-            if !displayedPrompts.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("可以这样问")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    ForEach(Array(displayedPrompts.enumerated()), id: \.element) { index, prompt in
-                        Button { usePrompt(prompt) } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: suggestionIcon(at: index, fallback: prompt))
-                                    .frame(width: 24)
-                                    .foregroundStyle(PrimaryTabPalette.accent)
-                                Text(prompt)
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: "arrow.up.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(PrimaryTabPalette.tertiaryText)
-                            }
-                            .padding(15)
-                            .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
-                        }
-                        .buttonStyle(.plain)
-                        .transition(.opacity.combined(with: .offset(y: 10)))
-                        // 动态建议返回时逐条渐入（80ms 阶梯延迟）
-                        .animation(.easeOut(duration: 0.35).delay(Double(index) * 0.08), value: displayedPrompts)
-                    }
+                // 抽签流程中标题切换为当前问题，文案渐入渐出。滚动区边距为
+                // 16pt，补 4pt 后标题左缘（20pt）与底部双方块入口对齐。
+                ZStack(alignment: .leading) {
+                    Text(welcomeTitle)
+                        .font(.title.weight(.bold))
+                        .foregroundStyle(.white)
+                        .id(welcomeTitle)
+                        .transition(.opacity)
                 }
+                .padding(.leading, 4)
             }
+
+            // tripContextCard
         }
     }
 
@@ -589,115 +579,384 @@ AgentIntroGlobeView(diameter: 208)
                 .padding(.horizontal, 4)
             }
 
-            // 「+」、输入框、发送键垂直居中对齐（多行输入时两侧按钮随行高中点）。
-            HStack(alignment: .center, spacing: 8) {
-                PhotosPicker(selection: $photo, matching: .images) {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background(PrimaryTabPalette.elevatedSurface, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .onChange(of: photo) { _, item in load(item) }
-                .accessibilityLabel("添加攻略图片")
-
-                TextField("告诉 Agent 你的想法", text: $message, axis: .vertical)
-                    .lineLimit(1...6)
-                    .focused($isComposerFocused)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 10)
-                    .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
-                    .onSubmit { if canSend { send() } }
-
-                Button { runState.isGenerating ? cancelGeneration() : send() } label: {
-                    Image(systemName: runState.isGenerating ? "stop.fill" : "arrow.up")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(canSend || runState.isGenerating ? .white : PrimaryTabPalette.tertiaryText)
-                        .frame(width: 36, height: 36)
-                        .background(canSend || runState.isGenerating ? PrimaryTabPalette.accent : PrimaryTabPalette.elevatedSurface, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!runState.isGenerating && !canSend)
-                .accessibilityLabel(runState.isGenerating ? "停止生成" : "发送")
+            // 双方块入口只在欢迎页（尚无对话）出现；进入对话后输入条常驻，
+            // 键盘收起也不再收回为方块形态。
+            if isComposerExpanded || !isWelcomeState {
+                expandedComposer
+            } else {
+                collapsedComposer
             }
         }
-        .padding(.horizontal, 12)
+        // 水平边距与底部悬浮 tab 栏（ContentView 的 20pt）对齐。tab 栏在场
+        // （欢迎页双方块）底部留 36pt 与其拉开距离、悬浮在内容之上；tab 栏
+        // 隐藏（展开输入条/抽签/对话页）输入区贴近屏幕底部，只留 8pt。
+        .padding(.horizontal, 20)
         .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(PrimaryTabPalette.background)
-        .overlay(alignment: .top) {
-            Rectangle().fill(PrimaryTabPalette.divider).frame(height: 1)
+        .padding(.bottom, hidesTabBar ? 8 : 36)
+        .onChange(of: isComposerFocused) { _, focused in
+            // 键盘收起且没有草稿文本时收回为双方块入口；有内容或已在对话页
+            // （输入条常驻）时保持展开。
+            if !focused,
+               message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               isWelcomeState {
+                withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = false }
+            }
         }
+    }
+
+    /// 展开态：完整输入条（图片、文本框、发送键）。背景与「+」控件和折叠态
+    /// 右侧方块共享 matchedGeometryEffect，点按后连续变形为扁平输入条。
+    private var expandedComposer: some View {
+        // 「+」、输入框、发送键垂直居中对齐（多行输入时两侧按钮随行高中点）。
+        HStack(alignment: .center, spacing: 8) {
+            addPhotoButton
+
+            TextField("告诉 Agent 你的想法", text: $message, axis: .vertical)
+                .lineLimit(1...6)
+                .focused($isComposerFocused)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 10)
+                .background {
+                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                        .fill(PrimaryTabPalette.elevatedSurface)
+                        .matchedGeometryEffect(id: "composer-field", in: composerMotion)
+                }
+                .onSubmit { if canSend { send() } }
+
+            Button { runState.isGenerating ? cancelGeneration() : send() } label: {
+                Image(systemName: runState.isGenerating ? "stop.fill" : "arrow.up")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(canSend || runState.isGenerating ? .white : PrimaryTabPalette.tertiaryText)
+                    .frame(width: 36, height: 36)
+                    .background(canSend || runState.isGenerating ? PrimaryTabPalette.accent : PrimaryTabPalette.elevatedSurface, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!runState.isGenerating && !canSend)
+            .accessibilityLabel(runState.isGenerating ? "停止生成" : "发送")
+        }
+    }
+
+    /// 折叠态：左右两个宽度各占一半的正方形入口，材质与主界面悬浮 tab 栏
+    /// 一致（玻璃底 + 白描边）。默认左侧“拈签定缘”、右侧输入入口（含添加
+    /// 图片控件）；进入抽签流程后两个方块变为当前问题的两个选项。
+    private var collapsedComposer: some View {
+        VStack(spacing: 8) {
+            if lotteryStepIndex != nil {
+                // 跳过：跳过当前这一问（不记录选择）；已是最后一问则直接抽签。
+                HStack {
+                    Spacer()
+                    Button { skipLottery() } label: {
+                        HStack(spacing: 2) {
+                            Text("跳过")
+                            Image(systemName: "chevron.right")
+                        }
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(PrimaryTabPalette.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("跳过本题")
+                }
+                .transition(.opacity)
+            }
+
+            HStack(spacing: 12) {
+                leftEntrySquare
+                rightEntrySquare
+            }
+        }
+    }
+
+    /// 左侧方块：默认是「拈签定缘」入口；抽签流程中是当前问题的左选项。
+    private var leftEntrySquare: some View {
+        Button {
+            if let index = lotteryStepIndex {
+                answerLottery(value: lotterySteps[index].left)
+            } else {
+                drawLot()
+            }
+        } label: {
+            ZStack {
+                if let index = lotteryStepIndex {
+                    lotteryChoiceLabel(lotterySteps[index].left)
+                        .id("lottery-left-\(index)")
+                        .transition(.opacity)
+                } else {
+                    // 白图标 + 短标签整体靠左对齐，贴齐方块左内边距（20pt）。
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "dice.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text("拈签定缘。")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .padding(.leading, 20)
+                    .id("dice")
+                    .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { AgentEntryGlassTile() }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(lotteryStepIndex.map { "选择 \(lotterySteps[$0].left)" } ?? "拈签定缘，随机抽一个旅行灵感")
+        // 两个入口等宽，略高于正方形。
+        .frame(maxWidth: .infinity)
+        .aspectRatio(entryTileAspectRatio, contentMode: .fit)
+        // 光晕背景必须放在最终尺寸修饰符（aspectRatio）之后：这样背景拿到
+        // 的尺寸提案才是方块的最终大小；放在之前会拿到贪婪未定形的尺寸，
+        // 内部裁剪框随之外扩，光晕就溢出按钮了。进入抽签流程后光晕消失。
+        .background {
+            if lotteryStepIndex == nil { lotteryGlow }
+        }
+    }
+
+    /// 右侧方块：默认是输入入口（含添加图片控件），点按展开为完整输入条；
+    /// 抽签流程中是当前问题的右选项。
+    private var rightEntrySquare: some View {
+        Group {
+            if let index = lotteryStepIndex {
+                Button {
+                    answerLottery(value: lotterySteps[index].right)
+                } label: {
+                    ZStack {
+                        lotteryChoiceLabel(lotterySteps[index].right)
+                            .id("lottery-right-\(index)")
+                            .transition(.opacity)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background { AgentEntryGlassTile() }
+                }
+                .buttonStyle(.plain)
+            } else {
+                // 输入入口：与左侧同款的玻璃方块，上方大号白字引导、底部灰色
+                // 小字循环滚动目的地灵感；折叠态不显示「+」控件（易被误解为
+                // 添加入口），展开输入条后再添加图片。背景与展开态 TextField
+                // 共享 matchedGeometryEffect，点按后连续变形为完整输入条。
+                ZStack {
+                    AgentEntryGlassTile()
+                        .matchedGeometryEffect(id: "composer-field", in: composerMotion)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("告诉\nAgent\n你的想法")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineSpacing(4)
+                        Spacer(minLength: 0)
+                        suggestionRoller
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .padding(20)
+                    // 右上角 ↗ 箭头（SF Symbol arrow.up.right）：提示点按后
+                    // 会展开为输入条。
+                    Image(systemName: "arrow.up.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(14)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .onTapGesture { expandComposer() }
+            }
+        }
+        .accessibilityLabel(lotteryStepIndex.map { "选择 \(lotterySteps[$0].right)" } ?? "展开输入框")
+        // 两个入口等宽，略高于正方形。
+        .frame(maxWidth: .infinity)
+        .aspectRatio(entryTileAspectRatio, contentMode: .fit)
+    }
+
+    /// 「+」添加图片控件：折叠方块与展开输入条共用，随布局切换连续移动。
+    private var addPhotoButton: some View {
+        PhotosPicker(selection: $photo, matching: .images) {
+            Image(systemName: "plus")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(PrimaryTabPalette.surface, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .onChange(of: photo) { _, item in load(item) }
+        .accessibilityLabel("添加攻略图片")
+        .matchedGeometryEffect(id: "composer-plus", in: composerMotion)
+    }
+
+    private func lotteryChoiceLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.headline)
+            .foregroundStyle(.white)
+    }
+
+    /// 「拈签定缘」入口的弥散光晕：多个远大于方块的暖色（橙-琥珀-珊瑚）
+    /// 光斑重度弥散、彼此交叠，合成一整片缓慢流动的暖光场，亮度中心各自
+    /// 沿李萨如曲线游走、路径不重复；色相在暖色窄区间内漂移。整体裁剪在
+    /// 方块圆角内，不会溢出按钮。不参与命中测试，纯视觉提示可点按抽签。
+    private var lotteryGlow: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            ZStack {
+                // 静态底色：淡暖色角向渐变兜底，保证光场始终铺满方块。
+                AngularGradient(colors: Self.glowColors, center: .center)
+                    .opacity(0.2)
+                glowBlob(diameter: 260, ampX: 30, freqX: 0.6, ampY: 36, freqY: 0.42, phase: 0, hueShift: 0, t: t)
+                glowBlob(diameter: 320, ampX: 40, freqX: 0.35, ampY: 26, freqY: 0.53, phase: 2.1, hueShift: 12, t: t)
+                glowBlob(diameter: 200, ampX: 24, freqX: 0.71, ampY: 42, freqY: 0.3, phase: 4.2, hueShift: -8, t: t)
+            }
+            // 弹性 frame 把布局尺寸（也是裁剪区域）锁定为背景提案的方块
+            // 大小——否则远大于方块的光斑会把 ZStack 撑大，裁剪框随之外扩，
+            // 光晕就溢出按钮了。
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// 单个游走光斑：直径远大于方块本身，重度模糊 + 长径向衰减，只呈现为
+    /// 大范围弥散的亮度起伏而非独立圆点；按李萨如轨迹偏移游走。
+    private func glowBlob(
+        diameter: CGFloat,
+        ampX: CGFloat,
+        freqX: Double,
+        ampY: CGFloat,
+        freqY: Double,
+        phase: Double,
+        hueShift: Double,
+        t: Double
+    ) -> some View {
+        Circle()
+            .fill(AngularGradient(colors: Self.glowColors, center: .center))
+            .frame(width: diameter, height: diameter)
+            .scaleEffect(1 + 0.07 * sin(t * 0.9 + phase))
+            .hueRotation(.degrees(hueShift + 18 * sin(t * 0.21 + phase)))
+            .blur(radius: diameter * 0.45)
+            .mask(
+                Circle().fill(
+                    RadialGradient(
+                        colors: [.white, .clear],
+                        center: .center,
+                        startRadius: diameter * 0.15,
+                        endRadius: diameter * 0.5
+                    )
+                )
+            )
+            .opacity(0.55)
+            .offset(x: ampX * sin(t * freqX + phase), y: ampY * sin(t * freqY + phase * 1.7))
+    }
+
+    /// 光晕的循环色环（首尾同色保证角向渐变无缝）：全部取橙色的暖色近邻，
+    /// 避免与主题橙形成过强对比。
+    private static let glowColors: [Color] = [
+        PrimaryTabPalette.accent,
+        Color(red: 1, green: 170 / 255, blue: 70 / 255),
+        Color(red: 1, green: 120 / 255, blue: 95 / 255),
+        Color(red: 1, green: 195 / 255, blue: 120 / 255),
+        PrimaryTabPalette.accent
+    ]
+
+    /// 底部灵感滚动条：定位图标固定不动，目的地小字和国旗一起像翻牌一样
+    /// 向上滚动（每 1.8 秒切换一次）；旧文案向上滑出淡去、新文案自下滑入，
+    /// 超出区域被裁剪。
+    private var suggestionRoller: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "mappin.and.ellipse")
+                .font(.footnote.weight(.semibold))
+            ZStack(alignment: .bottomLeading) {
+                let entry = inspirationSuggestions[inspirationIndex % inspirationSuggestions.count]
+                HStack(spacing: 4) {
+                    Text(entry.name)
+                        .font(.footnote.weight(.medium))
+                    Text(entry.flag)
+                }
+                .id(inspirationIndex)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .move(edge: .top).combined(with: .opacity)
+                ))
+            }
+            .clipped()
+        }
+        .foregroundStyle(PrimaryTabPalette.secondaryText)
+        .task {
+            // 循环滚动；方块被展开输入条替换或进入抽签流程时，task 随视图
+            // 生命周期自动取消，收回后从当前灵感继续。
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1.8))
+                guard !Task.isCancelled else { break }
+                withAnimation(.easeInOut(duration: 0.35)) { inspirationIndex += 1 }
+            }
+        }
+    }
+
+    private func expandComposer() {
+        withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = true }
+        // 等展开后的布局提交再弹键盘，避免焦点在视图切换瞬间被丢弃。
+        DispatchQueue.main.async { isComposerFocused = true }
+    }
+
+    /// 手动收起输入条：收回键盘并返回双方块入口，已输入的草稿文本保留。
+    private func collapseComposer() {
+        isComposerFocused = false
+        withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = false }
+    }
+
+    /// 「拈签定缘」：进入抽签追问流程，逐步收窄范围后把所有选择交给 Agent。
+    private func drawLot() {
+        lotteryAnswers = []
+        withAnimation(.easeInOut(duration: 0.3)) { lotteryStepIndex = 0 }
+    }
+
+    /// 抽签流程返回上一步：撤销上一次选择；已在第一问时退出整个流程。
+    private func backLottery() {
+        guard let index = lotteryStepIndex else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            if index > 0 {
+                lotteryStepIndex = index - 1
+                if !lotteryAnswers.isEmpty { lotteryAnswers.removeLast() }
+            } else {
+                lotteryStepIndex = nil
+                lotteryAnswers = []
+            }
+        }
+    }
+
+    /// 记录当前问题的选择并推进；回答完最后一问后自动把上下文发给 Agent。
+    private func answerLottery(value: String) {
+        guard let index = lotteryStepIndex else { return }
+        lotteryAnswers.append((lotterySteps[index].key, value))
+        if index + 1 < lotterySteps.count {
+            withAnimation(.easeInOut(duration: 0.3)) { lotteryStepIndex = index + 1 }
+        } else {
+            finishLottery()
+        }
+    }
+
+    /// 跳过当前问题：不记录选择，直接进入下一问；在最后一问跳过则直接抽签。
+    private func skipLottery() {
+        guard let index = lotteryStepIndex else { return }
+        if index + 1 < lotterySteps.count {
+            withAnimation(.easeInOut(duration: 0.3)) { lotteryStepIndex = index + 1 }
+        } else {
+            finishLottery()
+        }
+    }
+
+    /// 结束抽签流程（回答完最后一问，或在最后一问点「跳过」）：把已收集的选择
+    /// 作为上下文组成一条消息直接发给 Agent 对话接口，并恢复默认双方块入口。
+    private func finishLottery() {
+        let answers = lotteryAnswers
+        withAnimation(.easeInOut(duration: 0.3)) {
+            lotteryStepIndex = nil
+            lotteryAnswers = []
+        }
+        let context = answers.map { "\($0.key)「\($0.value)」" }.joined(separator: "，")
+        message = context.isEmpty
+            ? "我在玩「拈签定缘」：请完全随机帮我定一个目的地，规划一次说走就走的旅行。"
+            : "我在玩「拈签定缘」：已选择\(context)。请据此随机帮我定一个目的地并直接规划行程。"
+        send()
     }
 
     private var canSend: Bool {
         !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !runState.isGenerating
-    }
-
-    private func promptIcon(_ prompt: String) -> String {
-        if prompt.contains("粘贴小红书") { return "link" }
-        if prompt.contains("去小红书找") { return "magnifyingglass" }
-        if prompt.contains("父母") { return "figure.2.and.child.holdinghands" }
-        if prompt.contains("室内") { return "cloud.rain" }
-if prompt.contains("500") { return "banknote" }
-return "sparkles"
-    }
-
-private func usePrompt(_ prompt: String) {
-message = prompt
-isComposerFocused = true
-}
-
-    /// 欢迎页展示的提问：只使用服务端按当前行程（或整段旅程模式）生成的
-    /// 三条建议；未返回前不显示本地静态提示，整个区块随结果渐入。
-    private var displayedPrompts: [String] {
-        suggestedPrompts
-    }
-
-/// 服务端返回的建议使用 AI 选择的图标；本地静态提示沿用关键词映射。
-private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
-    guard !suggestedPrompts.isEmpty, index < suggestedIcons.count else { return promptIcon(prompt) }
-    return suggestedIcons[index]
-}
-
-    /// 拉取三条动态建议（独立于 Agent 轮次管线的轻量接口）。有生效行程时
-    /// 行程上下文与 Agent 轮次传入的同构；没有生效行程时以 journey 模式
-    /// 请求整段旅程规划类建议。失败时静默回退，不占用错误弹窗。
-    private func loadSuggestionsIfNeeded() {
-        guard isWelcomeState else { return }
-        let trip = syncEngine.trip
-        let hasActiveTrip = trip?.isConfigured == true
-        // -1 是“无生效行程”的请求键，与真实 trip id 区分。
-        let suggestionKey = hasActiveTrip ? (trip?.id ?? -1) : -1
-        guard suggestionsTripID != suggestionKey else { return }
-        suggestionsTripID = suggestionKey
-        let preferences = store.session.preferences
-        let request = AITripSuggestionsRequest(
-            mode: hasActiveTrip ? nil : "journey",
-            destination: trip?.destination,
-            startDate: trip?.startDate,
-            endDate: trip?.endDate,
-            currency: trip?.currency,
-            preferences: AITripSuggestionsRequest.Preferences(
-                pace: preferences.pace,
-                companions: preferences.companions,
-                budget: preferences.budget,
-                scope: preferences.scope,
-                interests: preferences.interests.isEmpty ? nil : preferences.interests
-            ),
-            existingItinerary: hasActiveTrip ? syncEngine.existingItinerarySnapshot() : nil
-        )
-        Task {
-            guard let result = try? await APIClient().fetchTripSuggestions(request, tripID: hasActiveTrip ? trip?.id : nil),
-                  !result.suggestions.isEmpty,
-                  suggestionsTripID == suggestionKey else { return }
-            withAnimation(.easeOut(duration: 0.35)) {
-                suggestedPrompts = result.suggestions
-                suggestedIcons = result.icons ?? []
-            }
-        }
     }
 
     private func consumeInitialMessageIfNeeded() {
@@ -707,7 +966,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
               !initialMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         didConsumeInitialMessage = true
         message = initialMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        isComposerFocused = true
+        expandComposer()
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
@@ -724,6 +983,15 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
         store.discardTurn()
         runState.clearTransientState()
         store.clear()
+    }
+
+    /// 会话页返回：归档当前对话（可在「历史对话」恢复）并完全复位到首页
+    /// 初始状态——双方块入口重现、草稿清空、键盘收起。
+    private func exitConversation() {
+        startNewConversation()
+        message = ""
+        isComposerFocused = false
+        isComposerExpanded = false
     }
 
     /// 归档当前对话（可从「历史」恢复）并开启一个全新的本地会话。
@@ -759,6 +1027,8 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
                     mediaType: prepared.mediaType,
                     dataURI: prepared.dataURI
                 ))
+                // 折叠态下从「+」添加图片后直接展开输入条，便于继续输入说明文字。
+                withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = true }
             } catch {
                 runState.error = error.localizedDescription
             }
@@ -918,30 +1188,148 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
     }
 }
 
-/// Maps an ephemeral agent status line to a ThinkingOrb state so each agent
-/// behaviour gets its own icon. The status strings originate from the
-/// backend's SSE `status` events (`app/routes/agent_v2.py`) plus the
-/// client-side "正在理解你的需求…" seed; like the status text itself this is
-/// pure UI progress and never persists. Keyword order matters: more specific
-/// activities are matched before generic ones.
-func agentThinkingOrbState(for status: String?) -> OrbState {
-    guard let status else { return .breathing }
-    // 理解用户输入（每轮开始时客户端播种）
-    if status.contains("理解") { return .listening }
-    // 并行验证候选地点 / 从笔记中识别可定位地点
-    if status.contains("验证") || status.contains("识别") { return .solving }
-    // 整理地点 / 挑选高质量笔记
-    if status.contains("整理") || status.contains("挑选") { return .weaving }
-    // Apple Maps 核对地点（先于"生成"匹配：初始状态为"联网核对攻略并生成建议"）
-    if status.contains("核对") { return .searching }
-    // 生成候选卡、整理候选结果
-    if status.contains("生成") || status.contains("候选") { return .composing }
-    // 读取小红书公开笔记、联网获取
-    if status.contains("读取") || status.contains("联网") { return .connecting }
-    // 豆包/小红书/飞猪搜索、实时价格查询
-    if status.contains("搜索") || status.contains("查询") { return .searching }
-    // 默认：模型推理中
-    return .breathing
+/// 底部两个入口方块的玻璃底：复刻主界面悬浮导航栏（ContentView）的材质
+/// 配方——0.1 强度的暗色背景模糊、深色薄纱、0.6 白描边与轻投影。
+private struct AgentEntryGlassTile: View {
+    var body: some View {
+        ZStack {
+            AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.1)
+            Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255)
+                .opacity(0.16)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+        }
+        .shadow(
+            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+            radius: 12,
+            y: 12
+        )
+    }
+}
+
+/// 景点名后的小国旗（18×12pt）：用色条、圆点、十字、星、月牙等基本图形
+/// 极简渲染各目的地对应的国家旗帜（不用 emoji 字符，随系统主题渲染）。
+private struct MiniFlag: View {
+    enum Country {
+        case indonesia, kenya, japan, iceland, greece, thailand, newZealand,
+             morocco, switzerland, norway, turkey, peru, algeria, china, palau, italy
+    }
+
+    let country: Country
+
+    private let size = CGSize(width: 18, height: 12)
+
+    var body: some View {
+        ZStack {
+            switch country {
+            case .indonesia:
+                hStripes([Color(hex: 0xE11B22), .white])
+            case .kenya:
+                hStripes([.black, Color(hex: 0xB61D28), Color(hex: 0x006633)])
+            case .japan:
+                base(.white)
+                disc(Color(hex: 0xBC002D), diameter: size.height * 0.55)
+            case .iceland:
+                base(Color(hex: 0x02529C))
+                cross(.white, thickness: size.height * 0.3)
+                cross(Color(hex: 0xDC1E35), thickness: size.height * 0.16)
+            case .greece:
+                // 简化为蓝白条带；18pt 宽画不下左上角十字州徽。
+                hStripes([Color(hex: 0x0D5EAF), .white, Color(hex: 0x0D5EAF), .white, Color(hex: 0x0D5EAF)])
+            case .thailand:
+                hStripes([Color(hex: 0xA51931), .white, Color(hex: 0x2D2A4A), .white, Color(hex: 0xA51931)])
+            case .newZealand:
+                base(Color(hex: 0x012169))
+                star(.white)
+            case .morocco:
+                base(Color(hex: 0xC1272D))
+                star(Color(hex: 0x006233))
+            case .switzerland:
+                base(Color(hex: 0xDA291C))
+                cross(.white, thickness: size.height * 0.28)
+            case .norway:
+                base(Color(hex: 0xBA0C2F))
+                cross(.white, thickness: size.height * 0.32)
+                cross(Color(hex: 0x00205B), thickness: size.height * 0.16)
+            case .turkey:
+                base(Color(hex: 0xE30A17))
+                crescent(.white, on: Color(hex: 0xE30A17))
+                star(.white, offset: CGSize(width: 4, height: 0))
+            case .peru:
+                vStripes([Color(hex: 0xD91023), .white, Color(hex: 0xD91023)])
+            case .algeria:
+                vStripes([Color(hex: 0x006233), .white])
+                crescent(Color(hex: 0xD21034), on: .white, offset: CGSize(width: 2, height: 0))
+            case .china:
+                base(Color(hex: 0xDE2910))
+                star(Color(hex: 0xFFDE00))
+            case .palau:
+                base(Color(hex: 0x4AADD6))
+                disc(Color(hex: 0xF5D418), diameter: size.height * 0.5, offset: CGSize(width: -size.width * 0.14, height: 0))
+            case .italy:
+                vStripes([Color(hex: 0x009246), .white, Color(hex: 0xCE2B37)])
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .strokeBorder(.white.opacity(0.22), lineWidth: 0.5)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func base(_ color: Color) -> some View {
+        Rectangle().fill(color)
+    }
+
+    private func hStripes(_ colors: [Color]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(colors.indices, id: \.self) { index in
+                Rectangle().fill(colors[index])
+            }
+        }
+    }
+
+    private func vStripes(_ colors: [Color]) -> some View {
+        HStack(spacing: 0) {
+            ForEach(colors.indices, id: \.self) { index in
+                Rectangle().fill(colors[index])
+            }
+        }
+    }
+
+    private func disc(_ color: Color, diameter: CGFloat, offset: CGSize = .zero) -> some View {
+        Circle().fill(color)
+            .frame(width: diameter, height: diameter)
+            .offset(x: offset.width, y: offset.height)
+    }
+
+    private func cross(_ color: Color, thickness: CGFloat) -> some View {
+        ZStack {
+            Rectangle().fill(color).frame(height: thickness)
+            Rectangle().fill(color).frame(width: thickness * 1.2)
+        }
+    }
+
+    private func star(_ color: Color, offset: CGSize = .zero) -> some View {
+        Image(systemName: "star.fill")
+            .font(.system(size: 6))
+            .foregroundStyle(color)
+            .offset(x: offset.width, y: offset.height)
+    }
+
+    /// 月牙：实心圆叠一枚底色圆错位而成（国旗过小，省略伴星）。
+    private func crescent(_ color: Color, on background: Color, offset: CGSize = .zero) -> some View {
+        ZStack {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Circle().fill(background).frame(width: 6, height: 6).offset(x: 1.5)
+        }
+        .offset(x: offset.width, y: offset.height)
+    }
 }
 
 /// 历史对话列表：展示「新建对话」归档的本地会话，点按恢复、左滑删除。
@@ -1467,131 +1855,6 @@ private extension TravelCardSnapshot.Kind {
         case .activity: "figure.walk"
         case .hotel: "bed.double.fill"
         case .flight: "airplane"
-        }
-    }
-}
-
-struct AgentPreparedImage: Sendable {
-    let data: Data
-    let mediaType: String
-
-    var dataURI: String {
-        "data:\(mediaType);base64,\(data.base64EncodedString())"
-    }
-}
-
-enum AgentImageAttachmentProcessor {
-    static let maximumBytes = 3_000_000
-    private static let maximumLongEdge: CGFloat = 4_096
-    private static let minimumJPEGQuality: CGFloat = 0.2
-    private static let maximumJPEGQuality: CGFloat = 0.92
-
-    static func prepare(_ source: Data) throws -> AgentPreparedImage {
-        guard !source.isEmpty else { throw AgentImageAttachmentError.unreadable }
-        if source.count <= maximumBytes, let mediaType = detectedMediaType(source) {
-            return AgentPreparedImage(data: source, mediaType: mediaType)
-        }
-        guard let original = UIImage(data: source) else { throw AgentImageAttachmentError.unreadable }
-
-        var image = resized(original, maximumLongEdge: maximumLongEdge)
-        for _ in 0 ..< 10 {
-            if let data = bestJPEG(for: image, maximumBytes: maximumBytes) {
-                return AgentPreparedImage(data: data, mediaType: "image/jpeg")
-            }
-            guard let smallest = image.jpegData(compressionQuality: minimumJPEGQuality),
-                  smallest.count > maximumBytes else {
-                throw AgentImageAttachmentError.compressionFailed
-            }
-            let ratio = min(0.88, max(0.45, sqrt(Double(maximumBytes) / Double(smallest.count)) * 0.9))
-            image = resized(image, scale: CGFloat(ratio))
-        }
-        throw AgentImageAttachmentError.compressionFailed
-    }
-
-    private static func bestJPEG(for image: UIImage, maximumBytes: Int) -> Data? {
-        guard let highQuality = image.jpegData(compressionQuality: maximumJPEGQuality) else { return nil }
-        if highQuality.count <= maximumBytes { return highQuality }
-        guard let lowestQuality = image.jpegData(compressionQuality: minimumJPEGQuality),
-              lowestQuality.count <= maximumBytes else { return nil }
-
-        var low = minimumJPEGQuality
-        var high = maximumJPEGQuality
-        var best = lowestQuality
-        for _ in 0 ..< 9 {
-            let quality = (low + high) / 2
-            guard let candidate = image.jpegData(compressionQuality: quality) else { break }
-            if candidate.count <= maximumBytes {
-                best = candidate
-                low = quality
-            } else {
-                high = quality
-            }
-        }
-        return best
-    }
-
-    private static func resized(_ image: UIImage, maximumLongEdge: CGFloat) -> UIImage {
-        let pixels = pixelSize(of: image)
-        let longEdge = max(pixels.width, pixels.height)
-        guard longEdge > maximumLongEdge else { return image }
-        return resized(image, scale: maximumLongEdge / longEdge)
-    }
-
-    private static func resized(_ image: UIImage, scale: CGFloat) -> UIImage {
-        let pixels = pixelSize(of: image)
-        let target = CGSize(
-            width: max(1, floor(pixels.width * scale)),
-            height: max(1, floor(pixels.height * scale))
-        )
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        return UIGraphicsImageRenderer(size: target, format: format).image { context in
-            UIColor.white.setFill()
-            context.cgContext.fill(CGRect(origin: .zero, size: target))
-            image.draw(in: CGRect(origin: .zero, size: target))
-        }
-    }
-
-    private static func pixelSize(of image: UIImage) -> CGSize {
-        if let cgImage = image.cgImage {
-            return CGSize(width: cgImage.width, height: cgImage.height)
-        }
-        return CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
-    }
-
-    private static func detectedMediaType(_ data: Data) -> String? {
-        let bytes = [UInt8](data.prefix(16))
-        if bytes.count >= 3, bytes[0] == 0xFF, bytes[1] == 0xD8, bytes[2] == 0xFF {
-            return "image/jpeg"
-        }
-        if bytes.count >= 8, Array(bytes[0 ..< 8]) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
-            return "image/png"
-        }
-        if bytes.count >= 12,
-           String(bytes: bytes[0 ..< 4], encoding: .ascii) == "RIFF",
-           String(bytes: bytes[8 ..< 12], encoding: .ascii) == "WEBP" {
-            return "image/webp"
-        }
-        if bytes.count >= 12,
-           String(bytes: bytes[4 ..< 8], encoding: .ascii) == "ftyp" {
-            let brand = String(bytes: bytes[8 ..< 12], encoding: .ascii) ?? ""
-            if ["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1"].contains(brand) {
-                return "image/heic"
-            }
-        }
-        return nil
-    }
-}
-
-enum AgentImageAttachmentError: LocalizedError {
-    case unreadable
-    case compressionFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .unreadable: "无法读取所选图片。"
-        case .compressionFailed: "图片自动压缩失败，请重新选择。"
         }
     }
 }
