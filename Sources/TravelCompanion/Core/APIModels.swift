@@ -392,6 +392,9 @@ let budget: String?
 let scope: String?
 let interests: [String]?
 }
+/// 建议模式：`nil`（即服务端默认 itinerary）表示围绕已有行程出建议；
+/// `journey` 表示客户端没有生效行程，请服务端返回整段旅程规划类建议。
+let mode: String?
 let destination: String?
 let startDate: String?
 let endDate: String?
@@ -402,6 +405,9 @@ let existingItinerary: [AIExistingItineraryDay]?
 
 struct AITripSuggestionsResult: Decodable, Sendable, Equatable {
 let suggestions: [String]
+/// 服务端为每条建议选择的 SF Symbol 图标（与 suggestions 一一对应）；
+/// 旧版本后端可能不返回，客户端回退本地关键词图标。
+let icons: [String]?
 }
 
 /// Stateless multi-turn itinerary chat: the client replays the full message

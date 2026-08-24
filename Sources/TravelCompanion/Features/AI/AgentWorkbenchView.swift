@@ -1,6 +1,5 @@
 import PhotosUI
 import SwiftUI
-import ThinkingOrbsKit
 import UIKit
 
 /// The PRD's local-first planning workbench. Drafts remain local until the
@@ -16,10 +15,13 @@ struct AgentWorkbenchView: View {
     @State private var photo: PhotosPickerItem?
     @State private var isShowingContext = false
     @State private var isShowingHistory = false
-@State private var didConsumeInitialMessage = false
-@State private var didSubmitInitialMessage = false
-@State private var suggestedPrompts: [String] = []
-@State private var suggestionsTripID: Int?
+    @State private var didConsumeInitialMessage = false
+    @State private var didSubmitInitialMessage = false
+    @State private var isCreatingTripFromProposal = false
+    @State private var isReasoningExpanded = false
+    @State private var suggestedPrompts: [String] = []
+    @State private var suggestedIcons: [String] = []
+    @State private var suggestionsTripID: Int?
 
     init(
         syncEngine: SyncEngine,
@@ -96,6 +98,11 @@ struct AgentWorkbenchView: View {
                 loadSuggestionsIfNeeded()
             }
             .onChange(of: syncEngine.trip?.id) { _, _ in loadSuggestionsIfNeeded() }
+            .onChange(of: syncEngine.trip?.isConfigured) { _, _ in loadSuggestionsIfNeeded() }
+            .onChange(of: runState.isGenerating) { _, isGenerating in
+                // 新一轮生成从折叠状态开始；生成结束后思考摘要整体隐藏。
+                if !isGenerating { isReasoningExpanded = false }
+            }
             .onChange(of: initialMessage) { _, newValue in
                 guard newValue != nil else { return }
                 didConsumeInitialMessage = false
@@ -128,6 +135,13 @@ struct AgentWorkbenchView: View {
                         Divider()
                         ForEach(syncEngine.trips) { summary in
                             Button {
+                                // 切换行程即自动开启新对话：当前对话有内容时归档到
+                                // 「历史」（空会话不产生归档）；旧行程的建议立即清掉，
+                                // 新行程的建议由 trip 变更回调重新拉取。
+                                guard summary.id != syncEngine.selectedTripID else { return }
+                                startNewConversation()
+                                suggestedPrompts = []
+                                suggestedIcons = []
                                 Task { await syncEngine.selectTrip(summary.id) }
                             } label: {
                                 if summary.id == syncEngine.selectedTripID {
@@ -176,9 +190,9 @@ struct AgentWorkbenchView: View {
         .frame(height: 48)
         .padding(.horizontal, 20)
         .padding(.top, 2)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(PrimaryTabPalette.divider).frame(height: 1)
-        }
+        // .overlay(alignment: .bottom) {
+        //     Rectangle().fill(PrimaryTabPalette.divider).frame(height: 1)
+        // }
     }
 
     private var tripTitle: String {
@@ -197,38 +211,39 @@ struct AgentWorkbenchView: View {
                 .padding(.top, 12)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("一起把旅程安排好")
+                Text("告诉豆奶你想去哪里。")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
-                Text("说说你想去哪里、同行人和时间范围。我会先给出可检查的建议，只有你确认后才会加入行程。")
-                    .font(.body)
-                    .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             tripContextCard
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("可以这样问")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(PrimaryTabPalette.secondaryText)
-                ForEach(displayedPrompts, id: \.self) { prompt in
-                    Button { usePrompt(prompt) } label: {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: promptIcon(prompt))
-                                .frame(width: 24)
-                                .foregroundStyle(PrimaryTabPalette.accent)
-                            Text(prompt)
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(PrimaryTabPalette.tertiaryText)
+            if !displayedPrompts.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("可以这样问")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    ForEach(Array(displayedPrompts.enumerated()), id: \.element) { index, prompt in
+                        Button { usePrompt(prompt) } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: suggestionIcon(at: index, fallback: prompt))
+                                    .frame(width: 24)
+                                    .foregroundStyle(PrimaryTabPalette.accent)
+                                Text(prompt)
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(PrimaryTabPalette.tertiaryText)
+                            }
+                            .padding(15)
+                            .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
                         }
-                        .padding(15)
-                        .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
+                        .buttonStyle(.plain)
+                        .transition(.opacity.combined(with: .offset(y: 10)))
+                        // 动态建议返回时逐条渐入（80ms 阶梯延迟）
+                        .animation(.easeOut(duration: 0.35).delay(Double(index) * 0.08), value: displayedPrompts)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -257,7 +272,7 @@ struct AgentWorkbenchView: View {
     }
 
     private var tripContextSubtitle: String {
-        guard let trip = syncEngine.trip, trip.isConfigured else { return "先设置目的地、日期和币种，再开始规划" }
+        guard let trip = syncEngine.trip, trip.isConfigured else { return "先设置目的地、日期，再开始规划" }
         var details = ["\(trip.startDate ?? "") – \(trip.endDate ?? "")"]
         let preferences = preferenceLabels
         if !preferences.isEmpty { details.append(preferences.joined(separator: " · ")) }
@@ -280,50 +295,73 @@ struct AgentWorkbenchView: View {
 
     private var conversationView: some View {
         VStack(alignment: .leading, spacing: 22) {
-            ForEach(store.session.messages) { item in
-                ChatMessageView(message: item)
+            // 橘色头像每个助手回合只显示一次（该回合第一条消息）；其余
+            // 助手区块保留同样的缩进对齐，但不再重复头像。
+            ForEach(Array(store.session.messages.enumerated()), id: \.element.id) { index, item in
+                ChatMessageView(
+                    message: item,
+                    showsAvatar: item.role == "user" || index == 0 || store.session.messages[index - 1].role == "user"
+                )
+            }
+
+            // 思考摘要只在本轮生成期间可见，且始终位于当轮回复上方。
+            // 状态行本身承载展开/收起（箭头也在这一行）：有摘要时点按
+            // 状态行切换，摘要就地展开在状态行下方、回复上方。
+            if let status = runState.status {
+                // 状态行不使用 AssistantMessageContainer：头像占位会让 orb
+                // 右移，这一行需要顶着左边缘显示（orb 本身就是行首图标）。
+                VStack(alignment: .leading, spacing: 8) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isReasoningExpanded.toggle() }
+                    } label: {
+                        HStack(spacing: 10) {
+                            ThinkingOrb(state: agentThinkingOrbState(for: status), size: .px20, theme: .dark)
+                            Text(status).foregroundStyle(PrimaryTabPalette.secondaryText)
+                            Spacer(minLength: 8)
+                            if !runState.reasoningSummary.isEmpty {
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(PrimaryTabPalette.tertiaryText)
+                                    .rotationEffect(.degrees(isReasoningExpanded ? 90 : 0))
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(runState.reasoningSummary.isEmpty)
+
+                    if isReasoningExpanded, !runState.reasoningSummary.isEmpty {
+                        Text(runState.reasoningSummary)
+                            .font(.footnote)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } else if runState.isGenerating, !runState.reasoningSummary.isEmpty {
+                // 回复开始流出后状态行消失，此时直接把摘要内容展示在回复上方。
+                AssistantMessageContainer(showsAvatar: false) {
+                    Text(runState.reasoningSummary)
+                        .font(.footnote)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             if !runState.streamingReply.isEmpty {
-                AssistantMessageContainer {
+                AssistantMessageContainer(showsAvatar: false) {
                     Text(runState.streamingReply)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
-            if let status = runState.status {
-                // The thinking orb already carries the assistant affordance
-                // here, so the generic sparkles avatar would be redundant.
-                AssistantMessageContainer(showsAvatar: false) {
-                    HStack(spacing: 10) {
-                        ThinkingOrb(state: agentThinkingOrbState(for: status), size: .px20, theme: .dark)
-                        Text(status).foregroundStyle(PrimaryTabPalette.secondaryText)
-                    }
-                }
-            }
-
             if let fliggy = runState.fliggyProgress {
-                AssistantMessageContainer {
+                AssistantMessageContainer(showsAvatar: false) {
                     FliggySearchStatusChip(progress: fliggy)
                 }
             }
 
-            if !runState.reasoningSummary.isEmpty {
-                AssistantMessageContainer {
-                    DisclosureGroup("查看思考摘要") {
-                        Text(runState.reasoningSummary)
-                            .font(.footnote)
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                            .padding(.top, 8)
-                    }
-                    .font(.footnote.weight(.medium))
-                    .tint(PrimaryTabPalette.secondaryText)
-                }
-            }
-
             if !runState.liveCards.isEmpty {
-                AssistantMessageContainer {
+                AssistantMessageContainer(showsAvatar: false) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("正在生成候选")
                             .font(.subheadline.weight(.semibold))
@@ -335,8 +373,14 @@ struct AgentWorkbenchView: View {
                 }
             }
 
+            if let proposal = store.session.pendingProposal, syncEngine.trip?.isConfigured != true {
+                AssistantMessageContainer(showsAvatar: false) {
+                    tripProposalCard(proposal)
+                }
+            }
+
             if store.session.summary != nil || store.session.draft != nil {
-                AssistantMessageContainer {
+                AssistantMessageContainer(showsAvatar: false) {
                     workbenchView
                 }
             }
@@ -462,6 +506,45 @@ struct AgentWorkbenchView: View {
     }
 
     @ViewBuilder
+    /// plan_new 产出的旅程提案确认卡：仅在仍无生效旅程时展示。
+    private func tripProposalCard(_ proposal: AgentV2TripProposal) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("旅程提案", systemImage: "map")
+                .font(.headline)
+                .foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: 6) {
+                Label(proposal.destination, systemImage: "location.fill")
+                Label("\(proposal.startDate) 至 \(proposal.endDate)", systemImage: "calendar")
+                Label("币种 \(proposal.currency)", systemImage: "creditcard")
+            }
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.85))
+
+            Button { confirmTripProposal(proposal) } label: {
+                HStack {
+                    if isCreatingTripFromProposal { ProgressView().tint(.white) }
+                    Text("确认创建旅程")
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .frame(height: 50)
+                .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isCreatingTripFromProposal)
+            .opacity(isCreatingTripFromProposal ? 0.7 : 1)
+
+            Text("确认后才会创建旅程；候选仍需在下方选择后加入行程。")
+                .font(.caption)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+        }
+        .padding(14)
+        .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 20)
+    }
+
     private func candidateGroup(title: String, candidates: [AgentV2Candidate]) -> some View {
         Text(title)
             .font(.subheadline.weight(.semibold))
@@ -534,17 +617,6 @@ struct AgentWorkbenchView: View {
         !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !runState.isGenerating
     }
 
-    private var quickPrompts: [String] {
-        [
-            "粘贴小红书分享内容，整理成行程卡。",
-            "去小红书找目的地攻略，并核对可定位的地点。",
-            "帮我安排明天，带父母、少走路。",
-            "第二天下午换成室内活动。",
-            "按人均 500 元补齐空白日。",
-            "根据这几张攻略图整理必去点。"
-        ]
-    }
-
     private func promptIcon(_ prompt: String) -> String {
         if prompt.contains("粘贴小红书") { return "link" }
         if prompt.contains("去小红书找") { return "magnifyingglass" }
@@ -559,42 +631,55 @@ message = prompt
 isComposerFocused = true
 }
 
-/// 欢迎页展示的提问：优先使用后端按当前行程生成的三条建议，
-/// 未返回时回退到本地静态提示。
-private var displayedPrompts: [String] {
-suggestedPrompts.isEmpty ? Array(quickPrompts.prefix(3)) : suggestedPrompts
+    /// 欢迎页展示的提问：只使用服务端按当前行程（或整段旅程模式）生成的
+    /// 三条建议；未返回前不显示本地静态提示，整个区块随结果渐入。
+    private var displayedPrompts: [String] {
+        suggestedPrompts
+    }
+
+/// 服务端返回的建议使用 AI 选择的图标；本地静态提示沿用关键词映射。
+private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
+    guard !suggestedPrompts.isEmpty, index < suggestedIcons.count else { return promptIcon(prompt) }
+    return suggestedIcons[index]
 }
 
-/// 拉取三条动态建议（独立于 Agent 轮次管线的轻量接口）。行程上下文与
-/// Agent 轮次传入的同构：目的地、日期、币种、偏好与行程卡片快照。
-/// 失败时静默回退，不占用错误弹窗。
-private func loadSuggestionsIfNeeded() {
-guard isWelcomeState,
-      let trip = syncEngine.trip, trip.isConfigured,
-      suggestionsTripID != trip.id else { return }
-suggestionsTripID = trip.id
-let preferences = store.session.preferences
-let request = AITripSuggestionsRequest(
-    destination: trip.destination,
-    startDate: trip.startDate,
-    endDate: trip.endDate,
-    currency: trip.currency,
-    preferences: AITripSuggestionsRequest.Preferences(
-        pace: preferences.pace,
-        companions: preferences.companions,
-        budget: preferences.budget,
-        scope: preferences.scope,
-        interests: preferences.interests.isEmpty ? nil : preferences.interests
-    ),
-    existingItinerary: syncEngine.existingItinerarySnapshot()
-)
-Task {
-    guard let suggestions = try? await APIClient().fetchTripSuggestions(request, tripID: trip.id),
-          !suggestions.isEmpty,
-          suggestionsTripID == trip.id else { return }
-    suggestedPrompts = suggestions
-}
-}
+    /// 拉取三条动态建议（独立于 Agent 轮次管线的轻量接口）。有生效行程时
+    /// 行程上下文与 Agent 轮次传入的同构；没有生效行程时以 journey 模式
+    /// 请求整段旅程规划类建议。失败时静默回退，不占用错误弹窗。
+    private func loadSuggestionsIfNeeded() {
+        guard isWelcomeState else { return }
+        let trip = syncEngine.trip
+        let hasActiveTrip = trip?.isConfigured == true
+        // -1 是“无生效行程”的请求键，与真实 trip id 区分。
+        let suggestionKey = hasActiveTrip ? (trip?.id ?? -1) : -1
+        guard suggestionsTripID != suggestionKey else { return }
+        suggestionsTripID = suggestionKey
+        let preferences = store.session.preferences
+        let request = AITripSuggestionsRequest(
+            mode: hasActiveTrip ? nil : "journey",
+            destination: trip?.destination,
+            startDate: trip?.startDate,
+            endDate: trip?.endDate,
+            currency: trip?.currency,
+            preferences: AITripSuggestionsRequest.Preferences(
+                pace: preferences.pace,
+                companions: preferences.companions,
+                budget: preferences.budget,
+                scope: preferences.scope,
+                interests: preferences.interests.isEmpty ? nil : preferences.interests
+            ),
+            existingItinerary: hasActiveTrip ? syncEngine.existingItinerarySnapshot() : nil
+        )
+        Task {
+            guard let result = try? await APIClient().fetchTripSuggestions(request, tripID: hasActiveTrip ? trip?.id : nil),
+                  !result.suggestions.isEmpty,
+                  suggestionsTripID == suggestionKey else { return }
+            withAnimation(.easeOut(duration: 0.35)) {
+                suggestedPrompts = result.suggestions
+                suggestedIcons = result.icons ?? []
+            }
+        }
+    }
 
     private func consumeInitialMessageIfNeeded() {
         guard !didConsumeInitialMessage,
@@ -663,7 +748,8 @@ Task {
 
     private func send() {
         guard let request = makeRequest() else { runState.error = "请先完成旅行设置。"; return }
-        guard let tripID = syncEngine.trip?.id else { runState.error = "无法确定当前旅行，请刷新后重试。"; return }
+        // plan_new（无生效旅程或「暂不选择行程」）时 tripID 为 nil，服务端不强制本接口的旅程鉴权。
+        let tripID = syncEngine.trip?.id
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: message, createdAt: .now)
         store.beginTurn()
         store.append(userMessage)
@@ -736,13 +822,42 @@ Task {
     }
 
     private func makeRequest() -> AgentV2TurnRequest? {
-        guard let trip = syncEngine.trip, trip.isConfigured else { return nil }
+        guard let trip = syncEngine.trip, trip.isConfigured else {
+            // 无生效旅程：从零规划模式（plan_new）。服务端会产出待用户确认的
+            // 旅程提案（trip_proposal），确认前不落库创建旅程。
+            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: message, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+        }
         let days = trip.days.map { day in
             AgentV2TurnRequest.Day(date: day.date, cards: day.cards.map { card in
                 AgentV2TurnRequest.Card(id: card.serverID, kind: card.kind.rawValue, title: card.title, startAt: ISO8601DateFormatter().string(from: card.startAt), endAt: card.endAt.map { ISO8601DateFormatter().string(from: $0) }, place: card.place?.name, notes: card.notes)
             })
         }
         return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: message, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+    }
+
+    /// 用户确认旅程提案：复用既有建旅程链路创建旅程，随后清除提案。
+    /// 候选不自动写入——创建成功后仍由用户在下方的草稿区选择并确认加入行程。
+    private func confirmTripProposal(_ proposal: AgentV2TripProposal) {
+        guard !isCreatingTripFromProposal else { return }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let startDate = formatter.date(from: proposal.startDate),
+              let endDate = formatter.date(from: proposal.endDate) else {
+            runState.error = "旅程提案的日期无法识别，请让 Agent 重新生成提案。"
+            return
+        }
+        isCreatingTripFromProposal = true
+        Task {
+            await syncEngine.createTrip(destination: proposal.destination, startDate: startDate, endDate: endDate, currency: proposal.currency)
+            if syncEngine.trip != nil {
+                store.clearPendingProposal()
+            } else {
+                runState.error = "旅程创建失败，请稍后重试。"
+            }
+            isCreatingTripFromProposal = false
+        }
     }
 
     private func commit() {
@@ -887,6 +1002,8 @@ private struct AgentHistorySheet: View {
 
 private struct ChatMessageView: View {
     let message: AgentV2TurnRequest.Message
+    /// 是否在这条助手消息旁显示橘色头像（每个助手回合只显示一次）。
+    var showsAvatar: Bool = true
 
     var body: some View {
         if message.role == "user" {
@@ -899,7 +1016,7 @@ private struct ChatMessageView: View {
                     .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
             }
         } else {
-            AssistantMessageContainer {
+            AssistantMessageContainer(showsAvatar: showsAvatar) {
                 Text(message.content)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -924,6 +1041,9 @@ private struct AssistantMessageContainer<Content: View>: View {
                     Circle().fill(PrimaryTabPalette.accent.gradient).frame(width: 28, height: 28)
                     Image(systemName: "sparkles").font(.caption2.weight(.bold)).foregroundStyle(.white)
                 }
+            } else {
+                // 占位对齐：不显示头像时内容仍与其他助手区块左对齐。
+                Color.clear.frame(width: 28, height: 28)
             }
             content
                 .padding(.top, 3)

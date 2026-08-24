@@ -54,7 +54,9 @@ struct AgentV2TurnRequest: Codable, Sendable {
     let turnId: UUID
     let intent: String
     let message: String
-    let trip: Trip
+    /// `nil` 表示 plan_new 轮次：用户还没有创建旅程，服务端会产出待确认的
+    /// 旅程提案（trip_proposal 事件），提案确认前不会落库创建旅程。
+    let trip: Trip?
     let preferences: Preferences
     let history: [Message]
     let activeDraft: AgentV2Draft?
@@ -233,9 +235,20 @@ enum AgentV2StreamEvent: Sendable {
     case candidateUpsert(AgentV2Candidate)
     case candidatePatch(id: UUID, candidate: AgentV2Candidate)
     case changeSet([AgentV2Change])
+    case tripProposal(AgentV2TripProposal)
     case fliggySearchStarted(AgentV2FliggySearchStart)
     case fliggySearchCompleted(AgentV2FliggySearchCompletion)
     case done
+}
+
+/// plan_new 轮次服务端下发的旅程提案。仅作展示与用户确认用途：确认前
+/// 服务端不落库，确认后由客户端调用既有建旅程接口创建。
+struct AgentV2TripProposal: Codable, Sendable, Equatable {
+    let destination: String
+    let startDate: String
+    let endDate: String
+    let currency: String
+    let timeZone: String
 }
 
 /// Brand-structured progress signal emitted around each Fliggy realtime
@@ -340,6 +353,9 @@ struct AgentV2LocalSession: Codable, Identifiable {
     /// "still pending" group. Optional so sessions persisted by older builds
     /// decode cleanly (nil = treat every candidate as current-turn).
     var lastTurnCandidateIDs: [UUID]? = nil
+    /// plan_new 会话中待用户确认的旅程提案；确认创建旅程后清除。Optional so
+    /// sessions persisted by older builds decode cleanly.
+    var pendingProposal: AgentV2TripProposal? = nil
 
     static let empty = AgentV2LocalSession(id: UUID(), updatedAt: .now, preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil, allowUnverifiedRecommendations: true), messages: [], attachments: [], draft: nil, summary: nil)
 }

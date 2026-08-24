@@ -2840,7 +2840,7 @@ private struct AgentIntroDemoView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles")
                         .foregroundStyle(PrimaryTabPalette.accent)
-                    Text("告诉 Agent 你的想法…")
+                    Text("告诉豆奶你的下一个行程…")
                 }
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(PrimaryTabPalette.secondaryText)

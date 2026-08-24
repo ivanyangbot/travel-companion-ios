@@ -16,11 +16,13 @@
 		0E217A4F17380B945F95119B /* AppleSignInStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419F1199DA05DB1C55ADACA7 /* AppleSignInStore.swift */; };
 		0E7C6172ACCE591382CA08CE /* GooeyPinDemoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D69475DDA7AAD5F6096456 /* GooeyPinDemoView.swift */; };
 		10B70769A5EACA7A2BBDB428 /* AITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D3E600510D1900A40A2985 /* AITests.swift */; };
+		13D51FAB6652A2895340E686 /* ThinkingOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC63787CDAF3EC5433776D5 /* ThinkingOrb.swift */; };
 		173CE8FC76B8BEC1C6AA5CEC /* AgentV2SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404C61F2E1107308DC348938 /* AgentV2SessionStoreTests.swift */; };
 		177856D24110CCC27193D232 /* MemoAssistModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80DE9C428D21C35C4F57930C /* MemoAssistModels.swift */; };
 		19F1C33E48AF1767E4D3EF29 /* ItineraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B71738D5B59EDD1B741EFD6 /* ItineraryView.swift */; };
 		1DE33419FCE05386856BAAE8 /* MemoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761B9EBCB409C232EF34AFD9 /* MemoModels.swift */; };
 		1EDF83DB5B3E1C5A472D210E /* ExternalLinkHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EC18374E8F4516FD09F006 /* ExternalLinkHandler.swift */; };
+		1FA344548F3B4C2F7087F66B /* Web.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DAD9C5EC9DFA223D8FC48E /* Web.swift */; };
 		22B8D0176405CFD2D612C92A /* AgentWorkbenchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31021ED5F6FCDAC6E05BE906 /* AgentWorkbenchView.swift */; };
 		2352DBCC56E1620F5C39F1EA /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB83218A06E8F8F9F34CA62 /* NotesView.swift */; };
 		25AC3913D806D65A7324BE88 /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA17FF91696BD112B2C29F4 /* AppConfiguration.swift */; };
@@ -40,23 +42,27 @@
 		554F3057D599DDA39DEDABE6 /* ItineraryChatCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 527D1567359E38E7955393A5 /* ItineraryChatCardView.swift */; };
 		55CDD3155EF90D3ACEE8E9B7 /* SharedTripRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D4FDAB08CAD5BFF0161E7C6 /* SharedTripRepository.swift */; };
 		5E47C12E8A11A30E28D6DBC8 /* CardEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1BEB845262F1A88B406861 /* CardEditorView.swift */; };
+		5EAABCB747B23C65B3B07B25 /* Strands.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2ACD9659CCEDB76209CDA2 /* Strands.swift */; };
 		6432BE9695B27C3DE22AA3C0 /* MemoAssistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B026B0199CFA746CE1293EA /* MemoAssistSheet.swift */; };
 		67677659F4150C50C8F56A73 /* MapLinkHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F8031EBAF1C17305F75B7FC /* MapLinkHandler.swift */; };
 		698C0569AAFAAA8B9145E381 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4304B4EBBAB2A24A773E072D /* APIClient.swift */; };
 		6EBFD847463118596CE4581E /* AgentV2Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CD253A87557EF495F2A1BAD /* AgentV2Models.swift */; };
 		715C5DA05B8B453DCC298E43 /* CameraPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FEC5E8543BD6BF4F183C617 /* CameraPicker.swift */; };
 		72682152301ACED0388DC82E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3198C4E39AD5226C2AABD9E3 /* ContentView.swift */; };
+		74BFF373189FC644CC611B11 /* Orbits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797A810C81679D3166F35AA3 /* Orbits.swift */; };
 		76D697ADF4C00DF283C8689E /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA45728502C29E3F4C3B71A /* WalletTests.swift */; };
+		772366F2EDD5C9D0EDF2793C /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E0EAF4D452EE0A5994419F /* Snapshot.swift */; };
 		78220BFCF175DDD982D5EAD5 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72EAFDA83E7A9A0A19462E9B /* TodayView.swift */; };
 		7965BC0AB89D1C07744D1D05 /* SharedModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC509B17BD5736DD641FE015 /* SharedModels.swift */; };
 		7979F0B770A26778ACB9A16F /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A86FDF07921274643C9DA1E /* WalletView.swift */; };
 		7CAAC9F78ACB912B7166C2E2 /* TodayMapStyle.json in Resources */ = {isa = PBXBuildFile; fileRef = F06077E1F953BE92E1D0733F /* TodayMapStyle.json */; };
 		7F66A8BEFA8F151CF1397890 /* PendingSharedLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FACC90B0B873713F42DB22E /* PendingSharedLinkStore.swift */; };
 		834363BD092FA8393B0274F8 /* AlarmScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5E9B3D8C17EA8A30BEF503 /* AlarmScheduler.swift */; };
+		840C6E88D8E9206E7826D657 /* OrbSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13F238CB94415F2BA2AC4DF4 /* OrbSpec.swift */; };
 		85C1F17BA4A204B9FAD64FC0 /* ExpenseListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB2711532E17CBD08B29873 /* ExpenseListView.swift */; };
 		88F0BD210A6E68507174A9E0 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CB3D8B88019BCCC9AE7140D /* SyncEngine.swift */; };
 		8A5B3E462908B377E402461C /* DayEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC53B5FAD8D6AFD665BEF072 /* DayEditor.swift */; };
-		8D338AECF25C59E5D40858AD /* ThinkingOrbsKit in Frameworks */ = {isa = PBXBuildFile; productRef = 30859668C67FCEEA34149DBF /* ThinkingOrbsKit */; };
+		8BAB11F8CD2A919508908B1B /* Presets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CC408791A5A460E700D9B0F /* Presets.swift */; };
 		8D987F32B1F3204120D521DA /* CardImageURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E71023CBDA0960AF76B17AE /* CardImageURL.swift */; };
 		9038344B92E77A7B706449EF /* RouteCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB30A60EBABC73ACC172EF1 /* RouteCache.swift */; };
 		9068403E3B53DE6E8BA45DFF /* JournalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2257908B5B0D4672E0FD271 /* JournalModels.swift */; };
@@ -72,8 +78,9 @@
 		A92FD3B481DD54A4B24F93B3 /* TripSetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C42CC5E8251F33492311AC /* TripSetupSheet.swift */; };
 		AADAF1743D75ECEDE43DC8DC /* JournalMediaSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5BEF8FBB530519A885CB28 /* JournalMediaSupport.swift */; };
 		AB651682CAA79075E6E225E1 /* MapsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971BB2C1553DAD49063C4934 /* MapsTests.swift */; };
-		AB74B51337C2DCF204E44AA0 /* ThinkingOrbsKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4777D5D19EED9D085637FBDB /* ThinkingOrbsKit */; };
 		B0F43F3DFD03ED20D7B2CE48 /* TravelCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F5D705DE2E7F9662C9A578 /* TravelCompanionApp.swift */; };
+		B66AC424F51D6D527254777D /* Lattice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BB9A7A7A9CAACCFB318A18 /* Lattice.swift */; };
+		C653DF612DCEF56D8FC33442 /* Morph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81143AC25FD597D5D0AC83EC /* Morph.swift */; };
 		CBEEA65C97FD894797DEEF46 /* WalletEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBF3C1C03EE755977735724 /* WalletEditorView.swift */; };
 		D0E1EF0AD5FDC45E7E63724A /* AppleMapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F42D02E361B74E833454FBE1 /* AppleMapService.swift */; };
 		D1504380DCD8A82254554413 /* MemoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A762EA2F77A29FFD875DA223 /* MemoSection.swift */; };
@@ -81,6 +88,7 @@
 		D1C34A8978C74BF45F5D7C2D /* JourneyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */; };
 		DA870007AF58DAF77B192DCD /* NeonTodayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5337983395B60705321FDC /* NeonTodayMap.swift */; };
 		E670704D79E281B974DC5128 /* WalletCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD71E8A9B4EB9071A9830E8 /* WalletCrypto.swift */; };
+		E7D5EF13E50BCD8A2FF76A82 /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BDC9F2AD77F8654907C219 /* Core.swift */; };
 		E907DF43C051B0DAF088CE60 /* ExpenseEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768B5F4FCDC82CB0A5449464 /* ExpenseEditorView.swift */; };
 		ECD7126443B49BB19C646935 /* TodayWeather.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED684774368336D41506574B /* TodayWeather.swift */; };
 		ED5B127795A18F06919FE7A1 /* PlaceSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFFF65364CA027FE09B695E /* PlaceSearchView.swift */; };
@@ -127,10 +135,10 @@
 		052363166F7B2BC56DBDB352 /* MemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoTests.swift; sourceTree = "<group>"; };
 		07EC18374E8F4516FD09F006 /* ExternalLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLinkHandler.swift; sourceTree = "<group>"; };
 		0D4FDAB08CAD5BFF0161E7C6 /* SharedTripRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTripRepository.swift; sourceTree = "<group>"; };
+		13F238CB94415F2BA2AC4DF4 /* OrbSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbSpec.swift; sourceTree = "<group>"; };
 		166A7CE158BD23101732C46C /* TodayWeatherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWeatherTests.swift; sourceTree = "<group>"; };
 		1680BBEB0A853E9295127F80 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		16D3E600510D1900A40A2985 /* AITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AITests.swift; sourceTree = "<group>"; };
-		1752EF00730E2E267A1CC75D /* ThinkingOrbsKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ThinkingOrbsKit; path = Packages/ThinkingOrbsKit; sourceTree = SOURCE_ROOT; };
 		18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TravelCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B6DDEF3EF354A696B98AB2B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1BEF8DAF7AA93B2E6831EFED /* WalletCardScanModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCardScanModels.swift; sourceTree = "<group>"; };
@@ -138,6 +146,7 @@
 		1E33AD73866889EA77CCC85B /* AIExpenseConversationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIExpenseConversationSheet.swift; sourceTree = "<group>"; };
 		239E82715D8B09548A9B6AE2 /* ExpensesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpensesTests.swift; sourceTree = "<group>"; };
 		25896262E71560F5E5053CE3 /* GooeyPinDemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooeyPinDemoTests.swift; sourceTree = "<group>"; };
+		273744B5B086AC4E6E5D594D /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		297971AD9DCBEA57F1F1D5F7 /* CardLegPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLegPreference.swift; sourceTree = "<group>"; };
 		2FACC90B0B873713F42DB22E /* PendingSharedLinkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingSharedLinkStore.swift; sourceTree = "<group>"; };
 		2FEC5E8543BD6BF4F183C617 /* CameraPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPicker.swift; sourceTree = "<group>"; };
@@ -153,29 +162,37 @@
 		5172A532CF62EC36B6BC9BD9 /* TravelCardsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCardsTests.swift; sourceTree = "<group>"; };
 		520489DF3065E865856241C7 /* TravelCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TravelCompanion.entitlements; sourceTree = "<group>"; };
 		527D1567359E38E7955393A5 /* ItineraryChatCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItineraryChatCardView.swift; sourceTree = "<group>"; };
+		53BB9A7A7A9CAACCFB318A18 /* Lattice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lattice.swift; sourceTree = "<group>"; };
 		568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLibreTodayMap.swift; sourceTree = "<group>"; };
 		5B69CCD3DE0E2E85F11528FB /* CardDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDetailView.swift; sourceTree = "<group>"; };
 		5E71023CBDA0960AF76B17AE /* CardImageURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardImageURL.swift; sourceTree = "<group>"; };
 		5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoListEditor.swift; sourceTree = "<group>"; };
+		62DAD9C5EC9DFA223D8FC48E /* Web.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Web.swift; sourceTree = "<group>"; };
 		6313551B5AD4BD2AA24AE80E /* ExpenseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseModels.swift; sourceTree = "<group>"; };
 		660F4C444ECFE128677DA7F2 /* TravelCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TravelCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = AgentIconSprite.png; sourceTree = "<group>"; };
 		6B026B0199CFA746CE1293EA /* MemoAssistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistSheet.swift; sourceTree = "<group>"; };
 		6F8031EBAF1C17305F75B7FC /* MapLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinkHandler.swift; sourceTree = "<group>"; };
+		70E0EAF4D452EE0A5994419F /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
 		72EAFDA83E7A9A0A19462E9B /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		761B9EBCB409C232EF34AFD9 /* MemoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoModels.swift; sourceTree = "<group>"; };
 		768B5F4FCDC82CB0A5449464 /* ExpenseEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseEditorView.swift; sourceTree = "<group>"; };
 		76C42CC5E8251F33492311AC /* TripSetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripSetupSheet.swift; sourceTree = "<group>"; };
 		78BAC71530FADC8EED9D35C0 /* RouteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteSheet.swift; sourceTree = "<group>"; };
+		797A810C81679D3166F35AA3 /* Orbits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Orbits.swift; sourceTree = "<group>"; };
 		7B5842942547DFB60B2B196D /* AgentV2StreamParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2StreamParserTests.swift; sourceTree = "<group>"; };
 		7C1EEA02504CF36B48DB8165 /* WalletCardScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCardScanTests.swift; sourceTree = "<group>"; };
 		7C998B1C01614DB76665E7C5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7D05FB265C37B209B9DB4C4C /* AgentV2SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2SessionStore.swift; sourceTree = "<group>"; };
 		7D5BEF8FBB530519A885CB28 /* JournalMediaSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalMediaSupport.swift; sourceTree = "<group>"; };
 		80DE9C428D21C35C4F57930C /* MemoAssistModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistModels.swift; sourceTree = "<group>"; };
+		81143AC25FD597D5D0AC83EC /* Morph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Morph.swift; sourceTree = "<group>"; };
 		8A86FDF07921274643C9DA1E /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
 		8CB83218A06E8F8F9F34CA62 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
+		8CC408791A5A460E700D9B0F /* Presets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presets.swift; sourceTree = "<group>"; };
 		8CD253A87557EF495F2A1BAD /* AgentV2Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2Models.swift; sourceTree = "<group>"; };
+		8EC63787CDAF3EC5433776D5 /* ThinkingOrb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkingOrb.swift; sourceTree = "<group>"; };
+		91BDC9F2AD77F8654907C219 /* Core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core.swift; sourceTree = "<group>"; };
 		93705EA523BBFC35E34367CD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		971BB2C1553DAD49063C4934 /* MapsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapsTests.swift; sourceTree = "<group>"; };
 		9746A2C28B5596C5570E34B3 /* WalletModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletModels.swift; sourceTree = "<group>"; };
@@ -189,6 +206,7 @@
 		AB5337983395B60705321FDC /* NeonTodayMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeonTodayMap.swift; sourceTree = "<group>"; };
 		ACA45728502C29E3F4C3B71A /* WalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTests.swift; sourceTree = "<group>"; };
 		ADD71E8A9B4EB9071A9830E8 /* WalletCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCrypto.swift; sourceTree = "<group>"; };
+		AF2ACD9659CCEDB76209CDA2 /* Strands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Strands.swift; sourceTree = "<group>"; };
 		AFBD21BBCF210B3C99799519 /* AIItinerarySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIItinerarySheet.swift; sourceTree = "<group>"; };
 		B3DDFDEC94E6775C44F5D240 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B9631F4B29F35CB686EA9442 /* ReminderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderStore.swift; sourceTree = "<group>"; };
@@ -214,20 +232,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		26C1E7885120BBAF6600D1AF /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				AB74B51337C2DCF204E44AA0 /* ThinkingOrbsKit in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		F240D3B38F2C777A1CB81B03 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				EE22351C0FA0D396E24F2D34 /* MapLibre in Frameworks */,
-				8D338AECF25C59E5D40858AD /* ThinkingOrbsKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -341,6 +350,7 @@
 				1A2C7BE5B5420E79A864ADF3 /* Features */,
 				8BEE30AA0F8517CAF6A84CDA /* Supporting */,
 				89DE6AA88B89D2C3843D93ED /* UI */,
+				C1AA7AB96111070BCDF52494 /* Vendor */,
 			);
 			name = TravelCompanion;
 			path = Sources/TravelCompanion;
@@ -393,6 +403,24 @@
 			path = Supporting;
 			sourceTree = "<group>";
 		};
+		8E3B90568E90B78E40EBD17C /* ThinkingOrbsKit */ = {
+			isa = PBXGroup;
+			children = (
+				91BDC9F2AD77F8654907C219 /* Core.swift */,
+				53BB9A7A7A9CAACCFB318A18 /* Lattice.swift */,
+				273744B5B086AC4E6E5D594D /* LICENSE */,
+				81143AC25FD597D5D0AC83EC /* Morph.swift */,
+				797A810C81679D3166F35AA3 /* Orbits.swift */,
+				13F238CB94415F2BA2AC4DF4 /* OrbSpec.swift */,
+				8CC408791A5A460E700D9B0F /* Presets.swift */,
+				70E0EAF4D452EE0A5994419F /* Snapshot.swift */,
+				AF2ACD9659CCEDB76209CDA2 /* Strands.swift */,
+				8EC63787CDAF3EC5433776D5 /* ThinkingOrb.swift */,
+				62DAD9C5EC9DFA223D8FC48E /* Web.swift */,
+			);
+			path = ThinkingOrbsKit;
+			sourceTree = "<group>";
+		};
 		9468D44673A70336CA04FFCD /* Components */ = {
 			isa = PBXGroup;
 			children = (
@@ -409,14 +437,6 @@
 				18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		BB2C7AC2A2D0A6D4B13B70FE /* Packages */ = {
-			isa = PBXGroup;
-			children = (
-				1752EF00730E2E267A1CC75D /* ThinkingOrbsKit */,
-			);
-			path = Packages;
 			sourceTree = "<group>";
 		};
 		C12227DB86BAF3A591AB23A6 /* AI */ = {
@@ -442,6 +462,14 @@
 				9746A2C28B5596C5570E34B3 /* WalletModels.swift */,
 			);
 			path = Data;
+			sourceTree = "<group>";
+		};
+		C1AA7AB96111070BCDF52494 /* Vendor */ = {
+			isa = PBXGroup;
+			children = (
+				8E3B90568E90B78E40EBD17C /* ThinkingOrbsKit */,
+			);
+			path = Vendor;
 			sourceTree = "<group>";
 		};
 		F2C45ADCEC2C5101D8E819FC /* Expenses */ = {
@@ -472,7 +500,6 @@
 			isa = PBXGroup;
 			children = (
 				1B6DDEF3EF354A696B98AB2B /* Assets.xcassets */,
-				BB2C7AC2A2D0A6D4B13B70FE /* Packages */,
 				5C69AA7A6DF9DE8FFE78C294 /* TravelCompanion */,
 				256669ECEE44D7A686153F8E /* TravelCompanionShareExtension */,
 				0E160A4629FE9416B0458ED6 /* TravelCompanionTests */,
@@ -510,7 +537,6 @@
 			name = TravelCompanion;
 			packageProductDependencies = (
 				AC854E7F79A7B22A7D8C464E /* MapLibre */,
-				30859668C67FCEEA34149DBF /* ThinkingOrbsKit */,
 			);
 			productName = TravelCompanion;
 			productReference = 660F4C444ECFE128677DA7F2 /* TravelCompanion.app */;
@@ -539,7 +565,6 @@
 			buildConfigurationList = CF52BCCD679D000823C6AEC3 /* Build configuration list for PBXNativeTarget "TravelCompanionTests" */;
 			buildPhases = (
 				8524D19482F643DD26E8B056 /* Sources */,
-				26C1E7885120BBAF6600D1AF /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -548,7 +573,6 @@
 			);
 			name = TravelCompanionTests;
 			packageProductDependencies = (
-				4777D5D19EED9D085637FBDB /* ThinkingOrbsKit */,
 			);
 			productName = TravelCompanionTests;
 			productReference = 18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */;
@@ -583,7 +607,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
-				1147331AAA605A80C5519B12 /* XCLocalSwiftPackageReference "Packages/ThinkingOrbsKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
@@ -650,6 +673,7 @@
 				51ED2B038D4D774FE18AD7BF /* CardLegPreference.swift in Sources */,
 				F6771DB1BF02F36DE6AB4B6C /* CardPrice.swift in Sources */,
 				72682152301ACED0388DC82E /* ContentView.swift in Sources */,
+				E7D5EF13E50BCD8A2FF76A82 /* Core.swift in Sources */,
 				8A5B3E462908B377E402461C /* DayEditor.swift in Sources */,
 				E907DF43C051B0DAF088CE60 /* ExpenseEditorView.swift in Sources */,
 				85C1F17BA4A204B9FAD64FC0 /* ExpenseListView.swift in Sources */,
@@ -663,6 +687,7 @@
 				9068403E3B53DE6E8BA45DFF /* JournalModels.swift in Sources */,
 				D1C34A8978C74BF45F5D7C2D /* JourneyView.swift in Sources */,
 				36F9B0F26C4A95B17D31BEFF /* KeychainStore.swift in Sources */,
+				B66AC424F51D6D527254777D /* Lattice.swift in Sources */,
 				038861FECCE58D3B9FD8B931 /* MapLibreTodayMap.swift in Sources */,
 				67677659F4150C50C8F56A73 /* MapLinkHandler.swift in Sources */,
 				177856D24110CCC27193D232 /* MemoAssistModels.swift in Sources */,
@@ -670,16 +695,23 @@
 				01CF842454052FCA56C9E53F /* MemoListEditor.swift in Sources */,
 				1DE33419FCE05386856BAAE8 /* MemoModels.swift in Sources */,
 				D1504380DCD8A82254554413 /* MemoSection.swift in Sources */,
+				C653DF612DCEF56D8FC33442 /* Morph.swift in Sources */,
 				DA870007AF58DAF77B192DCD /* NeonTodayMap.swift in Sources */,
 				2352DBCC56E1620F5C39F1EA /* NotesView.swift in Sources */,
+				840C6E88D8E9206E7826D657 /* OrbSpec.swift in Sources */,
+				74BFF373189FC644CC611B11 /* Orbits.swift in Sources */,
 				7F66A8BEFA8F151CF1397890 /* PendingSharedLinkStore.swift in Sources */,
 				ED5B127795A18F06919FE7A1 /* PlaceSearchView.swift in Sources */,
+				8BAB11F8CD2A919508908B1B /* Presets.swift in Sources */,
 				2917A5166A857599388F1F69 /* ReminderStore.swift in Sources */,
 				9038344B92E77A7B706449EF /* RouteCache.swift in Sources */,
 				2EE79098752CF59BB7100B47 /* RouteSheet.swift in Sources */,
 				7965BC0AB89D1C07744D1D05 /* SharedModels.swift in Sources */,
 				55CDD3155EF90D3ACEE8E9B7 /* SharedTripRepository.swift in Sources */,
+				772366F2EDD5C9D0EDF2793C /* Snapshot.swift in Sources */,
+				5EAABCB747B23C65B3B07B25 /* Strands.swift in Sources */,
 				88F0BD210A6E68507174A9E0 /* SyncEngine.swift in Sources */,
+				13D51FAB6652A2895340E686 /* ThinkingOrb.swift in Sources */,
 				78220BFCF175DDD982D5EAD5 /* TodayView.swift in Sources */,
 				ECD7126443B49BB19C646935 /* TodayWeather.swift in Sources */,
 				93BBB6A1CAD3C3BF79AF4FEA /* TravelCardStyle.swift in Sources */,
@@ -693,6 +725,7 @@
 				CBEEA65C97FD894797DEEF46 /* WalletEditorView.swift in Sources */,
 				3AC7DDB5A89DD3829213AB76 /* WalletModels.swift in Sources */,
 				7979F0B770A26778ACB9A16F /* WalletView.swift in Sources */,
+				1FA344548F3B4C2F7087F66B /* Web.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1017,13 +1050,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		1147331AAA605A80C5519B12 /* XCLocalSwiftPackageReference "Packages/ThinkingOrbsKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/ThinkingOrbsKit;
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
 		3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1036,14 +1062,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		30859668C67FCEEA34149DBF /* ThinkingOrbsKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = ThinkingOrbsKit;
-		};
-		4777D5D19EED9D085637FBDB /* ThinkingOrbsKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = ThinkingOrbsKit;
-		};
 		AC854E7F79A7B22A7D8C464E /* MapLibre */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */;

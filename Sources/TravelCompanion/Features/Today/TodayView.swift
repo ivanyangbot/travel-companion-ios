@@ -32,40 +32,28 @@ struct TodayView: View {
 
     var body: some View {
         Group {
-            if let trip = syncEngine.trip {
-                if trip.isConfigured {
-                    let sorted = sortedDays(in: trip)
-                    if sorted.isEmpty {
-                        ContentUnavailableView(
-                            "还没有行程日期",
-                            systemImage: "calendar.badge.exclamationmark",
-                            description: Text("在「旅程」中添加日期与卡片后，这里会显示今日地图。")
-                        )
-                    } else {
-                        let baseIndex = baseDayIndex(in: sorted)
-                        let currentIndex = clampedDayIndex(sorted: sorted, baseIndex: baseIndex)
-                        mapContent(days: sorted, currentIndex: currentIndex, baseIndex: baseIndex)
-                    }
+            if let trip = syncEngine.trip, trip.isConfigured {
+                let sorted = sortedDays(in: trip)
+                if sorted.isEmpty {
+                    agentHome
                 } else {
-                    journeySetupPrompt(
-                        title: "先完成行程设置",
-                        description: "填写目的地、日期和币种后，这里会显示今日地图。"
-                    )
+                    let baseIndex = baseDayIndex(in: sorted)
+                    let currentIndex = clampedDayIndex(sorted: sorted, baseIndex: baseIndex)
+                    mapContent(days: sorted, currentIndex: currentIndex, baseIndex: baseIndex)
                 }
-            } else if case .failed(let message) = syncEngine.status {
-                ContentUnavailableView("无法加载共享行程", systemImage: "wifi.exclamationmark", description: Text(message))
-            } else if case .synced = syncEngine.status {
-                journeySetupPrompt(
-                    title: "还没有旅程",
-                    description: "创建第一段旅程后，就可以开始安排行程和查看今日地图。"
-                )
-            } else if case .localOnly = syncEngine.status {
-                journeySetupPrompt(
-                    title: "还没有旅程",
-                    description: "前往旅程页创建第一段本地旅程，即可开始规划。"
-                )
+            } else if syncEngine.trip == nil {
+                switch syncEngine.status {
+                case .failed(let message):
+                    ContentUnavailableView("无法加载共享行程", systemImage: "wifi.exclamationmark", description: Text(message))
+                case .loading, .syncing:
+                    ProgressView("正在打开共享行程…")
+                default:
+                    // 没有生效的行程（地图不显示）时，首页直接复用 Agent 页
+                    agentHome
+                }
             } else {
-                ProgressView("正在打开共享行程…")
+                // 行程存在但未完成设置：同样展示 Agent 页引导规划
+                agentHome
             }
         }
         .onAppear {
@@ -93,17 +81,11 @@ struct TodayView: View {
         .background(PrimaryTabPalette.background.ignoresSafeArea())
     }
 
-    private func journeySetupPrompt(title: String, description: String) -> some View {
-        ContentUnavailableView {
-            Label(title, systemImage: "map")
-        } description: {
-            Text(description)
-        } actions: {
-            Button("前往旅程") {
-                withAnimation { section = .itinerary }
-            }
-            .buttonStyle(.borderedProminent)
-        }
+    /// 无生效行程时的首页内容：复用 Agent 工作台，让用户直接开始对话规划。
+    /// 底部预留悬浮导航栏（60pt）与其 32pt 底边距的高度，避免输入框被遮挡。
+    private var agentHome: some View {
+        AgentWorkbenchView(syncEngine: syncEngine)
+            .padding(.bottom, 92)
     }
 
     @ViewBuilder

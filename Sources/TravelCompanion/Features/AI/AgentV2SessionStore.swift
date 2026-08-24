@@ -156,6 +156,7 @@ final class AgentV2SessionStore: ObservableObject {
     private var hasStagedResult = false
     private var stagedSummary: AgentV2Summary?
     private var stagedDraft: AgentV2Draft?
+    private var stagedProposal: AgentV2TripProposal?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -264,6 +265,7 @@ final class AgentV2SessionStore: ObservableObject {
         hasStagedResult = false
         stagedSummary = nil
         stagedDraft = nil
+        stagedProposal = nil
     }
 
     /// Atomically publishes the fully received turn. Unconfirmed candidates
@@ -334,6 +336,10 @@ final class AgentV2SessionStore: ObservableObject {
             }
             // A turn that produced no candidates/changes (pure Q&A) leaves the
             // previous unconfirmed draft intact instead of discarding it.
+            if let stagedProposal {
+                // 新一轮提案覆盖旧提案；未产出提案的轮次保留原有待确认提案。
+                completed.pendingProposal = stagedProposal
+            }
             session = completed
             save()
         }
@@ -381,6 +387,9 @@ final class AgentV2SessionStore: ObservableObject {
             var draft = stagedDraft ?? AgentV2Draft(candidates: [], changes: [])
             draft.changes = changes
             stagedDraft = draft
+        case .tripProposal(let proposal):
+            hasStagedResult = true
+            stagedProposal = proposal
         default: break
         }
     }
@@ -390,6 +399,7 @@ final class AgentV2SessionStore: ObservableObject {
         hasStagedResult = false
         stagedSummary = nil
         stagedDraft = nil
+        stagedProposal = nil
     }
 
     private func normalized(_ draft: AgentV2Draft) -> AgentV2Draft? {
@@ -433,6 +443,12 @@ final class AgentV2SessionStore: ObservableObject {
         session.summary = nil
         session.attachments = []
         session.lastTurnCandidateIDs = nil
+        save()
+    }
+
+    /// 用户确认提案并创建旅程后调用；此后的轮次回到旅程内（itinerary）模式。
+    func clearPendingProposal() {
+        session.pendingProposal = nil
         save()
     }
 

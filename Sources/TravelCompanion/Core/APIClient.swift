@@ -217,7 +217,7 @@ actor APIClient {
 
     /// Agent 欢迎页「可以这样问」的三条动态建议（``/v1/ai/trip-suggestions``）。
     /// 独立于 Agent v2 轮次管线的一次性调用；失败时由调用方回退到本地静态提示。
-    func fetchTripSuggestions(_ request: AITripSuggestionsRequest, tripID: Int) async throws -> [String] {
+    func fetchTripSuggestions(_ request: AITripSuggestionsRequest, tripID: Int?) async throws -> AITripSuggestionsResult {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/trip-suggestions"))
         urlRequest.httpMethod = "POST"
@@ -227,7 +227,7 @@ actor APIClient {
         let (data, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         try validate(response: httpResponse, data: data)
-        return try decoder.decode(APIEnvelope<AITripSuggestionsResult>.self, from: data).data.suggestions
+        return try decoder.decode(APIEnvelope<AITripSuggestionsResult>.self, from: data).data
     }
 
     /// Streaming variant of ``itineraryChat``. Returns an async stream of SSE
@@ -400,8 +400,9 @@ actor APIClient {
     }
 
     /// V2 Agent stream. Reasoning summaries remain ephemeral UI progress;
-    /// durable candidate patches use stable identifiers.
-    func agentV2Stream(_ payload: AgentV2TurnRequest, tripID: Int) async throws -> AsyncThrowingStream<AgentV2StreamEvent, Error> {
+    /// durable candidate patches use stable identifiers. `tripID` 为 nil 表示
+    /// plan_new 轮次（无旅程上下文），服务端不强制本接口的旅程鉴权。
+    func agentV2Stream(_ payload: AgentV2TurnRequest, tripID: Int?) async throws -> AsyncThrowingStream<AgentV2StreamEvent, Error> {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: "/v2/agent/turns/stream"))
         request.httpMethod = "POST"
@@ -490,6 +491,7 @@ actor APIClient {
             let patch = try decoder.decode(Patch.self, from: data)
             return .candidatePatch(id: patch.id, candidate: patch.candidate)
         case "change_set": return .changeSet(try decoder.decode([AgentV2Change].self, from: data))
+        case "trip_proposal": return .tripProposal(try decoder.decode(AgentV2TripProposal.self, from: data))
         case "fliggy_search_started": return .fliggySearchStarted(try decoder.decode(AgentV2FliggySearchStart.self, from: data))
         case "fliggy_search_completed": return .fliggySearchCompleted(try decoder.decode(AgentV2FliggySearchCompletion.self, from: data))
         case "done": return .done

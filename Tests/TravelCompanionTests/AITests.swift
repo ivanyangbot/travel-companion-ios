@@ -1,6 +1,5 @@
 import SwiftData
 import Foundation
-import ThinkingOrbsKit
 import UIKit
 import XCTest
 @testable import TravelCompanion
@@ -382,6 +381,37 @@ final class AITests: XCTestCase {
         XCTAssertEqual(try store.syncGroupIDs(for: 42)[groupID], 81)
     }
 
+    /// 无生效行程时建议请求带 mode=journey，且不需要 X-Trip-ID 头。
+    func testTripSuggestionsJourneyModeRequestOmitsTripHeader() async throws {
+        APIClientProtocolStub.requests = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [APIClientProtocolStub.self]
+        let client = APIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test")),
+            session: URLSession(configuration: configuration)
+        )
+        let request = AITripSuggestionsRequest(
+            mode: "journey",
+            destination: nil,
+            startDate: nil,
+            endDate: nil,
+            currency: nil,
+            preferences: nil,
+            existingItinerary: nil
+        )
+
+        let result = try await client.fetchTripSuggestions(request, tripID: nil)
+
+        XCTAssertEqual(result.suggestions.count, 3)
+        let sent = try XCTUnwrap(APIClientProtocolStub.requests.last)
+        XCTAssertEqual(sent.url?.path, "/v1/ai/trip-suggestions")
+        XCTAssertNil(sent.value(forHTTPHeaderField: "X-Trip-ID"))
+        // DTO 层面确认 journey 模式随请求编码（URLSession 会把 httpBody 转为
+        // stream，网络上不便直接断言）。
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        XCTAssertEqual(encoded["mode"] as? String, "journey")
+    }
+
     @MainActor
     func testPermanentFailureStopsBackgroundRetryAndRetainsConfirmedDraft() throws {
         let container = try ModelContainer(
@@ -400,61 +430,6 @@ final class AITests: XCTestCase {
     }
 }
 
-/// The thinking-orb icon follows the backend's ephemeral SSE `status` text
-/// (`app/routes/agent_v2.py`): each agent behaviour maps to a distinct
-/// `OrbState`. These cases pin every status string the server can emit.
-final class AgentThinkingOrbStateTests: XCTestCase {
-    func testNilStatusFallsBackToThinking() {
-        XCTAssertEqual(agentThinkingOrbState(for: nil), .breathing)
-    }
-
-    func testUnderstandingUserIntentIsListening() {
-        XCTAssertEqual(agentThinkingOrbState(for: "正在理解你的需求…"), .listening)
-    }
-
-    func testInitialOnlineCheckIsSearching() {
-        XCTAssertEqual(agentThinkingOrbState(for: "正在联网核对攻略并生成建议…"), .searching)
-    }
-
-    func testAppleMapsVerificationIsSearching() {
-        XCTAssertEqual(agentThinkingOrbState(for: "正在通过 Apple Maps 核对 婆罗浮屠…"), .searching)
-        XCTAssertEqual(agentThinkingOrbState(for: "正在通过 Apple Maps 核对地点…"), .searching)
-    }
-
-    func testReadingXiaohongshuNoteIsConnecting() {
-        XCTAssertEqual(agentThinkingOrbState(for: "正在读取小红书公开笔记…"), .connecting)
-    }
-
-    func testIdentifyingPlacesIsSolving() {
-        XCTAssertEqual(agentThinkingOrbState(for: "笔记读取完成，正在识别可定位地点…"), .solving)
-        XCTAssertEqual(agentThinkingOrbState(for: "正在并行验证候选地点…"), .solving)
-    }
-
-    func testOrganizingResultsIsWeaving() {
-        XCTAssertEqual(agentThinkingOrbState(for: "笔记已解析，正在整理其中的地点…"), .weaving)
-        XCTAssertEqual(agentThinkingOrbState(for: "小红书搜索结果已返回，正在挑选高质量笔记…"), .weaving)
-        XCTAssertEqual(agentThinkingOrbState(for: "飞猪结果已返回，继续整理候选…"), .weaving)
-    }
-
-    func testComposingCandidatesIsComposing() {
-        XCTAssertEqual(agentThinkingOrbState(for: "地点结果已返回，继续生成候选卡…"), .composing)
-        XCTAssertEqual(agentThinkingOrbState(for: "豆包搜索结果已返回，继续生成候选卡…"), .composing)
-        XCTAssertEqual(agentThinkingOrbState(for: "实拍图片已返回，继续生成候选卡…"), .composing)
-    }
-
-    func testSearchToolCallsAreSearching() {
-        XCTAssertEqual(agentThinkingOrbState(for: "正在搜索小红书相关攻略…"), .searching)
-        XCTAssertEqual(agentThinkingOrbState(for: "正在通过豆包搜索攻略信息…"), .searching)
-        XCTAssertEqual(agentThinkingOrbState(for: "正在通过豆包搜索实拍图片…"), .searching)
-        XCTAssertEqual(agentThinkingOrbState(for: "正在通过飞猪查询酒店实时价格…"), .searching)
-        XCTAssertEqual(agentThinkingOrbState(for: "正在通过飞猪查询实时库存…"), .searching)
-    }
-
-    func testUnknownStatusFallsBackToThinking() {
-        XCTAssertEqual(agentThinkingOrbState(for: "某种未预见的状态…"), .breathing)
-    }
-}
-
 private final class APIClientProtocolStub: URLProtocol {
     nonisolated(unsafe) static var requests: [URLRequest] = []
 
@@ -465,9 +440,15 @@ private final class APIClientProtocolStub: URLProtocol {
         Self.requests.append(request)
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        let body = request.url?.path == "/v1/journal"
-            ? "{\"data\":{\"groups\":[],\"entries\":[]}}"
-            : "{\"meta\":{\"tripVersion\":8,\"operationId\":null,\"conflict\":false,\"serverUpdatedAt\":\"2026-10-01T00:00:00Z\"}}"
+        let body: String
+        switch request.url?.path {
+        case "/v1/journal":
+            body = "{\"data\":{\"groups\":[],\"entries\":[]}}"
+        case "/v1/ai/trip-suggestions":
+            body = "{\"data\":{\"suggestions\":[\"甲\",\"乙\",\"丙\"],\"icons\":[\"sparkles\",\"sparkles\",\"sparkles\"]}}"
+        default:
+            body = "{\"meta\":{\"tripVersion\":8,\"operationId\":null,\"conflict\":false,\"serverUpdatedAt\":\"2026-10-01T00:00:00Z\"}}"
+        }
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
