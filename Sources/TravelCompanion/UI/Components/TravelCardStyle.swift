@@ -107,16 +107,80 @@ struct AgentIntroASCIIBackgroundView: View {
     }
 }
 
+/// 地球自转控制器：自动匀速自转 + 用户沿赤道（水平）拖动的相位偏移。
+/// 纯可变状态、不经 SwiftUI 观察——地球视图的 TimelineView 以 30fps 重绘，
+/// 拖动更新最迟下一帧呈现。把同一实例注入欢迎页大地球与对话页英雄位，
+/// 拖动相位即可跨视图连续（matched 变形时旋转不跳变）。
+///
+/// 连续性设计：拖动期间自动分量完全冻结（rotation 只返回 userPhase），
+/// 抓取瞬间把此前累计的自动分量一次性并入相位、松手时把零点重置为当前
+/// 墙钟——抓取、拖动、松手三个边界都严格连续。不使用 DragGesture 的
+/// value.time 折叠时间：其语义在不同系统版本上并不稳定，一旦与真实时钟
+/// 有偏差，拖动期间渲染出的「自动蠕变」会在松手重置零点时整体丢失，地
+/// 球跳回拖动前的相位（即「松手后不从松手位置继续旋转」）。
+final class AgentGlobeSpin {
+    /// 自动自转角速度（弧度/秒），与最初的 0.35 rad/s 一致。
+    private static let autoSpeed: Double = 0.35
+    /// 渲染器中球体半径系数（min 边 / 2 × 0.94）：拖动位移换算旋转弧度用，
+    /// 让赤道上的表面点与手指同速移动。
+    private static let radiusFactor: Double = 0.94
+
+    /// 自动分量的计时零点（上次拖动结束的时刻）。
+    private var epoch: Date = .now
+    /// 用户拖动累计的旋转相位（弧度）。
+    private(set) var userPhase: Double = 0
+    /// 是否正在拖动：拖动期间自动分量冻结，rotation 只返回用户相位。
+    private var isDragging = false
+    /// 上一次拖动事件的水平位移（增量换算用）。
+    private var lastDragX: CGFloat = 0
+
+    /// date 时刻的累计旋转角：拖动中＝用户相位；松手后＝用户相位 + 自
+    /// 松手时刻起算的自动分量。
+    func rotation(at date: Date) -> Double {
+        isDragging
+            ? userPhase
+            : date.timeIntervalSince(epoch) * Self.autoSpeed + userPhase
+    }
+
+    /// 拖动跟随：首个事件先把此前累计的自动分量并入相位（无缝接管，之后
+    /// 自动分量冻结），每个事件按水平位移增量换算弧度。
+    func drag(translation: CGSize, globeDiameter: CGFloat) {
+        if !isDragging {
+            userPhase += Date.now.timeIntervalSince(epoch) * Self.autoSpeed
+            isDragging = true
+        }
+        let radius = max(1, Double(globeDiameter) / 2 * Self.radiusFactor)
+        userPhase += Double(translation.width - lastDragX) / radius
+        lastDragX = translation.width
+    }
+
+    /// 拖动结束：零点重置为当前墙钟，从松手位置的相位继续自动自转。
+    func endDrag() {
+        guard isDragging else { return }
+        lastDragX = 0
+        isDragging = false
+        epoch = .now
+    }
+}
+
 /// 旋转 ASCII 地球：贴图与昼夜混合参考 globe-master（真实地球贴图 +
 /// 顶部光源昼夜过渡），字符本体附着在 Fibonacci 球面采样点上，
 /// 经自转与地轴倾角变换后做透视投影，随深度产生缩放与透明度衰减。
+/// 支持沿赤道拖动：水平拖动直接旋转球体、方向跟手，拖动期间自动自转
+/// 冻结，松手后从当前角度继续。
 struct AgentIntroGlobeView: View {
     let diameter: CGFloat
+    /// 自转/拖动状态；nil 时使用内部自建实例（Demo 等无跨视图连续性场景）。
+    var spin: AgentGlobeSpin? = nil
+
+    @State private var ownSpin = AgentGlobeSpin()
+
+    private var activeSpin: AgentGlobeSpin { spin ?? ownSpin }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1 / 30)) { context in
             Canvas { canvas, size in
-                let rotation = (context.date.timeIntervalSince1970 * 0.35)
+                let rotation = activeSpin.rotation(at: context.date)
                     .truncatingRemainder(dividingBy: .pi * 2)
                 AgentIntroGlobeRenderer.draw(
                     context: &canvas,
@@ -126,7 +190,29 @@ struct AgentIntroGlobeView: View {
             }
         }
         .frame(width: diameter, height: diameter)
-        .accessibilityLabel("旋转的 ASCII 地球")
+        .globeEquatorDrag(spin: activeSpin, diameter: diameter)
+        .accessibilityLabel("旋转的 ASCII 地球，可左右拖动")
+    }
+}
+
+extension View {
+    /// 地球沿赤道拖动手势：水平位移按球面半径换算为自转角（表面点跟手
+    /// 同速），命中区收窄到圆形。用 simultaneousGesture 与外层 ScrollView
+    /// 的竖直滚动互不抢占——竖直滑动照常滚动页面，水平滑动只转地球。
+    func globeEquatorDrag(spin: AgentGlobeSpin, diameter: CGFloat) -> some View {
+        contentShape(Circle())
+            .simultaneousGesture(
+                DragGesture()
+                    .onChanged { value in
+                        spin.drag(translation: value.translation, globeDiameter: diameter)
+                    }
+                    .onEnded { value in
+                        // 松手前的最后一段位移也计入（onEnded 的 translation
+                        // 是最终累计值），再从当前角度恢复自动自转。
+                        spin.drag(translation: value.translation, globeDiameter: diameter)
+                        spin.endDrag()
+                    }
+            )
     }
 }
 
@@ -182,6 +268,160 @@ enum AgentIntroGlobeRenderer {
                     .foregroundStyle(PrimaryTabPalette.accent.opacity(0.4 + 0.6 * depth)),
                 at: CGPoint(x: centerX + rotatedX * radius, y: centerY - tiltedY * radius)
             )
+        }
+    }
+}
+
+/// ASCII 思考 orb 渲染器：与 Vendor/ThinkingOrbsKit 共用同一套引擎
+/// （resolvePreset + orbFrame），把圆点画成等宽 "." 字符、连线按线段
+/// 绘制。字号与墨色都对齐 ASCII 地球的语言——主题橙、透明度随引擎的
+/// 深度墨值变化、字号夹取在地球字符的量级——供顶部英雄位在地球与思考
+/// 动效之间无痕交叉溶解。
+enum AgentIntroOrbRenderer {
+    /// 点半径 → 字号的比例（64pt 预设坐标系）：多数点半径在 0.3–1.6 之间，
+    /// 该比例让句点墨迹落在地球字符（约 12pt）的量级附近。
+    private static let glyphScale: Double = 5.5
+    /// 字号夹取（预设坐标系）：远端小点不缩成亚像素，近端大点不糊成团。
+    private static let fontSizeRange: ClosedRange<Double> = 3.5...9
+    /// "." 墨迹贴着基线，位于文本包围盒中心之下；锚点下移让句点恰好
+    /// 落在引擎给出的点坐标上。
+    private static let periodAnchor = UnitPoint(x: 0.5, y: 0.75)
+
+    static func draw(
+        into context: inout GraphicsContext,
+        state: OrbState,
+        clock: Double,
+        tint: Color,
+        alpha: Double = 1
+    ) {
+        guard alpha > 0.01 else { return }
+        let orbSize = OrbSize.px64
+        let preset = resolvePreset(state, orbSize)
+        let frame = orbFrame(preset, size: orbSize.value, t: clock * preset.speed)
+        // 连线先画，点叠在线上（与 ThinkingOrb 的绘制顺序一致）。
+        for line in frame.lines {
+            var path = Path()
+            path.move(to: CGPoint(x: line.x1, y: line.y1))
+            path.addLine(to: CGPoint(x: line.x2, y: line.y2))
+            context.stroke(
+                path,
+                with: .color(tint.opacity(inkAlpha(line.white, line.a * alpha))),
+                lineWidth: line.w
+            )
+        }
+        for dot in frame.dots {
+            let fontSize = min(fontSizeRange.upperBound, max(fontSizeRange.lowerBound, dot.r * glyphScale))
+            context.draw(
+                Text(".")
+                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                    .foregroundStyle(tint.opacity(inkAlpha(dot.white, dot.a * alpha))),
+                at: CGPoint(x: dot.x, y: dot.y),
+                anchor: periodAnchor
+            )
+        }
+    }
+
+    /// 引擎墨值（0 = 纸上最深的墨，暗色主题按亮度镜像）映射为透明度：
+    /// 越亮的点越实，保底 0.4 维持云团可读。
+    private static func inkAlpha(_ white: Double, _ alpha: Double) -> Double {
+        let brightness = 1 - min(1, max(0, white))
+        return min(1, max(0, alpha * (0.4 + 0.6 * brightness)))
+    }
+}
+
+/// 对话页顶部英雄位：ASCII 地球与 ASCII 思考 orb 在同一个 Canvas 内交叉
+/// 溶解——共用主题橙、等宽字符与相近字号，视觉上是同一物体在两种动效间
+/// 渐变，而非两个图标的切换。thinkingState 为 nil 时只呈现地球；变化时
+/// 旧视觉淡出并轻微放大、新视觉自 0.94 缩放着淡入，进度由 TimelineView
+/// 的帧时钟驱动（不经过 SwiftUI 动画），Canvas 每帧都能取到连续中间值。
+struct AgentHeroGlobeView: View {
+    /// 当前思考状态（nil = 旋转地球）。
+    var thinkingState: OrbState?
+    let diameter: CGFloat
+    /// 自转/拖动状态；与欢迎页大地球共用同一实例时，拖动相位跨视图连续。
+    var spin: AgentGlobeSpin? = nil
+
+    @State private var ownSpin = AgentGlobeSpin()
+    @State private var previousThinkingState: OrbState?
+    @State private var transitionStartedAt: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// 显式构造器：@State 私有属性会让合成的 memberwise init 一并变私
+    /// 有，跨文件调用（AgentHomeView 等）需要这个公开签名。
+    init(thinkingState: OrbState?, diameter: CGFloat, spin: AgentGlobeSpin? = nil) {
+        self.thinkingState = thinkingState
+        self.diameter = diameter
+        self.spin = spin
+    }
+
+    /// 交叉溶解时长（秒）。
+    private static let crossfadeDuration: Double = 0.55
+
+    private var activeSpin: AgentGlobeSpin { spin ?? ownSpin }
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Canvas(rendersAsynchronously: false) { context, size in
+                let date = timeline.date
+                let blend = blend(at: date)
+                drawLayer(
+                    previousThinkingState, into: context, size: size, date: date,
+                    alpha: 1 - blend, scale: 1 + 0.06 * blend
+                )
+                drawLayer(
+                    thinkingState, into: context, size: size, date: date,
+                    alpha: blend, scale: 0.94 + 0.06 * blend
+                )
+            }
+        }
+        .frame(width: diameter, height: diameter)
+        // 地球呈现期间支持沿赤道拖动（思考 orb 不受拖动影响）。
+        .globeEquatorDrag(spin: activeSpin, diameter: diameter)
+        .onChange(of: thinkingState) { oldValue, newValue in
+            guard oldValue != newValue else { return }
+            previousThinkingState = oldValue
+            transitionStartedAt = .now
+        }
+        .accessibilityElement()
+        .accessibilityLabel(thinkingState?.label ?? "旋转的 ASCII 地球，可左右拖动")
+    }
+
+    /// 溶解进度（smoothstep 缓动，起止速度为 0）；无过渡或用户开启
+    /// 「减弱动态效果」时恒为 1（直接呈现当前视觉）。
+    private func blend(at date: Date) -> Double {
+        guard !reduceMotion, let start = transitionStartedAt else { return 1 }
+        let progress = min(1, max(0, date.timeIntervalSince(start) / Self.crossfadeDuration))
+        return progress * progress * (3 - 2 * progress)
+    }
+
+    /// 画一层视觉：nil = 旋转地球（复用 AgentIntroGlobeRenderer，旋转来自
+    /// spin 实例——与 AgentIntroGlobeView 共用时从欢迎页 matched 变形过来
+    /// 相位连续），非 nil = 对应状态的 ASCII 思考 orb（画在 64pt 预设坐标
+    /// 系里再整体缩放到画布，保持矢量清晰）。
+    private func drawLayer(
+        _ state: OrbState?,
+        into context: GraphicsContext,
+        size: CGSize,
+        date: Date,
+        alpha: Double,
+        scale: Double
+    ) {
+        guard alpha > 0.01 else { return }
+        var context = context
+        if scale != 1 {
+            context.translateBy(x: size.width / 2, y: size.height / 2)
+            context.scaleBy(x: scale, y: scale)
+            context.translateBy(x: -size.width / 2, y: -size.height / 2)
+        }
+        if let state {
+            let zoom = min(size.width, size.height) / OrbSize.px64.value
+            context.scaleBy(x: zoom, y: zoom)
+            let clock = reduceMotion ? OrbSpec.reducedMotionT : date.timeIntervalSinceReferenceDate
+            AgentIntroOrbRenderer.draw(into: &context, state: state, clock: clock, tint: PrimaryTabPalette.accent, alpha: alpha)
+        } else {
+            context.opacity *= alpha
+            let rotation = activeSpin.rotation(at: date).truncatingRemainder(dividingBy: .pi * 2)
+            AgentIntroGlobeRenderer.draw(context: &context, size: size, rotation: rotation)
         }
     }
 }

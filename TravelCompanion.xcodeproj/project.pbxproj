@@ -74,6 +74,26 @@
 		9FA52E9035113E2F77D140D7 /* AgentHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C82FBF8EC96938C50799C4 /* AgentHomeView.swift */; };
 		9FD973AC094F885DBE095C44 /* CardDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B69CCD3DE0E2E85F11528FB /* CardDetailView.swift */; };
 		A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */ = {isa = PBXBuildFile; fileRef = 6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */; };
+		A84150ACA89F0A6C9183D624 /* dest-amalfi.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 9BF0B5A27BD004F2EE144939 /* dest-amalfi.jpg */; };
+		7EA1FF52D436EF663F046788 /* dest-bali.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 9615FB38970BA4CCB9DAEB41 /* dest-bali.jpg */; };
+		7BCA5CAC1EEE23822A90B572 /* dest-cappadocia.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5DB3831B3CA3ECEBADF64C46 /* dest-cappadocia.jpg */; };
+		4333C802AC369F48FCBBB66D /* dest-chiangmai.jpg in Resources */ = {isa = PBXBuildFile; fileRef = D435F39EEA722D977623B5D6 /* dest-chiangmai.jpg */; };
+		0602CE36E74B2AF854B7C4F9 /* dest-dali.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 9B473092E42FB173A5F3A87E /* dest-dali.jpg */; };
+		E3796F112BED816E626B09A1 /* dest-hokkaido.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 560C82A03DD686B27C02392F /* dest-hokkaido.jpg */; };
+		0AF3A321F4A9E4A6BEF4DF47 /* dest-iceland.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 3B6AC046421C5235DF729DB9 /* dest-iceland.jpg */; };
+		F9B7AA8035FE2DD3A37A6F15 /* dest-kanas.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA89AB790974468228C37ED3 /* dest-kanas.jpg */; };
+		5702B4DF7F6BFFDEED9614E8 /* dest-komodo.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 7DF4F6F9906FFD20D7FBD712 /* dest-komodo.jpg */; };
+		07CB4C91ABE6C4C8BBCFAE62 /* dest-kyoto.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 4B6A4523A2188FA16A38F689 /* dest-kyoto.jpg */; };
+		2FA9FE2A8369D4E47D5DF413 /* dest-machupicchu.jpg in Resources */ = {isa = PBXBuildFile; fileRef = A445A5B1EBDA43B0350FA32F /* dest-machupicchu.jpg */; };
+		D6A4FC3ACEFF5BE8E19B3A32 /* dest-masai-mara.jpg in Resources */ = {isa = PBXBuildFile; fileRef = CAB3E96503422541CEDB14F1 /* dest-masai-mara.jpg */; };
+		2E61A5549E88E36987DBB81B /* dest-morocco.jpg in Resources */ = {isa = PBXBuildFile; fileRef = B1BDDF3EFEFAC2D88B71B206 /* dest-morocco.jpg */; };
+		9C5CC5CFC64EB50600E5656F /* dest-newzealand.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 38CD2215E5DD2AD0013793CE /* dest-newzealand.jpg */; };
+		7275B1D90773974C059B71F5 /* dest-norway.jpg in Resources */ = {isa = PBXBuildFile; fileRef = DEC9807DD21E63C6E164DEBA /* dest-norway.jpg */; };
+		A81CDCD24391AAC0D11FD7F1 /* dest-palau.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 7384FE214E9CFA0E7EC8D8E6 /* dest-palau.jpg */; };
+		A4D02FF4D312A50590E1C37B /* dest-sahara.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 9229F02DE9D8B57E4FC1A5E8 /* dest-sahara.jpg */; };
+		FD092EE47A419F19F45496DC /* dest-santorini.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 3D4488EE3C86BC8A9E69879C /* dest-santorini.jpg */; };
+		FCB752E134A366FB027FA181 /* dest-switzerland.jpg in Resources */ = {isa = PBXBuildFile; fileRef = F66A0003C1524A85DF99CBC5 /* dest-switzerland.jpg */; };
+		4E5C2923828CF6FD47B8F71E /* dest-tuscany.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5C2F600E41D7891DB843DD06 /* dest-tuscany.jpg */; };
 		A8364023D2EC1516D5945D50 /* ExpenseSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE7AC844A5A5929E9C18F8D /* ExpenseSummaryView.swift */; };
 		A85A5EA57496C62193E16781 /* ExpensesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239E82715D8B09548A9B6AE2 /* ExpensesTests.swift */; };
 		A92FD3B481DD54A4B24F93B3 /* TripSetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C42CC5E8251F33492311AC /* TripSetupSheet.swift */; };
@@ -172,6 +192,26 @@
 		6313551B5AD4BD2AA24AE80E /* ExpenseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseModels.swift; sourceTree = "<group>"; };
 		660F4C444ECFE128677DA7F2 /* TravelCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TravelCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = AgentIconSprite.png; sourceTree = "<group>"; };
+		9BF0B5A27BD004F2EE144939 /* dest-amalfi.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-amalfi.jpg; sourceTree = "<group>"; };
+		9615FB38970BA4CCB9DAEB41 /* dest-bali.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-bali.jpg; sourceTree = "<group>"; };
+		5DB3831B3CA3ECEBADF64C46 /* dest-cappadocia.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-cappadocia.jpg; sourceTree = "<group>"; };
+		D435F39EEA722D977623B5D6 /* dest-chiangmai.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-chiangmai.jpg; sourceTree = "<group>"; };
+		9B473092E42FB173A5F3A87E /* dest-dali.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-dali.jpg; sourceTree = "<group>"; };
+		560C82A03DD686B27C02392F /* dest-hokkaido.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-hokkaido.jpg; sourceTree = "<group>"; };
+		3B6AC046421C5235DF729DB9 /* dest-iceland.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-iceland.jpg; sourceTree = "<group>"; };
+		FA89AB790974468228C37ED3 /* dest-kanas.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-kanas.jpg; sourceTree = "<group>"; };
+		7DF4F6F9906FFD20D7FBD712 /* dest-komodo.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-komodo.jpg; sourceTree = "<group>"; };
+		4B6A4523A2188FA16A38F689 /* dest-kyoto.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-kyoto.jpg; sourceTree = "<group>"; };
+		A445A5B1EBDA43B0350FA32F /* dest-machupicchu.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-machupicchu.jpg; sourceTree = "<group>"; };
+		CAB3E96503422541CEDB14F1 /* dest-masai-mara.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-masai-mara.jpg; sourceTree = "<group>"; };
+		B1BDDF3EFEFAC2D88B71B206 /* dest-morocco.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-morocco.jpg; sourceTree = "<group>"; };
+		38CD2215E5DD2AD0013793CE /* dest-newzealand.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-newzealand.jpg; sourceTree = "<group>"; };
+		DEC9807DD21E63C6E164DEBA /* dest-norway.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-norway.jpg; sourceTree = "<group>"; };
+		7384FE214E9CFA0E7EC8D8E6 /* dest-palau.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-palau.jpg; sourceTree = "<group>"; };
+		9229F02DE9D8B57E4FC1A5E8 /* dest-sahara.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-sahara.jpg; sourceTree = "<group>"; };
+		3D4488EE3C86BC8A9E69879C /* dest-santorini.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-santorini.jpg; sourceTree = "<group>"; };
+		F66A0003C1524A85DF99CBC5 /* dest-switzerland.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-switzerland.jpg; sourceTree = "<group>"; };
+		5C2F600E41D7891DB843DD06 /* dest-tuscany.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-tuscany.jpg; sourceTree = "<group>"; };
 		6B026B0199CFA746CE1293EA /* MemoAssistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistSheet.swift; sourceTree = "<group>"; };
 		6F8031EBAF1C17305F75B7FC /* MapLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinkHandler.swift; sourceTree = "<group>"; };
 		70E0EAF4D452EE0A5994419F /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
@@ -393,10 +433,38 @@
 			path = UI;
 			sourceTree = "<group>";
 		};
+		D74B563C946657A49A7AB530 /* DestinationImages */ = {
+			isa = PBXGroup;
+			children = (
+				9BF0B5A27BD004F2EE144939 /* dest-amalfi.jpg */,
+				9615FB38970BA4CCB9DAEB41 /* dest-bali.jpg */,
+				5DB3831B3CA3ECEBADF64C46 /* dest-cappadocia.jpg */,
+				D435F39EEA722D977623B5D6 /* dest-chiangmai.jpg */,
+				9B473092E42FB173A5F3A87E /* dest-dali.jpg */,
+				560C82A03DD686B27C02392F /* dest-hokkaido.jpg */,
+				3B6AC046421C5235DF729DB9 /* dest-iceland.jpg */,
+				FA89AB790974468228C37ED3 /* dest-kanas.jpg */,
+				7DF4F6F9906FFD20D7FBD712 /* dest-komodo.jpg */,
+				4B6A4523A2188FA16A38F689 /* dest-kyoto.jpg */,
+				A445A5B1EBDA43B0350FA32F /* dest-machupicchu.jpg */,
+				CAB3E96503422541CEDB14F1 /* dest-masai-mara.jpg */,
+				B1BDDF3EFEFAC2D88B71B206 /* dest-morocco.jpg */,
+				38CD2215E5DD2AD0013793CE /* dest-newzealand.jpg */,
+				DEC9807DD21E63C6E164DEBA /* dest-norway.jpg */,
+				7384FE214E9CFA0E7EC8D8E6 /* dest-palau.jpg */,
+				9229F02DE9D8B57E4FC1A5E8 /* dest-sahara.jpg */,
+				3D4488EE3C86BC8A9E69879C /* dest-santorini.jpg */,
+				F66A0003C1524A85DF99CBC5 /* dest-switzerland.jpg */,
+				5C2F600E41D7891DB843DD06 /* dest-tuscany.jpg */,
+			);
+			path = DestinationImages;
+			sourceTree = "<group>";
+		};
 		8BEE30AA0F8517CAF6A84CDA /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
 				6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */,
+				D74B563C946657A49A7AB530 /* DestinationImages */,
 				7C998B1C01614DB76665E7C5 /* Info.plist */,
 				ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */,
 				F06077E1F953BE92E1D0733F /* TodayMapStyle.json */,
@@ -622,6 +690,26 @@
 			buildActionMask = 2147483647;
 			files = (
 				A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */,
+				A84150ACA89F0A6C9183D624 /* dest-amalfi.jpg in Resources */,
+				7EA1FF52D436EF663F046788 /* dest-bali.jpg in Resources */,
+				7BCA5CAC1EEE23822A90B572 /* dest-cappadocia.jpg in Resources */,
+				4333C802AC369F48FCBBB66D /* dest-chiangmai.jpg in Resources */,
+				0602CE36E74B2AF854B7C4F9 /* dest-dali.jpg in Resources */,
+				E3796F112BED816E626B09A1 /* dest-hokkaido.jpg in Resources */,
+				0AF3A321F4A9E4A6BEF4DF47 /* dest-iceland.jpg in Resources */,
+				F9B7AA8035FE2DD3A37A6F15 /* dest-kanas.jpg in Resources */,
+				5702B4DF7F6BFFDEED9614E8 /* dest-komodo.jpg in Resources */,
+				07CB4C91ABE6C4C8BBCFAE62 /* dest-kyoto.jpg in Resources */,
+				2FA9FE2A8369D4E47D5DF413 /* dest-machupicchu.jpg in Resources */,
+				D6A4FC3ACEFF5BE8E19B3A32 /* dest-masai-mara.jpg in Resources */,
+				2E61A5549E88E36987DBB81B /* dest-morocco.jpg in Resources */,
+				9C5CC5CFC64EB50600E5656F /* dest-newzealand.jpg in Resources */,
+				7275B1D90773974C059B71F5 /* dest-norway.jpg in Resources */,
+				A81CDCD24391AAC0D11FD7F1 /* dest-palau.jpg in Resources */,
+				A4D02FF4D312A50590E1C37B /* dest-sahara.jpg in Resources */,
+				FD092EE47A419F19F45496DC /* dest-santorini.jpg in Resources */,
+				FCB752E134A366FB027FA181 /* dest-switzerland.jpg in Resources */,
+				4E5C2923828CF6FD47B8F71E /* dest-tuscany.jpg in Resources */,
 				F9259F0C412752FC39352154 /* Assets.xcassets in Resources */,
 				460CDC18128838A78852D316 /* PrivacyInfo.xcprivacy in Resources */,
 				7CAAC9F78ACB912B7166C2E2 /* TodayMapStyle.json in Resources */,
@@ -834,7 +922,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 40;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -937,7 +1025,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 40;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;

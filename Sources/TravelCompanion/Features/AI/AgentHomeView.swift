@@ -13,6 +13,17 @@ struct AgentHomeHidesTabBarKey: PreferenceKey {
     }
 }
 
+/// 首页正在展示 AgentHomeView（无生效行程的欢迎页）时向上声明；
+/// ContentView 读取后隐藏悬浮 tab 栏右侧的 Agent 入口按钮——当前页面
+/// 本身就是 Agent，再放一个入口是重复的。
+struct AgentHomeActiveKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = nextValue() || value
+    }
+}
+
 /// 首页（无生效行程时）内嵌的 Agent 页：从 AgentWorkbenchView 复制而来，
 /// 供首页场景独立调整，与 Agent 主页面互不影响。草稿同样保持在本地，
 /// 用户明确选择并确认后才写入行程。
@@ -46,19 +57,82 @@ struct AgentHomeView: View {
         ("想要躺平慢游，还是特种兵打卡？", "节奏", "躺平慢游", "特种兵打卡"),
         ("预算上更偏向哪一边？", "预算", "精打细算", "品质优先")
     ]
-    /// 右侧输入入口底部滚动展示的目的地灵感（附对应国家的国旗 emoji），
-    /// 循环向上翻滚切换。
-    private let inspirationSuggestions: [(name: String, flag: String)] = [
-        ("巴厘岛", "🇮🇩"), ("马赛马拉", "🇰🇪"), ("京都", "🇯🇵"), ("冰岛", "🇮🇸"),
-        ("圣托里尼", "🇬🇷"), ("清迈", "🇹🇭"), ("新西兰", "🇳🇿"), ("摩洛哥", "🇲🇦"),
-        ("瑞士", "🇨🇭"), ("挪威", "🇳🇴"), ("卡帕多奇亚", "🇹🇷"), ("马丘比丘", "🇵🇪"),
-        ("撒哈拉", "🇩🇿"), ("北海道", "🇯🇵"), ("大理", "🇨🇳"), ("喀纳斯", "🇨🇳"),
-        ("帕劳", "🇵🇼"), ("科莫多", "🇮🇩"), ("托斯卡纳", "🇮🇹"), ("阿马尔菲", "🇮🇹")
+    /// 右侧输入入口底部滚动展示的目的地灵感（附对应国家的国旗 emoji 与
+    /// 随包静态背景图的资源名），循环向上翻滚切换。
+    private static let inspirationSuggestions: [(name: String, flag: String, image: String)] = [
+        ("巴厘岛", "🇮🇩", "dest-bali"), ("马赛马拉", "🇰🇪", "dest-masai-mara"),
+        ("京都", "🇯🇵", "dest-kyoto"), ("冰岛", "🇮🇸", "dest-iceland"),
+        ("圣托里尼", "🇬🇷", "dest-santorini"), ("清迈", "🇹🇭", "dest-chiangmai"),
+        ("新西兰", "🇳🇿", "dest-newzealand"), ("摩洛哥", "🇲🇦", "dest-morocco"),
+        ("瑞士", "🇨🇭", "dest-switzerland"), ("挪威", "🇳🇴", "dest-norway"),
+        ("卡帕多奇亚", "🇹🇷", "dest-cappadocia"), ("马丘比丘", "🇵🇪", "dest-machupicchu"),
+        ("撒哈拉", "🇩🇿", "dest-sahara"), ("北海道", "🇯🇵", "dest-hokkaido"),
+        ("大理", "🇨🇳", "dest-dali"), ("喀纳斯", "🇨🇳", "dest-kanas"),
+        ("帕劳", "🇵🇼", "dest-palau"), ("科莫多", "🇮🇩", "dest-komodo"),
+        ("托斯卡纳", "🇮🇹", "dest-tuscany"), ("阿马尔菲", "🇮🇹", "dest-amalfi")
     ]
+    /// 目的地静态背景图（随包 jpg）的加载缓存：`UIImage(named:)` 对非 PNG
+    /// 的松散包文件按名查不到（PNG 才可省扩展名），改用 Bundle URL 读入。
+    /// UIImage 首次绘制才解码位图，全量持有 20 个引用的常驻内存可忽略。
+    private static let destinationArtwork: [String: UIImage] = {
+        var images: [String: UIImage] = [:]
+        for entry in inspirationSuggestions {
+            guard let url = Bundle.main.url(forResource: entry.image, withExtension: "jpg"),
+                  let image = UIImage(contentsOfFile: url.path) else { continue }
+            images[entry.image] = image
+        }
+        return images
+    }()
     /// 当前滚动到的灵感序号（只增不减，渲染时取模循环）。
     @State private var inspirationIndex = 0
+    /// 欢迎标题是否折成两行（抽签第二问文案较长）：按实际渲染高度检测
+    /// （与字号/屏宽无关），折行时该文案单独上移约一行行高，把多占的高度
+    /// 还给下方与入口方块之间的间距。
+    @State private var isWelcomeTitleWrapped = false
+    /// 对话页地球是否已「泊入」：用户下滑后顶部地球折叠，由状态行的白色
+    /// 思考 icon 接管；上滑回顶后地球恢复常驻顶部。
+    @State private var isGlobeDocked = false
+    /// 本轮生成内是否发生过「泊入」（下滑，或生成开始时视图已在下方）：
+    /// 一旦为真，本轮内上滑只在顶部恢复地球——状态行的思考 icon 不再上移。
+    @State private var didDockDuringGeneration = false
+    /// 一次泊入飞行（图标从顶部英雄位飞往状态行泊位）的参数快照；非 nil
+    /// 时覆盖层正在播飞行动画，落地后由回调清空并把泊位 icon 淡入。
+    @State private var dockFlight: AgentGlobeDockFlight?
+    /// 英雄位与状态行泊位在页面坐标系（agent-home-page）下的最新矩形，
+    /// 泊入瞬间捕获为飞行起终点；仅在生成期间更新，避免平时滚动重渲染。
+    @State private var heroFrame: CGRect = .zero
+    @State private var orbSlotFrame: CGRect = .zero
+    /// 欢迎页大地球与对话页顶部地球/思考 orb 之间做连续变形动画
+    /// （matchedGeometryEffect）的命名空间。
+    @Namespace private var heroMotion
+    /// 地球自转/拖动状态：欢迎页大地球与对话页英雄位共用同一实例，
+    /// 沿赤道拖动的相位跨视图连续（变形时旋转不跳变）。
+    @State private var globeSpin = AgentGlobeSpin()
     /// 两个入口方块的宽高比（宽/高）：略高于正方形，视觉更稳。
     private let entryTileAspectRatio: CGFloat = 0.88
+    /// 对话页常驻地球的直径：发送首条消息后，欢迎页大地球经
+    /// matchedGeometryEffect 连续缩小到该尺寸，之后不随对话消失。
+    private static let conversationGlobeDiameter: CGFloat = 120
+    /// 下滑超过该偏移量后地球泊入状态行 icon 位；滚回该值以内再展开。
+    /// 两个阈值之间留出滞回区间，避免在边界反复抖动。
+    private static let globeDockOffset: Double = 64
+    private static let globeUndockOffset: Double = 12
+    /// 对话页顶部下拉（overscroll）露出首页观感的进度：0 = 对话常态，
+    /// 1 = 大地球 + 橙色光晕 + ASCII 底纹的完整首页视觉。由下拉距离直接
+    /// 驱动（跟手）；拉满后进入锁定态（见 isWelcomePeekLocked），松手
+    /// 不再回弹。
+    @State private var welcomePeek: Double = 0
+    /// 首页观感是否已「锁定」：下拉拉满后保持完整首页视觉（icon 与首页
+    /// 初始状态同尺寸），不随松手回弹；上滑（滚动偏移转正并越过阈值）
+    /// 才解除并回落回对话常态。
+    @State private var isWelcomePeekLocked = false
+    /// 拉满首页观感所需的顶部过滚距离（pt）。
+    private static let welcomePeekDistance: Double = 90
+    /// 对话滚动区的内容宽度（屏幕宽 − 32pt 边距）：计算下拉 peek 的首页
+    /// 尺寸目标用（首页地球 = 内容宽 × 0.7、方形区块边长 = 内容宽）。
+    @State private var contentWidth: CGFloat = 0
+    /// 锁定态下解除所需的向上滚动偏移（pt）。
+    private static let welcomePeekUnlockOffset: Double = 24
 
     init(
         syncEngine: SyncEngine,
@@ -77,49 +151,37 @@ struct AgentHomeView: View {
 
                 VStack(spacing: 0) {
                     ZStack {
-                        if isWelcomeState {
-                            // 底纹与光晕延伸到输入区下方，让玻璃方块能模糊到底部内容，
-                            // 与主界面悬浮导航栏的材质效果一致。
-                            AgentIntroASCIIBackgroundView()
-                                .ignoresSafeArea(edges: .bottom)
-                            RadialGradient(
-                                colors: [.clear, PrimaryTabPalette.background.opacity(0.74)],
-                                center: .center,
-                                startRadius: 100,
-                                endRadius: 330
-                            )
-                            .allowsHitTesting(false)
+                        // ASCII 底纹与暗角：欢迎页常驻（延伸到输入区下方，让玻璃
+                        // 方块能模糊到底部内容）；对话页顶部下拉（overscroll）时
+                        // 按下拉进度淡入，恢复首页观感。
+                        AgentIntroASCIIBackgroundView()
                             .ignoresSafeArea(edges: .bottom)
-                        }
+                            .opacity(isWelcomeState ? 1 : welcomePeek)
+                        RadialGradient(
+                            colors: [.clear, PrimaryTabPalette.background.opacity(0.74)],
+                            center: .center,
+                            startRadius: 100,
+                            endRadius: 330
+                        )
+                        .allowsHitTesting(false)
+                        .ignoresSafeArea(edges: .bottom)
+                        .opacity(isWelcomeState ? 1 : welcomePeek)
 
                         ScrollViewReader { proxy in
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 22) {
-                                    if isWelcomeState {
-                                        welcomeView
-                                    } else {
-                                        conversationView
-                                    }
-                                    Color.clear.frame(height: 1).id("conversation-bottom")
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.top, 12)
-                                .padding(.bottom, 16)
-                            }
-                            .scrollIndicators(.hidden)
-                            .scrollDismissesKeyboard(.interactively)
-                            // 初始页（ASCII 地球欢迎态）固定不可滑动；进入对话后恢复滚动。
-                            .scrollDisabled(isWelcomeState)
-                            // 点按页面空白处：收起键盘并收回为双方块入口，与左上角
-                            // 返回键一致；方块内的按钮仍优先响应各自的点按。
-                            .contentShape(Rectangle())
-                            .onTapGesture { if isComposerExpanded { collapseComposer() } }
-                            .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
-                            .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
-                            .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
-                            .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
+                            conversationScroll(proxy: proxy)
                         }
                     }
+                }
+            }
+            .coordinateSpace(name: "agent-home-page")
+            // 泊入飞行覆盖层：思考 icon 从顶部英雄位飞往状态行泊位，
+            // 落地后交接给泊位里的常驻 icon。
+            .overlay {
+                if let flight = dockFlight {
+                    AgentGlobeDockFlightView(flight: flight) {
+                        withAnimation(.snappy(duration: 0.3)) { dockFlight = nil }
+                    }
+                    .allowsHitTesting(false)
                 }
             }
             .overlay(alignment: .topLeading) {
@@ -169,6 +231,9 @@ struct AgentHomeView: View {
             .onChange(of: runState.isGenerating) { _, isGenerating in
                 // 新一轮生成从折叠状态开始；生成结束后思考摘要整体隐藏。
                 if !isGenerating { isReasoningExpanded = false }
+                // 生成开始时若视图已在下方（泊入态），本轮顶部不再出现思考
+                // orb——上滑恢复的只有地球，icon 停在状态行。
+                if isGenerating { didDockDuringGeneration = isGlobeDocked }
             }
             .onChange(of: initialMessage) { _, newValue in
                 guard newValue != nil else { return }
@@ -184,10 +249,14 @@ struct AgentHomeView: View {
             key: AgentHomeHidesTabBarKey.self,
             value: hidesTabBar
         )
+        // 只要本视图在场就声明「首页即 Agent 页」，ContentView 据此收起
+        // tab 栏右侧的 Agent 按钮视图；离开（有生效行程回到地图）后偏好
+        // 回落默认值 false，按钮自动恢复。
+        .preference(key: AgentHomeActiveKey.self, value: true)
         // tab 栏在场（欢迎页双方块）时为其预留整块高度（栏高 60pt + 底边距
         // 32pt），双方块悬浮其上；tab 栏隐藏（展开输入条/抽签/对话页）时不
         // 预留，输入区随 safeAreaInset 贴到屏幕底部安全区之上。
-        .padding(.bottom, hidesTabBar ? 0 : 92)
+        .padding(.bottom, anchorsComposerToBottom ? 0 : 92)
     }
 
     private var tripTitle: String {
@@ -195,15 +264,64 @@ struct AgentHomeView: View {
         return trip.destination ?? "本次旅行"
     }
 
+    /// 欢迎页/对话页共用的滚动区：承载地球、消息与流式内容；从 body 拆出
+    /// 以控制表达式复杂度（修饰符链条过长会触发类型检查超时）。负责滚动
+    /// 到底、键盘收起与地球泊入的滚动监听。
+    private func conversationScroll(proxy: ScrollViewProxy) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 22) {
+                if isWelcomeState {
+                    welcomeView
+                } else {
+                    conversationView
+                }
+                Color.clear.frame(height: 1).id("conversation-bottom")
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
+            // 欢迎页 ↔ 对话页切换时驱动地球的连续变形（缩小/复原）。
+            .animation(.spring(response: 0.5, dampingFraction: 0.86), value: isWelcomeState)
+        }
+        .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        // 初始页（ASCII 地球欢迎态）固定不可滑动；进入对话后恢复滚动。
+        .scrollDisabled(isWelcomeState)
+        // 下滑/回顶驱动地球在「顶部常驻」与「状态行泊位」之间切换；
+        // 顶部下拉（overscroll，偏移为负）则随距离恢复首页观感。
+        .onScrollGeometryChange(
+            for: Double.self,
+            of: { geometry in geometry.contentOffset.y + geometry.contentInsets.top },
+            action: { _, offset in
+                updateGlobeDocking(for: offset)
+                updateWelcomePeek(for: offset)
+            }
+        )
+        // 点按页面空白处：收起键盘并收回为双方块入口，与左上角
+        // 返回键一致；方块内的按钮仍优先响应各自的点按。
+        .contentShape(Rectangle())
+        .onTapGesture { if isComposerExpanded { collapseComposer() } }
+        .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
+        .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
+        .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
+        .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
+    }
+
     private var isWelcomeState: Bool {
         store.session.messages.isEmpty && store.session.draft == nil
     }
 
     /// 底部悬浮 tab 栏是否处于隐藏状态（进入抽签、展开输入条或已在对话中）。
-    /// 与上报给 ContentView 的偏好值一致；隐藏时输入区整体贴底，不再为
-    /// 悬浮栏预留空间。
+    /// 与上报给 ContentView 的偏好值一致。
     private var hidesTabBar: Bool {
         lotteryStepIndex != nil || isComposerExpanded || !isWelcomeState
+    }
+
+    /// 输入区是否贴底（同时不再为悬浮 tab 栏预留空间）：展开输入条或已进入
+    /// 对话时贴底。抽签流程虽然也隐藏 tab 栏，但双方块（选项）保持在原位
+    /// 不下移，避免点按「拈签定缘」后按钮突然掉下去。
+    private var anchorsComposerToBottom: Bool {
+        isComposerExpanded || !isWelcomeState
     }
 
     /// 欢迎页主标题：抽签流程中显示当前问题，否则显示默认引导文案。
@@ -213,9 +331,9 @@ struct AgentHomeView: View {
 
     private var welcomeView: some View {
         VStack(alignment: .leading, spacing: 24) {
-        // 地球与同心光晕放大到内容区宽度的 70%。
+        // 地球与同心光晕占内容区短边的 70%。
         GeometryReader { proxy in
-        let globe = proxy.size.width * 0.7
+        let globe = min(proxy.size.width, proxy.size.height) * 0.7
         ZStack {
         // 与地球同心的圆形橙色光晕，位于下层：字符叠在光晕之上，不会被糊住。
         Circle()
@@ -230,11 +348,14 @@ struct AgentHomeView: View {
         .frame(width: globe * 1.25, height: globe * 1.25)
         .blur(radius: globe * 0.12)
         .allowsHitTesting(false)
-        AgentIntroGlobeView(diameter: globe)
+        AgentIntroGlobeView(diameter: globe, spin: globeSpin)
+            .matchedGeometryEffect(id: "hero-globe", in: heroMotion)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .aspectRatio(1, contentMode: .fit)
+        // 键盘唤起时整体压扁（宽高比变宽），把下方的标题完整让出到
+        // 键盘/输入框之上；收起键盘后恢复正方形地球。
+        .aspectRatio(isComposerFocused ? 2.4 : 1, contentMode: .fit)
         .padding(.top, 12)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -246,12 +367,27 @@ struct AgentHomeView: View {
                         .foregroundStyle(.white)
                         .id(welcomeTitle)
                         .transition(.opacity)
+                        // 占两行的追问（如「想要躺平慢游，还是特种兵打卡？」）
+                        // 会向下生长、贴到下方按钮——按实际渲染高度检测折行
+                        // （不依赖文案字数，换文案/换字号/窄屏都成立），
+                        // 折行的文案单独上移一行，单行文案保持原位。
+                        .onGeometryChange(for: Bool.self) { proxy in
+                            // .title 单行高约 36pt，折行后翻倍，以 50pt 为界。
+                            proxy.size.height > 50
+                        } action: { _, wrapped in
+                            guard wrapped != isWelcomeTitleWrapped else { return }
+                            withAnimation(.easeInOut(duration: 0.3)) { isWelcomeTitleWrapped = wrapped }
+                        }
                 }
                 .padding(.leading, 4)
+                .offset(y: isWelcomeTitleWrapped ? -32 : 0)
             }
 
             // tripContextCard
         }
+        // 键盘唤起/收起时，地球压扁与标题上移/回落作为同一整体参与动画，
+        // 标题不会瞬移。
+        .animation(.easeInOut(duration: 0.3), value: isComposerFocused)
     }
 
     private var tripContextCard: some View {
@@ -300,31 +436,43 @@ struct AgentHomeView: View {
 
     private var conversationView: some View {
         VStack(alignment: .leading, spacing: 22) {
-            // 橘色头像每个助手回合只显示一次（该回合第一条消息）；其余
-            // 助手区块保留同样的缩进对齐，但不再重复头像。
-            ForEach(Array(store.session.messages.enumerated()), id: \.element.id) { index, item in
-                ChatMessageView(
-                    message: item,
-                    showsAvatar: item.role == "user" || index == 0 || store.session.messages[index - 1].role == "user"
-                )
+            conversationGlobeHeader
+
+            // 消息列表：用户消息为右侧橙色气泡，助手消息通栏靠左展示。
+            ForEach(Array(store.session.messages.enumerated()), id: \.element.id) { _, item in
+                ChatMessageView(message: item)
             }
 
-            // 思考摘要只在本轮生成期间可见，且始终位于当轮回复上方。
+            // 思考指示只在思考进行中（status 非空）可见：正文开始流出即整体
+            // 隐藏（含摘要），新的思考事件到来再原样重现，而非等到生成结束。
             // 状态行本身承载展开/收起（箭头也在这一行）：有摘要时点按
             // 状态行切换，摘要就地展开在状态行下方、回复上方。
             if let status = runState.status {
-                // 状态行不使用 AssistantMessageContainer：头像占位会让 orb
-                // 右移，这一行需要顶着左边缘显示（orb 本身就是行首图标）。
+                // 状态行顶到左边缘显示：icon 在屏幕上方（未泊入）时摘要左侧
+                // 无缩进；泊入后泊位展开 20pt、摘要随之右移（与泊入弹簧、图
+                // 标飞行同步进行），飞行落地后泊位 icon 淡入。
                 VStack(alignment: .leading, spacing: 8) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) { isReasoningExpanded.toggle() }
                     } label: {
-                        HStack(spacing: 10) {
-                            ThinkingOrb(state: agentThinkingOrbState(for: status), size: .px20, theme: .dark)
+                        HStack(spacing: 0) {
+                            ZStack {
+                                if showsDockedThinkingOrb {
+                                    ThinkingOrb(state: agentThinkingOrbState(for: status), size: .px20, theme: .dark)
+                                        .transition(.opacity)
+                                }
+                            }
+                            .frame(width: orbSlotOccupied ? 20 : 0, height: 20)
+                            .onGeometryChange(for: CGRect.self) { proxy in
+                                proxy.frame(in: .named("agent-home-page"))
+                            } action: { _, frame in
+                                if runState.isGenerating { orbSlotFrame = frame }
+                            }
                             // 思考状态限定单行，过长时尾部省略，避免状态行被长文案撑高。
                             Text(status)
                                 .lineLimit(1)
                                 .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .padding(.leading, orbSlotOccupied ? 10 : 0)
                             Spacer(minLength: 8)
                             if !runState.reasoningSummary.isEmpty {
                                 Image(systemName: "chevron.right")
@@ -344,18 +492,10 @@ struct AgentHomeView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-            } else if runState.isGenerating, !runState.reasoningSummary.isEmpty {
-                // 回复开始流出后状态行消失，此时直接把摘要内容展示在回复上方。
-                AssistantMessageContainer(showsAvatar: false) {
-                    Text(runState.reasoningSummary)
-                        .font(.footnote)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
             }
 
             if !runState.streamingReply.isEmpty {
-                AssistantMessageContainer(showsAvatar: false) {
+                AssistantMessageContainer {
                     Text(runState.streamingReply)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -363,13 +503,13 @@ struct AgentHomeView: View {
             }
 
             if let fliggy = runState.fliggyProgress {
-                AssistantMessageContainer(showsAvatar: false) {
+                AssistantMessageContainer {
                     FliggySearchStatusChip(progress: fliggy)
                 }
             }
 
             if !runState.liveCards.isEmpty {
-                AssistantMessageContainer(showsAvatar: false) {
+                AssistantMessageContainer {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("正在生成候选")
                             .font(.subheadline.weight(.semibold))
@@ -382,17 +522,164 @@ struct AgentHomeView: View {
             }
 
             if let proposal = store.session.pendingProposal, syncEngine.trip?.isConfigured != true {
-                AssistantMessageContainer(showsAvatar: false) {
+                AssistantMessageContainer {
                     tripProposalCard(proposal)
                 }
             }
 
             if store.session.summary != nil || store.session.draft != nil {
-                AssistantMessageContainer(showsAvatar: false) {
+                AssistantMessageContainer {
                     workbenchView
                 }
             }
         }
+    }
+
+    /// 对话页顶部的地球区：发送首条消息后，欢迎页大地球经 matchedGeometry
+    /// 连续缩小到这里常驻，不随对话消失；消息在其下方展示。生成期间（本轮
+    /// 尚未泊入过）地球在同一画布内交叉溶解为对应状态的 ASCII 思考 orb——
+    /// 颜色、字符与字号都对齐地球语言，无切换感。用户下滑后整体折叠（高度
+    /// 照常预留，消息不上跳）；本轮内上滑恢复的只有地球，思考 icon 停泊在
+    /// 状态行不再上移。
+    /// 下拉 peek 的当前地球直径：从对话常态的 120pt 插值到欢迎页的内容宽
+    /// × 0.7。直径真实传入渲染器（而非 scaleEffect 视觉放大）——地球内的
+    /// 字符保持欢迎页同款 12pt，不会随放大一起变大。
+    private var peekGlobeDiameter: CGFloat {
+        let welcome = contentWidth > 0 ? contentWidth * 0.7 : Self.conversationGlobeDiameter * 2.1
+        return Self.conversationGlobeDiameter + (welcome - Self.conversationGlobeDiameter) * CGFloat(welcomePeek)
+    }
+
+    /// 下拉 peek 的头部区块边长：常态 120pt，锁定时与欢迎页的方形地球
+    /// 区块同尺寸（内容宽），地球居中其中——地球位置与首页初始状态一致，
+    /// 消息随区块长高被推到地球下方。
+    private var peekBlockSide: CGFloat {
+        let target = contentWidth > 0 ? contentWidth : Self.conversationGlobeDiameter * 2.98
+        return Self.conversationGlobeDiameter + (target - Self.conversationGlobeDiameter) * CGFloat(welcomePeek)
+    }
+
+    private var conversationGlobeHeader: some View {
+        ZStack {
+            // 顶部下拉恢复首页观感时的橙色光晕（与欢迎页同配方、同比例），
+            // 随下拉进度淡入，尺寸跟随当前地球直径。
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [PrimaryTabPalette.accent.opacity(0.5), PrimaryTabPalette.accent.opacity(0)],
+                        center: .center,
+                        startRadius: peekGlobeDiameter * 0.14,
+                        endRadius: peekGlobeDiameter * 0.62
+                    )
+                )
+                .frame(width: peekGlobeDiameter * 1.25, height: peekGlobeDiameter * 1.25)
+                .blur(radius: peekGlobeDiameter * 0.12)
+                .opacity(welcomePeek)
+                .allowsHitTesting(false)
+            if !isGlobeDocked {
+                AgentHeroGlobeView(thinkingState: heroThinkingState, diameter: peekGlobeDiameter, spin: globeSpin)
+                    .matchedGeometryEffect(id: "hero-globe", in: heroMotion)
+                    .transition(.scale(scale: 0.86).combined(with: .opacity))
+                    // 上报地球本体矩形：泊入飞行的起飞点。挂在地球自身尺寸
+                    // 之后（挂到区块/外层 frame 上会把测量矩形放大到整行宽），
+                    // 仅在生成期间更新，平时滚动不触发整页重渲染。
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .named("agent-home-page"))
+                    } action: { _, frame in
+                        if runState.isGenerating { heroFrame = frame }
+                    }
+            }
+        }
+        .frame(width: peekBlockSide, height: peekBlockSide)
+        .frame(maxWidth: .infinity)
+        // 捕获内容宽度：首页尺寸目标（地球 0.7×、区块 1×）随布局宽度走。
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { _, width in
+            if abs(width - contentWidth) > 0.5 { contentWidth = width }
+        }
+        .padding(.top, 4)
+        .padding(.bottom, 6)
+    }
+
+    /// 英雄位当前呈现的思考状态：仅在本轮生成中、尚未泊入过、且正在思考
+    /// （status 非空）时变形为思考 orb——正文开始流出即回到地球，新的思考
+    /// 到来再变回。泊入过之后，本轮内上滑出现在顶部的只有地球。
+    private var heroThinkingState: OrbState? {
+        guard runState.isGenerating, !didDockDuringGeneration, let status = runState.status else { return nil }
+        return agentThinkingOrbState(for: status)
+    }
+
+    /// 思考状态行的泊位是否展开（本轮生成内已泊入过）：控制泊位宽度与
+    /// 摘要的左缩进；图标本体要等泊入飞行落地后才淡入。
+    private var orbSlotOccupied: Bool {
+        runState.isGenerating && didDockDuringGeneration
+    }
+
+    /// 泊位中是否显示图标本体：泊位已展开且没有正在进行的泊入飞行
+    /// （飞行覆盖层落地后才交接给泊位里的常驻 icon）。
+    private var showsDockedThinkingOrb: Bool {
+        orbSlotOccupied && dockFlight == nil
+    }
+
+    /// 滚动偏移驱动地球泊入/展开：只在跨越阈值时切换（带滞回），切换包在
+    /// withAnimation 里驱动顶部英雄位的折叠/展开、泊位展开与摘要右移。
+    private func updateGlobeDocking(for offset: Double) {
+        if !isGlobeDocked, offset > Self.globeDockOffset {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                isGlobeDocked = true
+                // 生成期间发生泊入：状态行泊位就此常驻到本轮结束。
+                if runState.isGenerating { didDockDuringGeneration = true }
+            }
+            startDockFlightIfNeeded()
+        } else if isGlobeDocked, offset < Self.globeUndockOffset {
+            // 展开只影响顶部英雄位（本轮泊入过时恢复为地球）；状态行的
+            // icon 是否保留由 didDockDuringGeneration 决定，不随这里变化。
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) { isGlobeDocked = false }
+        }
+    }
+
+    /// 顶部下拉（overscroll，偏移为负）随距离恢复首页观感。进度直接跟手
+    /// （不另加动画）；拉满即锁定——完整首页视觉保持住，松手的回弹不再把
+    /// 视觉带回对话常态，上滑越过阈值才解除。未锁定时进度随偏移连续变化
+    /// （松手回弹自然回落），变化小于 0.1% 不写入，避免平时滚动整页重渲染。
+    private func updateWelcomePeek(for offset: Double) {
+        if isWelcomePeekLocked {
+            // 锁定中：保持完整首页视觉；上滑越过阈值后解除并回落。
+            if offset > Self.welcomePeekUnlockOffset {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) {
+                    isWelcomePeekLocked = false
+                    welcomePeek = 0
+                }
+            }
+            return
+        }
+        let progress = min(1, max(0, -offset) / Self.welcomePeekDistance)
+        if progress >= 1 {
+            // 拉满即锁定在首页观感（此刻进度本就为 1，无缝进入锁定态）。
+            isWelcomePeekLocked = true
+            welcomePeek = 1
+            return
+        }
+        if abs(progress - welcomePeek) > 0.001 {
+            welcomePeek = progress
+        }
+    }
+
+    /// 思考中（状态行在场）发生泊入时，播放图标从英雄位飞往泊位的动画，
+    /// 让「移到摘要左侧」的移动看得见；无思考状态或矩形尚未上报时跳过，
+    /// 泊位 icon 直接淡入兜底。
+    private func startDockFlightIfNeeded() {
+        guard runState.isGenerating,
+              let status = runState.status,
+              heroFrame.width > 0,
+              orbSlotFrame != .zero else { return }
+        // 泊位此刻正从 0 宽展开到 20pt（向右生长），按最终占位构造降落点。
+        let target = CGRect(x: orbSlotFrame.minX, y: orbSlotFrame.minY, width: 20, height: 20)
+        dockFlight = AgentGlobeDockFlight(
+            from: heroFrame,
+            to: target,
+            heroState: heroThinkingState,
+            orbState: agentThinkingOrbState(for: status)
+        )
     }
 
     @ViewBuilder private var workbenchView: some View {
@@ -592,7 +879,27 @@ struct AgentHomeView: View {
         // 隐藏（展开输入条/抽签/对话页）输入区贴近屏幕底部，只留 8pt。
         .padding(.horizontal, 20)
         .padding(.top, 10)
-        .padding(.bottom, hidesTabBar ? 8 : 36)
+        .padding(.bottom, anchorsComposerToBottom ? 8 : 36)
+        // 聊天框所在区域的渐变遮罩：盖住从输入控件（加号、文本框、发送键）
+        // 之间缝隙透出的滚动内容，向下延伸覆盖到屏幕底；顶缘留少量透明
+        // 过渡避免生硬的横切线。欢迎页玻璃方块需透出 ASCII 底纹，不加遮罩。
+        .background {
+            Group {
+                if !isWelcomeState {
+                    LinearGradient(
+                        stops: [
+                            .init(color: PrimaryTabPalette.background.opacity(0), location: 0),
+                            .init(color: PrimaryTabPalette.background.opacity(0.88), location: 0.22),
+                            .init(color: PrimaryTabPalette.background, location: 0.6)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: isWelcomeState)
+        }
         .onChange(of: isComposerFocused) { _, focused in
             // 键盘收起且没有草稿文本时收回为双方块入口；有内容或已在对话页
             // （输入条常驻）时保持展开。
@@ -731,19 +1038,49 @@ struct AgentHomeView: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                // 输入入口：与左侧同款的玻璃方块，上方大号白字引导、底部灰色
-                // 小字循环滚动目的地灵感；折叠态不显示「+」控件（易被误解为
-                // 添加入口），展开输入条后再添加图片。背景与展开态 TextField
+                // 输入入口：目的地静态图片做背景（随包资源，跟随底部 roller
+                // 的目的地切换），下半部分压渐变遮罩，「下个目的地 / 我们去」
+                // 与目的地小字一起沉底；折叠态不显示「+」控件（易被误解为
+                // 添加入口），展开输入条后再添加图片。玻璃底与展开态 TextField
                 // 共享 matchedGeometryEffect，点按后连续变形为完整输入条。
                 ZStack {
                     AgentEntryGlassTile()
                         .matchedGeometryEffect(id: "composer-field", in: composerMotion)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("告诉\nAgent\n你的想法")
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .lineSpacing(4)
+                    // 照片盖在玻璃底上；随 roller 切换做淡入淡出，与底部文案
+                    // 的翻滚节奏一致。Color.clear 占位承接方块尺寸，图片画在
+                    // overlay 里不参与布局——scaledToFill 的溢出只被 clipShape
+                    // 裁掉，不会撑大方块。
+                    Color.clear
+                        .overlay {
+                            if let artwork = Self.destinationArtwork[currentInspiration.image] {
+                                Image(uiImage: artwork)
+                                    .resizable()
+                                    .scaledToFill()
+                            }
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .id(inspirationIndex)
+                        .transition(.opacity)
+                    // 下半部分渐变遮罩：从方块中部起向下压暗，保证底部
+                    // 标题与 roller 文字在照片上可读。
+                    LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black.opacity(0.45), location: 0.55),
+                            .init(color: .black.opacity(0.78), location: 1)
+                        ],
+                        startPoint: .center,
+                        endPoint: .bottom
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .allowsHitTesting(false)
+                    VStack(alignment: .leading, spacing: 10) {
                         Spacer(minLength: 0)
+                        Text("下个目的地\n我们去")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .lineSpacing(4)
+                            .shadow(color: .black.opacity(0.4), radius: 4, y: 1)
                         suggestionRoller
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -752,7 +1089,8 @@ struct AgentHomeView: View {
                     // 会展开为输入条。
                     Image(systemName: "arrow.up.right")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .padding(14)
                 }
@@ -787,71 +1125,61 @@ struct AgentHomeView: View {
             .foregroundStyle(.white)
     }
 
-    /// 「拈签定缘」入口的弥散光晕：多个远大于方块的暖色（橙-琥珀-珊瑚）
-    /// 光斑重度弥散、彼此交叠，合成一整片缓慢流动的暖光场，亮度中心各自
-    /// 沿李萨如曲线游走、路径不重复；色相在暖色窄区间内漂移。整体裁剪在
-    /// 方块圆角内，不会溢出按钮。不参与命中测试，纯视觉提示可点按抽签。
+    /// 「拈签定缘」入口的弥散光晕：在 Canvas 里绘制多个暖色（橙-琥珀-珊瑚）
+    /// 光斑，各自沿李萨如曲线游走、彼此交叠成一片流动的暖光场。所有绘制
+    /// 都光栅化在画布（= 方块）自身边界内，结构上杜绝溢出按钮——不依赖
+    /// 任何裁剪修饰符。不参与命中测试，纯视觉提示可点按抽签。
     private var lotteryGlow: some View {
         TimelineView(.animation) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            ZStack {
-                // 静态底色：淡暖色角向渐变兜底，保证光场始终铺满方块。
-                AngularGradient(colors: Self.glowColors, center: .center)
-                    .opacity(0.2)
-                glowBlob(diameter: 260, ampX: 30, freqX: 0.6, ampY: 36, freqY: 0.42, phase: 0, hueShift: 0, t: t)
-                glowBlob(diameter: 320, ampX: 40, freqX: 0.35, ampY: 26, freqY: 0.53, phase: 2.1, hueShift: 12, t: t)
-                glowBlob(diameter: 200, ampX: 24, freqX: 0.71, ampY: 42, freqY: 0.3, phase: 4.2, hueShift: -8, t: t)
+            Canvas { context, size in
+                let rect = CGRect(origin: .zero, size: size)
+                let tile = Path(roundedRect: rect, cornerRadius: 20, style: .continuous)
+                context.clip(to: tile)
+
+                // 静态暖色底：中心向边缘弥散淡出，保证光场始终铺满方块。
+                context.fill(
+                    tile,
+                    with: .radialGradient(
+                        Gradient(colors: [PrimaryTabPalette.accent.opacity(0.3), .clear]),
+                        center: CGPoint(x: rect.midX, y: rect.midY),
+                        startRadius: 0,
+                        endRadius: max(rect.width, rect.height) * 0.7
+                    )
+                )
+
+                // 游走光斑（李萨如轨迹）：振幅相对方块尺寸且超过半宽/半高——
+                // 亮度中心可以走出方块边界，光像从一侧扫入、另一侧掠出；但
+                // 一切绘制都在画布内完成，越界部分不会被显示。色取橙的暖色
+                // 近邻，模糊后成弥散光。
+                let blobs: [(scale: CGFloat, ax: CGFloat, fx: Double, ay: CGFloat, fy: Double, phase: Double, color: Color)] = [
+                    (0.95, 0.55, 0.6, 0.52, 0.42, 0, PrimaryTabPalette.accent),
+                    (1.15, 0.6, 0.35, 0.45, 0.53, 2.1, Color(hex: 0xFFAA46)),
+                    (0.75, 0.5, 0.71, 0.58, 0.30, 4.2, Color(hex: 0xFF785F))
+                ]
+                for blob in blobs {
+                    let diameter = blob.scale * min(rect.width, rect.height)
+                    let center = CGPoint(
+                        x: rect.midX + blob.ax * rect.width * sin(t * blob.fx + blob.phase),
+                        y: rect.midY + blob.ay * rect.height * sin(t * blob.fy + blob.phase * 1.7)
+                    )
+                    var blobContext = context
+                    blobContext.addFilter(.blur(radius: diameter * 0.3))
+                    blobContext.opacity = 0.4 + 0.15 * sin(t * 0.9 + blob.phase)
+                    blobContext.fill(
+                        Path(ellipseIn: CGRect(
+                            x: center.x - diameter / 2,
+                            y: center.y - diameter / 2,
+                            width: diameter,
+                            height: diameter
+                        )),
+                        with: .color(blob.color)
+                    )
+                }
             }
-            // 弹性 frame 把布局尺寸（也是裁剪区域）锁定为背景提案的方块
-            // 大小——否则远大于方块的光斑会把 ZStack 撑大，裁剪框随之外扩，
-            // 光晕就溢出按钮了。
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .allowsHitTesting(false)
         }
     }
-
-    /// 单个游走光斑：直径远大于方块本身，重度模糊 + 长径向衰减，只呈现为
-    /// 大范围弥散的亮度起伏而非独立圆点；按李萨如轨迹偏移游走。
-    private func glowBlob(
-        diameter: CGFloat,
-        ampX: CGFloat,
-        freqX: Double,
-        ampY: CGFloat,
-        freqY: Double,
-        phase: Double,
-        hueShift: Double,
-        t: Double
-    ) -> some View {
-        Circle()
-            .fill(AngularGradient(colors: Self.glowColors, center: .center))
-            .frame(width: diameter, height: diameter)
-            .scaleEffect(1 + 0.07 * sin(t * 0.9 + phase))
-            .hueRotation(.degrees(hueShift + 18 * sin(t * 0.21 + phase)))
-            .blur(radius: diameter * 0.45)
-            .mask(
-                Circle().fill(
-                    RadialGradient(
-                        colors: [.white, .clear],
-                        center: .center,
-                        startRadius: diameter * 0.15,
-                        endRadius: diameter * 0.5
-                    )
-                )
-            )
-            .opacity(0.55)
-            .offset(x: ampX * sin(t * freqX + phase), y: ampY * sin(t * freqY + phase * 1.7))
-    }
-
-    /// 光晕的循环色环（首尾同色保证角向渐变无缝）：全部取橙色的暖色近邻，
-    /// 避免与主题橙形成过强对比。
-    private static let glowColors: [Color] = [
-        PrimaryTabPalette.accent,
-        Color(red: 1, green: 170 / 255, blue: 70 / 255),
-        Color(red: 1, green: 120 / 255, blue: 95 / 255),
-        Color(red: 1, green: 195 / 255, blue: 120 / 255),
-        PrimaryTabPalette.accent
-    ]
 
     /// 底部灵感滚动条：定位图标固定不动，目的地小字和国旗一起像翻牌一样
     /// 向上滚动（每 1.8 秒切换一次）；旧文案向上滑出淡去、新文案自下滑入，
@@ -861,7 +1189,7 @@ struct AgentHomeView: View {
             Image(systemName: "mappin.and.ellipse")
                 .font(.footnote.weight(.semibold))
             ZStack(alignment: .bottomLeading) {
-                let entry = inspirationSuggestions[inspirationIndex % inspirationSuggestions.count]
+                let entry = Self.inspirationSuggestions[inspirationIndex % Self.inspirationSuggestions.count]
                 HStack(spacing: 4) {
                     Text(entry.name)
                         .font(.footnote.weight(.medium))
@@ -885,6 +1213,11 @@ struct AgentHomeView: View {
                 withAnimation(.easeInOut(duration: 0.35)) { inspirationIndex += 1 }
             }
         }
+    }
+
+    /// roller 当前停留的灵感条目：方块背景静态图片与它保持一致。
+    private var currentInspiration: (name: String, flag: String, image: String) {
+        Self.inspirationSuggestions[inspirationIndex % Self.inspirationSuggestions.count]
     }
 
     private func expandComposer() {
@@ -950,8 +1283,8 @@ struct AgentHomeView: View {
         }
         let context = answers.map { "\($0.key)「\($0.value)」" }.joined(separator: "，")
         message = context.isEmpty
-            ? "我在玩「拈签定缘」：请完全随机帮我定一个目的地，规划一次说走就走的旅行。"
-            : "我在玩「拈签定缘」：已选择\(context)。请据此随机帮我定一个目的地并直接规划行程。"
+            ? "请完全随机帮我定一个目的地，规划一次说走就走的旅行。"
+            : "「拈签定缘」：已选择\(context)。请据此帮我定一个目的地并规划行程。"
         send()
     }
 
@@ -998,6 +1331,11 @@ struct AgentHomeView: View {
     private func startNewConversation() {
         runState.clearTransientState()
         store.startNewSession()
+        // 回到欢迎页/新会话时地球恢复展开常驻，下一轮对话从顶部地球开始。
+        isGlobeDocked = false
+        didDockDuringGeneration = false
+        welcomePeek = 0
+        isWelcomePeekLocked = false
     }
 
     private func cancelGeneration() {
@@ -1188,147 +1526,51 @@ struct AgentHomeView: View {
     }
 }
 
-/// 底部两个入口方块的玻璃底：复刻主界面悬浮导航栏（ContentView）的材质
-/// 配方——0.1 强度的暗色背景模糊、深色薄纱、0.6 白描边与轻投影。
-private struct AgentEntryGlassTile: View {
+/// 一次泊入飞行的起终点（页面坐标系矩形）与两端状态快照：heroState 是
+/// 起飞瞬间英雄位上的内容（思考 orb，或再次泊入时的地球），orbState 是
+/// 降落端思考 icon 对应的状态。
+private struct AgentGlobeDockFlight: Equatable {
+    let from: CGRect
+    let to: CGRect
+    let heroState: OrbState?
+    let orbState: OrbState
+}
+
+/// 泊入飞行动画：一枚图标从顶部英雄位飞往状态行泊位。起飞时是英雄位上
+/// 的橙色 ASCII 思考 orb/地球（同一渲染器，无缝接棒），飞行途中与白色
+/// ThinkingOrb 交叉淡变（呼应「移动并变白」），并按起终点尺寸等比缩放；
+/// 落地后回调，由泊位里的常驻 icon 淡入接管。
+private struct AgentGlobeDockFlightView: View {
+    let flight: AgentGlobeDockFlight
+    let onFinished: () -> Void
+
+    @State private var landed = false
+
     var body: some View {
         ZStack {
-            AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.1)
-            Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255)
-                .opacity(0.16)
+            AgentHeroGlobeView(thinkingState: flight.heroState, diameter: flight.from.width)
+                .opacity(landed ? 0 : 1)
+            ThinkingOrb(state: flight.orbState, size: .px64, theme: .dark, displaySize: flight.from.width)
+                .opacity(landed ? 1 : 0)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+        .scaleEffect(landed ? flight.to.width / flight.from.width : 1)
+        .position(x: landed ? flight.to.midX : flight.from.midX, y: landed ? flight.to.midY : flight.from.midY)
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) { landed = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.62) { onFinished() }
         }
-        .shadow(
-            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
-            radius: 12,
-            y: 12
-        )
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
-/// 景点名后的小国旗（18×12pt）：用色条、圆点、十字、星、月牙等基本图形
-/// 极简渲染各目的地对应的国家旗帜（不用 emoji 字符，随系统主题渲染）。
-private struct MiniFlag: View {
-    enum Country {
-        case indonesia, kenya, japan, iceland, greece, thailand, newZealand,
-             morocco, switzerland, norway, turkey, peru, algeria, china, palau, italy
-    }
-
-    let country: Country
-
-    private let size = CGSize(width: 18, height: 12)
-
+/// 底部两个入口方块的玻璃底：iOS 26 原生 Liquid Glass（``glassEffect``）。
+/// 用 `.clear` 变体（大面积背景玻璃，边缘镜面比 `.regular` 弱很多），
+/// 折射边缘、高光与模糊全部由系统渲染，实时折射底下的 ASCII 底纹和光晕。
+private struct AgentEntryGlassTile: View {
     var body: some View {
-        ZStack {
-            switch country {
-            case .indonesia:
-                hStripes([Color(hex: 0xE11B22), .white])
-            case .kenya:
-                hStripes([.black, Color(hex: 0xB61D28), Color(hex: 0x006633)])
-            case .japan:
-                base(.white)
-                disc(Color(hex: 0xBC002D), diameter: size.height * 0.55)
-            case .iceland:
-                base(Color(hex: 0x02529C))
-                cross(.white, thickness: size.height * 0.3)
-                cross(Color(hex: 0xDC1E35), thickness: size.height * 0.16)
-            case .greece:
-                // 简化为蓝白条带；18pt 宽画不下左上角十字州徽。
-                hStripes([Color(hex: 0x0D5EAF), .white, Color(hex: 0x0D5EAF), .white, Color(hex: 0x0D5EAF)])
-            case .thailand:
-                hStripes([Color(hex: 0xA51931), .white, Color(hex: 0x2D2A4A), .white, Color(hex: 0xA51931)])
-            case .newZealand:
-                base(Color(hex: 0x012169))
-                star(.white)
-            case .morocco:
-                base(Color(hex: 0xC1272D))
-                star(Color(hex: 0x006233))
-            case .switzerland:
-                base(Color(hex: 0xDA291C))
-                cross(.white, thickness: size.height * 0.28)
-            case .norway:
-                base(Color(hex: 0xBA0C2F))
-                cross(.white, thickness: size.height * 0.32)
-                cross(Color(hex: 0x00205B), thickness: size.height * 0.16)
-            case .turkey:
-                base(Color(hex: 0xE30A17))
-                crescent(.white, on: Color(hex: 0xE30A17))
-                star(.white, offset: CGSize(width: 4, height: 0))
-            case .peru:
-                vStripes([Color(hex: 0xD91023), .white, Color(hex: 0xD91023)])
-            case .algeria:
-                vStripes([Color(hex: 0x006233), .white])
-                crescent(Color(hex: 0xD21034), on: .white, offset: CGSize(width: 2, height: 0))
-            case .china:
-                base(Color(hex: 0xDE2910))
-                star(Color(hex: 0xFFDE00))
-            case .palau:
-                base(Color(hex: 0x4AADD6))
-                disc(Color(hex: 0xF5D418), diameter: size.height * 0.5, offset: CGSize(width: -size.width * 0.14, height: 0))
-            case .italy:
-                vStripes([Color(hex: 0x009246), .white, Color(hex: 0xCE2B37)])
-            }
-        }
-        .frame(width: size.width, height: size.height)
-        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .strokeBorder(.white.opacity(0.22), lineWidth: 0.5)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func base(_ color: Color) -> some View {
-        Rectangle().fill(color)
-    }
-
-    private func hStripes(_ colors: [Color]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(colors.indices, id: \.self) { index in
-                Rectangle().fill(colors[index])
-            }
-        }
-    }
-
-    private func vStripes(_ colors: [Color]) -> some View {
-        HStack(spacing: 0) {
-            ForEach(colors.indices, id: \.self) { index in
-                Rectangle().fill(colors[index])
-            }
-        }
-    }
-
-    private func disc(_ color: Color, diameter: CGFloat, offset: CGSize = .zero) -> some View {
-        Circle().fill(color)
-            .frame(width: diameter, height: diameter)
-            .offset(x: offset.width, y: offset.height)
-    }
-
-    private func cross(_ color: Color, thickness: CGFloat) -> some View {
-        ZStack {
-            Rectangle().fill(color).frame(height: thickness)
-            Rectangle().fill(color).frame(width: thickness * 1.2)
-        }
-    }
-
-    private func star(_ color: Color, offset: CGSize = .zero) -> some View {
-        Image(systemName: "star.fill")
-            .font(.system(size: 6))
-            .foregroundStyle(color)
-            .offset(x: offset.width, y: offset.height)
-    }
-
-    /// 月牙：实心圆叠一枚底色圆错位而成（国旗过小，省略伴星）。
-    private func crescent(_ color: Color, on background: Color, offset: CGSize = .zero) -> some View {
-        ZStack {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Circle().fill(background).frame(width: 6, height: 6).offset(x: 1.5)
-        }
-        .offset(x: offset.width, y: offset.height)
+        Color.clear
+            .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
@@ -1409,8 +1651,6 @@ private struct AgentHistorySheet: View {
 
 private struct ChatMessageView: View {
     let message: AgentV2TurnRequest.Message
-    /// 是否在这条助手消息旁显示橘色头像（每个助手回合只显示一次）。
-    var showsAvatar: Bool = true
 
     var body: some View {
         if message.role == "user" {
@@ -1423,7 +1663,7 @@ private struct ChatMessageView: View {
                     .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
             }
         } else {
-            AssistantMessageContainer(showsAvatar: showsAvatar) {
+            AssistantMessageContainer {
                 Text(message.content)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1432,30 +1672,17 @@ private struct ChatMessageView: View {
     }
 }
 
+/// 助手消息容器：左侧不再显示橘色 Agent 头像，内容通栏靠左展示。
 private struct AssistantMessageContainer<Content: View>: View {
     @ViewBuilder let content: Content
-    let showsAvatar: Bool
 
-    init(showsAvatar: Bool = true, @ViewBuilder content: () -> Content) {
-        self.showsAvatar = showsAvatar
+    init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            if showsAvatar {
-                ZStack {
-                    Circle().fill(PrimaryTabPalette.accent.gradient).frame(width: 28, height: 28)
-                    Image(systemName: "sparkles").font(.caption2.weight(.bold)).foregroundStyle(.white)
-                }
-            } else {
-                // 占位对齐：不显示头像时内容仍与其他助手区块左对齐。
-                Color.clear.frame(width: 28, height: 28)
-            }
-            content
-                .padding(.top, 3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

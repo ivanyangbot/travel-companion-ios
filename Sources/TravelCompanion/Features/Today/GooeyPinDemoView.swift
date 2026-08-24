@@ -2798,7 +2798,9 @@ private struct GooeyPinNumberLayer: View {
 // MARK: - Agent 初始页 Demo
 
 /// Agent 页面初始状态的视觉实验：ASCII 码铺满背景，中央渲染一个旋转的
-/// ASCII 地球（正交投影 + 光照梯度字符），配合欢迎文案与输入提示胶囊。
+/// ASCII 地球（正交投影 + 光照梯度字符），配合欢迎文案与输入提示胶囊；
+/// 底部附思考动画的两个实验区——圆点换成 ASCII "." 字符的 ThinkingOrb，
+/// 以及思考状态之间的丝滑切换。
 private struct AgentIntroDemoView: View {
     var body: some View {
         ZStack {
@@ -2815,44 +2817,372 @@ private struct AgentIntroDemoView: View {
             )
             .allowsHitTesting(false)
 
-            VStack(spacing: 0) {
-                Spacer()
+            ScrollView {
+                VStack(spacing: 28) {
+                    VStack(spacing: 0) {
+                        ZStack {
+                            Circle()
+                                .stroke(PrimaryTabPalette.accent.opacity(0.22), lineWidth: 1)
+                                .frame(width: 256, height: 256)
+                            AgentIntroGlobeView(diameter: 224)
+                        }
 
-                ZStack {
-                    Circle()
-                        .stroke(PrimaryTabPalette.accent.opacity(0.22), lineWidth: 1)
-                        .frame(width: 256, height: 256)
-                    AgentIntroGlobeView(diameter: 224)
+                        Text("一起把旅程安排好")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.top, 40)
+                        Text("说说你想去哪里、同行人和时间范围。\n我会先给出可检查的建议，确认后才会加入行程。")
+                            .font(.subheadline)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 10)
+                    }
+                    .padding(.top, 16)
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(PrimaryTabPalette.accent)
+                        Text("告诉豆奶你的下一个行程…")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .padding(.horizontal, 18)
+                    .frame(height: 44)
+                    .background(PrimaryTabPalette.elevatedSurface, in: Capsule())
+                    .overlay {
+                        Capsule().strokeBorder(.white.opacity(0.06), lineWidth: 1)
+                    }
+
+                    thinkingOrbDemoSections
                 }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 32)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .preferredColorScheme(.dark)
+    }
 
-                Text("一起把旅程安排好")
-                    .font(.title2.weight(.bold))
+    /// 思考动画实验区：ASCII 圆点渲染对比 + 状态丝滑切换。
+    private var thinkingOrbDemoSections: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("思考动画实验")
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ASCII 圆点")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
-                    .padding(.top, 40)
-                Text("说说你想去哪里、同行人和时间范围。\n我会先给出可检查的建议，确认后才会加入行程。")
+                Text("与 Vendor/ThinkingOrbsKit 共用同一套引擎（resolvePreset + orbFrame），把每个圆点画成 \".\" 字符，字号随点半径缩放，墨色与透明度沿用引擎输出。")
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                AsciiOrbGridDemo()
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 20)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("状态丝滑切换")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("同一 Canvas 内同时绘制新旧两个状态，交叉溶解并轻微缩放；每 2.4 秒自动轮播，点按图标或下方标签可立即切换。")
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                OrbStateCrossfadeDemo()
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 20)
+        }
+    }
+}
+
+// MARK: - Agent 初始页 Demo · ASCII 思考动画
+
+/// ASCII 版思考动画的绘制内核：与 ThinkingOrb 共用同一套引擎与共享时钟
+/// （clock 为未乘 preset.speed 的原始秒数），只是把每个圆点渲染成 "."
+/// 字符，连线仍按线段绘制。alpha 是整层透明度、scale 是围绕中心的缩放，
+/// 供状态切换的交叉溶解复用同一套绘制。
+private enum AsciiOrbRenderer {
+    /// 点半径 → 字号的比例：等宽字体的 "." 墨迹直径约为字号的 12%，
+    /// 16r 的字号画出的句点视觉尺寸恰好接近直径 2r 的圆点。
+    private static let glyphScale: Double = 16
+    /// 字号夹取范围（pt，预设坐标系）：远端小点不缩成亚像素、近端大点
+    /// 不糊成一团。
+    private static let fontSizeRange: ClosedRange<Double> = 3...44
+    /// "." 的墨迹贴着基线，位于文本包围盒中心之下；锚点下移让句点
+    /// 恰好落在引擎给出的点坐标上。
+    private static let periodAnchor = UnitPoint(x: 0.5, y: 0.75)
+
+    static func draw(
+        into context: inout GraphicsContext,
+        state: OrbState,
+        orbSize: OrbSize,
+        clock: Double,
+        alpha: Double = 1,
+        scale: Double = 1
+    ) {
+        guard alpha > 0.01 else { return }
+        let side = orbSize.value
+        if scale != 1 {
+            context.translateBy(x: side / 2, y: side / 2)
+            context.scaleBy(x: scale, y: scale)
+            context.translateBy(x: -side / 2, y: -side / 2)
+        }
+        let preset = resolvePreset(state, orbSize)
+        let frame = orbFrame(preset, size: side, t: clock * preset.speed)
+        // 连线先画，点叠在线上（与 ThinkingOrb 的绘制顺序一致）。
+        for line in frame.lines {
+            var path = Path()
+            path.move(to: CGPoint(x: line.x1, y: line.y1))
+            path.addLine(to: CGPoint(x: line.x2, y: line.y2))
+            context.stroke(path, with: .color(ink(line.white, line.a * alpha)), lineWidth: line.w)
+        }
+        for dot in frame.dots {
+            let fontSize = min(fontSizeRange.upperBound, max(fontSizeRange.lowerBound, dot.r * 2 * glyphScale))
+            context.draw(
+                Text(".")
+                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                    .foregroundStyle(ink(dot.white, dot.a * alpha)),
+                at: CGPoint(x: dot.x, y: dot.y),
+                anchor: periodAnchor
+            )
+        }
+    }
+
+    /// 与 ThinkingOrb 相同的 8-bit 灰阶量化；Demo 页铺在深色背景上，
+    /// 墨值固定按暗色主题镜像。
+    private static func ink(_ white: Double, _ alpha: Double) -> Color {
+        let clamped = min(1, max(0, white))
+        let grey = ((1 - clamped) * 255).rounded(.toNearestOrAwayFromZero) / 255
+        return Color(.sRGB, red: grey, green: grey, blue: grey, opacity: min(1, max(0, alpha)))
+    }
+}
+
+/// 思考动画的 ASCII 字符版视图：几何、速度、深度墨色全部来自
+/// ThinkingOrbsKit 引擎，圆点渲染成 "."。displaySize 在 Canvas 内缩放
+/// 预设几何，任意倍率下保持矢量清晰（与 ThinkingOrb 同一思路）。
+private struct AsciiThinkingOrb: View {
+    let state: OrbState
+    var orbSize: OrbSize = .px64
+    var displaySize: Double? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var side: Double { displaySize ?? orbSize.value }
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                // 与 ThinkingOrb 一致：减弱动态效果时冻结在引擎的静态帧。
+                canvas(clock: OrbSpec.reducedMotionT)
+            } else {
+                TimelineView(.animation) { timeline in
+                    canvas(clock: timeline.date.timeIntervalSinceReferenceDate)
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .accessibilityElement()
+        .accessibilityLabel(state.label)
+        .accessibilityAddTraits(.isImage)
+    }
+
+    private func canvas(clock: Double) -> some View {
+        Canvas(rendersAsynchronously: false) { context, _ in
+            var context = context
+            let zoom = side / orbSize.value
+            if zoom != 1 { context.scaleBy(x: zoom, y: zoom) }
+            AsciiOrbRenderer.draw(into: &context, state: state, orbSize: orbSize, clock: clock)
+        }
+    }
+}
+
+/// 「把圆点换成 ASCII 字符」对比 demo：九种思考状态一网打尽，可在
+/// ASCII "." 渲染与 ThinkingOrb 原版圆点之间切换对比。
+private struct AsciiOrbGridDemo: View {
+    private enum GlyphStyle: String, CaseIterable, Identifiable {
+        case ascii = "ASCII 字符"
+        case dots = "原版圆点"
+
+        var id: String { rawValue }
+    }
+
+    @State private var style: GlyphStyle = .ascii
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Picker("渲染方式", selection: $style) {
+                ForEach(GlyphStyle.allCases) { style in
+                    Text(style.rawValue).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(OrbState.allCases, id: \.self) { state in
+                    VStack(spacing: 7) {
+                        ZStack {
+                            Circle().fill(.white.opacity(0.03))
+                            if style == .ascii {
+                                AsciiThinkingOrb(state: state, orbSize: .px64, displaySize: 58)
+                                    .transition(.opacity)
+                            } else {
+                                ThinkingOrb(state: state, size: .px64, theme: .dark, displaySize: 58)
+                                    .transition(.opacity)
+                            }
+                        }
+                        .frame(width: 58, height: 58)
+                        Text(state.demoTitle)
+                            .font(.caption2)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                }
+            }
+        }
+        .animation(.snappy(duration: 0.3), value: style)
+    }
+}
+
+/// 不同思考状态之间丝滑切换的 demo：单个 Canvas 里同时绘制「旧状态」与
+/// 「新状态」两帧，用 TimelineView 的同一时钟驱动交叉溶解——旧状态淡出
+/// 并轻微放大、新状态自 0.92 缩放着淡入，避开逐点 morph 的配对问题，
+/// 视觉上是连续呼吸式的状态更替。点按图标可立即切到下一个状态。
+private struct OrbStateCrossfadeDemo: View {
+    @State private var currentState: OrbState = .breathing
+    @State private var previousState: OrbState = .breathing
+    /// 本次过渡的开始时刻；nil 表示当前没有正在进行的过渡。
+    @State private var transitionStartedAt: Date?
+    @State private var autoCycling = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let crossfadeDuration: Double = 0.55
+    private let autoCycleInterval: Double = 2.4
+    private let orbSize: OrbSize = .px64
+    private let displaySide: Double = 128
+
+    var body: some View {
+        VStack(spacing: 16) {
+            TimelineView(.animation) { timeline in
+                Canvas(rendersAsynchronously: false) { context, _ in
+                    var context = context
+                    context.scaleBy(x: displaySide / orbSize.value, y: displaySide / orbSize.value)
+                    let clock = timeline.date.timeIntervalSinceReferenceDate
+                    let blend = blend(at: timeline.date)
+                    AsciiOrbRenderer.draw(
+                        into: &context,
+                        state: previousState,
+                        orbSize: orbSize,
+                        clock: clock,
+                        alpha: 1 - blend,
+                        scale: 1 + 0.08 * blend
+                    )
+                    AsciiOrbRenderer.draw(
+                        into: &context,
+                        state: currentState,
+                        orbSize: orbSize,
+                        clock: clock,
+                        alpha: blend,
+                        scale: 0.92 + 0.08 * blend
+                    )
+                }
+            }
+            .frame(width: displaySide, height: displaySide)
+            .contentShape(Rectangle())
+            .onTapGesture { advance() }
+            .accessibilityElement()
+            .accessibilityLabel("思考状态：\(currentState.demoTitle)，点按切换到下一个")
+
+            VStack(spacing: 4) {
+                Text(currentState.demoTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text(currentState.rawValue)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(PrimaryTabPalette.tertiaryText)
+            }
+            .animation(.snappy(duration: 0.25), value: currentState)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(OrbState.allCases, id: \.self) { state in
+                        Button {
+                            transition(to: state)
+                        } label: {
+                            Text(state.demoTitle)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(state == currentState ? .white : PrimaryTabPalette.secondaryText)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(
+                                    state == currentState ? PrimaryTabPalette.accent : PrimaryTabPalette.elevatedSurface,
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Toggle(isOn: $autoCycling) {
+                Text("自动轮播")
                     .font(.subheadline)
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 10)
-
-                Spacer()
-
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .foregroundStyle(PrimaryTabPalette.accent)
-                    Text("告诉豆奶你的下一个行程…")
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(PrimaryTabPalette.secondaryText)
-                .padding(.horizontal, 18)
-                .frame(height: 44)
-                .background(PrimaryTabPalette.elevatedSurface, in: Capsule())
-                .overlay {
-                    Capsule().strokeBorder(.white.opacity(0.06), lineWidth: 1)
-                }
-                .padding(.bottom, 28)
             }
-            .padding(.horizontal, 24)
+            .tint(PrimaryTabPalette.accent)
+        }
+        .task(id: autoCycling) {
+            guard autoCycling else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(autoCycleInterval))
+                guard !Task.isCancelled else { break }
+                advance()
+            }
+        }
+    }
+
+    /// 过渡进度（0…1，smoothstep 缓动）；无过渡或减弱动态效果时恒为 1，
+    /// 只显示当前状态。进度由 TimelineView 的帧时钟而非 SwiftUI 动画
+    /// 驱动，Canvas 每帧都能拿到连续的中间值。
+    private func blend(at date: Date) -> Double {
+        guard !reduceMotion, let start = transitionStartedAt else { return 1 }
+        let progress = min(1, max(0, date.timeIntervalSince(start) / crossfadeDuration))
+        return progress * progress * (3 - 2 * progress)
+    }
+
+    private func advance() {
+        let all = OrbState.allCases
+        let index = all.firstIndex(of: currentState) ?? 0
+        transition(to: all[(index + 1) % all.count])
+    }
+
+    private func transition(to next: OrbState) {
+        guard next != currentState else { return }
+        previousState = currentState
+        currentState = next
+        transitionStartedAt = .now
+    }
+}
+
+private extension OrbState {
+    /// Demo 页展示用的中文标题（仅 Demo 使用；ThinkingOrbsKit 本体的
+    /// accessibility label 仍是英文）。语义与 agentThinkingOrbState 的
+    /// 状态映射保持一致。
+    var demoTitle: String {
+        switch self {
+        case .working: "思考中"
+        case .searching: "搜索中"
+        case .solving: "核对中"
+        case .listening: "理解中"
+        case .connecting: "联网中"
+        case .weaving: "整理中"
+        case .composing: "生成中"
+        case .breathing: "推理中"
+        case .shaping: "塑形中"
         }
     }
 }

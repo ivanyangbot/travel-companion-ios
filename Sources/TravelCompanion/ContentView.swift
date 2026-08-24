@@ -17,6 +17,9 @@ struct ContentView: View {
     /// 首页 Agent 进入「拈签定缘」/展开输入条时收起底部悬浮导航（含 Agent
     /// 按钮），退出流程回到双方块入口后恢复。
     @State private var agentHomeHidesTabBar = false
+    /// 首页当前展示的就是 AgentHomeView（无生效行程的欢迎页）时隐藏 tab 栏
+    /// 右侧的 Agent 按钮——页面本身就是 Agent，入口重复；回到地图后恢复。
+    @State private var agentHomeActive = false
     @State private var showsGooeyPinDemo = false
     @State private var agentInitialMessage: String?
     @State private var selectedSection: MainSection = .journey
@@ -72,7 +75,12 @@ struct ContentView: View {
                     HStack(alignment: .bottom) {
                         customNavigation
                         Spacer(minLength: 0)
-                        agentButton
+                        // 首页本身就是 Agent 页（AgentHomeView）时不再显示
+                        // 这个重复入口；其余页面照常。
+                        if !agentHomeActive {
+                            agentButton
+                                .transition(.opacity)
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 32)
@@ -85,6 +93,9 @@ struct ContentView: View {
         .ignoresSafeArea(edges: .bottom)
         .onPreferenceChange(AgentHomeHidesTabBarKey.self) { hidden in
             withAnimation(.easeInOut(duration: 0.25)) { agentHomeHidesTabBar = hidden }
+        }
+        .onPreferenceChange(AgentHomeActiveKey.self) { active in
+            withAnimation(.easeInOut(duration: 0.25)) { agentHomeActive = active }
         }
         .sheet(isPresented: $showsAgent, onDismiss: { agentInitialMessage = nil }) {
             Group {
