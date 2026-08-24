@@ -30,30 +30,37 @@ struct AgentWorkbenchView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 22) {
-                        if store.session.messages.isEmpty && store.session.draft == nil {
-                            welcomeView
-                        } else {
-                            conversationView
+            ZStack {
+                PrimaryTabPalette.background.ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    agentHeader
+
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 22) {
+                                if store.session.messages.isEmpty && store.session.draft == nil {
+                                    welcomeView
+                                } else {
+                                    conversationView
+                                }
+                                Color.clear.frame(height: 1).id("conversation-bottom")
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+                            .padding(.bottom, 16)
                         }
-                        Color.clear.frame(height: 1).id("conversation-bottom")
+                        .scrollIndicators(.hidden)
+                        .scrollDismissesKeyboard(.interactively)
+                        .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
+                        .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
+                        .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
+                        .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 16)
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .background(Color(.systemGroupedBackground))
-                .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
-                .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
-                .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
-                .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
             }
-            .navigationTitle("旅行 Agent")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
+            .toolbar(.hidden, for: .navigationBar)
+            .preferredColorScheme(.dark)
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
             .sheet(isPresented: $isShowingContext) {
                 AgentContextSheet(syncEngine: syncEngine, store: store)
@@ -77,31 +84,61 @@ struct AgentWorkbenchView: View {
         }
     }
 
-    @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button { isShowingContext = true } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "location.fill")
-                    Text(tripTitle).lineLimit(1)
-                    Image(systemName: "chevron.down").font(.caption2.weight(.bold))
-                }
-                .font(.subheadline.weight(.semibold))
-            }
-            .accessibilityLabel("旅行与偏好设置")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
+    /// 与各主页面一致的暗色自定义头部：居中标题、左侧旅行上下文胶囊、右侧更多菜单。
+    private var agentHeader: some View {
+        ZStack {
+            Text("旅行 Agent")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+
+            HStack(spacing: 12) {
                 Button { isShowingContext = true } label: {
-                    Label("旅行与偏好", systemImage: "slider.horizontal.3")
+                    HStack(spacing: 5) {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(PrimaryTabPalette.accent)
+                        Text(tripTitle)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(PrimaryTabPalette.surface, in: Capsule())
+                    .overlay {
+                        Capsule().strokeBorder(.white.opacity(0.06), lineWidth: 1)
+                    }
                 }
-                Divider()
-                Button(role: .destructive) { isConfirmingClear = true } label: {
-                    Label("清除对话与草稿", systemImage: "trash")
+                .buttonStyle(.plain)
+                .frame(maxWidth: 150, alignment: .leading)
+                .accessibilityLabel("旅行与偏好设置")
+
+                Spacer(minLength: 0)
+
+                Menu {
+                    Button { isShowingContext = true } label: {
+                        Label("旅行与偏好", systemImage: "slider.horizontal.3")
+                    }
+                    Divider()
+                    Button(role: .destructive) { isConfirmingClear = true } label: {
+                        Label("清除对话与草稿", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .medium))
+                        .primaryTabHeaderButtonStyle()
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+                .accessibilityLabel("更多操作")
             }
-            .accessibilityLabel("更多操作")
+        }
+        .frame(height: 48)
+        .padding(.horizontal, 20)
+        .padding(.top, 2)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(PrimaryTabPalette.divider).frame(height: 1)
         }
     }
 
@@ -114,14 +151,15 @@ struct AgentWorkbenchView: View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 12) {
                 ZStack {
-                    Circle().fill(Color.indigo.gradient).frame(width: 52, height: 52)
+                    Circle().fill(PrimaryTabPalette.accent.gradient).frame(width: 52, height: 52)
                     Image(systemName: "sparkles").font(.title2.weight(.semibold)).foregroundStyle(.white)
                 }
                 Text("一起把旅程安排好")
                     .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
                 Text("说说你想去哪里、同行人和时间范围。我会先给出可检查的建议，只有你确认后才会加入行程。")
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -130,22 +168,22 @@ struct AgentWorkbenchView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("可以这样问")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
                 ForEach(quickPrompts, id: \.self) { prompt in
                     Button { usePrompt(prompt) } label: {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: promptIcon(prompt))
                                 .frame(width: 24)
-                                .foregroundStyle(.indigo)
+                                .foregroundStyle(PrimaryTabPalette.accent)
                             Text(prompt)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: "arrow.up.right")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(PrimaryTabPalette.tertiaryText)
                         }
                         .padding(15)
-                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
                     }
                     .buttonStyle(.plain)
                 }
@@ -158,19 +196,19 @@ struct AgentWorkbenchView: View {
             HStack(spacing: 12) {
                 Image(systemName: syncEngine.trip?.isConfigured == true ? "map.fill" : "calendar.badge.exclamationmark")
                     .font(.title3)
-                    .foregroundStyle(.indigo)
+                    .foregroundStyle(PrimaryTabPalette.accent)
                     .frame(width: 36, height: 36)
-                    .background(Color.indigo.opacity(0.12), in: Circle())
+                    .background(PrimaryTabPalette.accent.opacity(0.15), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(tripTitle).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                    Text(tripContextSubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    Text(tripTitle).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                    Text(tripContextSubtitle).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText).lineLimit(2)
                 }
                 Spacer()
                 Image(systemName: "slider.horizontal.3")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
             .padding(14)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
         }
         .buttonStyle(.plain)
     }
@@ -206,6 +244,7 @@ struct AgentWorkbenchView: View {
             if !runState.streamingReply.isEmpty {
                 AssistantMessageContainer {
                     Text(runState.streamingReply)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -213,8 +252,8 @@ struct AgentWorkbenchView: View {
             if let status = runState.status {
                 AssistantMessageContainer {
                     HStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text(status).foregroundStyle(.secondary)
+                        ProgressView().controlSize(.small).tint(PrimaryTabPalette.secondaryText)
+                        Text(status).foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
                 }
             }
@@ -230,11 +269,11 @@ struct AgentWorkbenchView: View {
                     DisclosureGroup("查看思考摘要") {
                         Text(runState.reasoningSummary)
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
                             .padding(.top, 8)
                     }
                     .font(.footnote.weight(.medium))
-                    .tint(.secondary)
+                    .tint(PrimaryTabPalette.secondaryText)
                 }
             }
 
@@ -243,6 +282,7 @@ struct AgentWorkbenchView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("正在生成候选")
                             .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
                         ForEach(runState.liveCards) { card in
                             LiveCandidateCard(card: card)
                         }
@@ -264,7 +304,9 @@ struct AgentWorkbenchView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("本轮建议", systemImage: "sparkles")
                         .font(.headline)
+                        .foregroundStyle(.white)
                     Text(summary.text)
+                        .foregroundStyle(.white.opacity(0.85))
                     if !summary.pending.isEmpty {
                         Label(summary.pending.joined(separator: "、"), systemImage: "questionmark.circle")
                             .font(.footnote)
@@ -275,12 +317,18 @@ struct AgentWorkbenchView: View {
 
             if let draft = store.session.draft {
                 if !draft.candidates.isEmpty {
+                    // 草稿随对话跨轮延续：区分本轮新产出与前几轮未确认的候选，
+                    // 避免列表越滚越长时用户分不清来源。旧版本会话没有
+                    // lastTurnCandidateIDs 时全部视为本轮。
+                    let lastTurnIDs = Set(store.session.lastTurnCandidateIDs ?? draft.candidates.map(\.id))
+                    let current = draft.candidates.filter { lastTurnIDs.contains($0.id) }
+                    let carried = draft.candidates.filter { !lastTurnIDs.contains($0.id) }
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("候选行程").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                        ForEach(draft.candidates) { candidate in
-                            AgentV2CandidateCard(candidate: candidate) { value in
-                                store.setSelected(value, id: candidate.id)
-                            }
+                        if !current.isEmpty {
+                            candidateGroup(title: carried.isEmpty ? "候选行程" : "本轮新增（\(current.count)）", candidates: current)
+                        }
+                        if !carried.isEmpty {
+                            candidateGroup(title: "前几轮待确认（\(carried.count)）", candidates: carried)
                         }
                     }
                 }
@@ -296,8 +344,9 @@ struct AgentWorkbenchView: View {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(change.operationTitle + " · " + change.summary)
                                             .font(.subheadline)
+                                            .foregroundStyle(.white)
                                         if let impact = change.impact {
-                                            Text(impact).font(.caption).foregroundStyle(.secondary)
+                                            Text(impact).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
                                         }
                                     }
                                 }
@@ -306,29 +355,34 @@ struct AgentWorkbenchView: View {
                         .padding(.top, 10)
                     }
                     .font(.subheadline.weight(.semibold))
-                    .tint(.secondary)
+                    .tint(PrimaryTabPalette.secondaryText)
                 }
 
                 let selected = draft.candidates.filter(\.selected)
                 let commitReady = draft.candidates.filter(\.isCommitReady)
                 let allCommitReadySelected = !commitReady.isEmpty && commitReady.allSatisfy(\.selected)
+                // 变更清单中待确认的“移除行程卡”提案：无选中候选时也可单独提交。
+                let pendingRemovals = draft.changes.filter { $0.operation == .remove && $0.targetCardId != nil }
+                let hasBlockingSelection = selected.contains(where: { !$0.isCommitReady })
+                let canCommit = !runState.isCommitting && !hasBlockingSelection && (!selected.isEmpty || !pendingRemovals.isEmpty)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("可导入 \(commitReady.count) 项")
+                        Text("可导入 \(commitReady.count) 项" + (pendingRemovals.isEmpty ? "" : " · 待移除 \(pendingRemovals.count) 项"))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
                         Spacer()
                         Button(allCommitReadySelected ? "取消全选" : "全选可导入项") {
                             store.setSelected(!allCommitReadySelected, ids: Set(commitReady.map(\.id)))
                         }
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(PrimaryTabPalette.accent)
                         .disabled(commitReady.isEmpty || runState.isCommitting)
                     }
 
                     Button { commit() } label: {
                         HStack {
                             if runState.isCommitting { ProgressView().tint(.white) }
-                            Text("确认加入行程（\(selected.count)）")
+                            Text(selected.isEmpty ? "确认移除（\(pendingRemovals.count)）" : "确认加入行程（\(selected.count)）")
                             Spacer()
                             Image(systemName: "arrow.right")
                         }
@@ -336,26 +390,42 @@ struct AgentWorkbenchView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .frame(height: 50)
-                        .background(Color.indigo, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .disabled(selected.isEmpty || selected.contains(where: { !$0.isCommitReady }) || runState.isCommitting)
-                    .opacity(selected.isEmpty || selected.contains(where: { !$0.isCommitReady }) ? 0.45 : 1)
+                    .disabled(!canCommit)
+                    .opacity(canCommit || runState.isCommitting ? 1 : 0.45)
 
-                    if selected.contains(where: { !$0.isCommitReady }) {
+                    if hasBlockingSelection {
                         Text("仍在验证的地点暂不可加入；“地点待确认”的用户原文项目可以直接加入，稍后再补地图点位。")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    } else if selected.isEmpty && !pendingRemovals.isEmpty {
+                        Text("确认后只会从行程中移除变更清单里列出的卡片，其他内容不变。")
+                            .font(.caption)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
                     } else {
                         Text("确认前不会改动当前行程，未选择的候选仍留在本机草稿中。")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
                 }
             }
         }
         .padding(14)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 20)
+    }
+
+    @ViewBuilder
+    private func candidateGroup(title: String, candidates: [AgentV2Candidate]) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(PrimaryTabPalette.secondaryText)
+        ForEach(candidates) { candidate in
+            AgentV2CandidateCard(candidate: candidate) { value in
+                store.setSelected(value, id: candidate.id)
+            }
+        }
     }
 
     private var composer: some View {
@@ -363,8 +433,10 @@ struct AgentWorkbenchView: View {
             if !store.session.attachments.isEmpty {
                 HStack(spacing: 8) {
                     Image(systemName: "photo.on.rectangle.angled")
+                        .foregroundStyle(PrimaryTabPalette.accent)
                     Text("已附 \(store.session.attachments.count) 张图片")
-                    Text("· 发送失败后仍可重试").foregroundStyle(.secondary)
+                        .foregroundStyle(.white)
+                    Text("· 发送失败后仍可重试").foregroundStyle(PrimaryTabPalette.secondaryText)
                     Spacer()
                 }
                 .font(.caption)
@@ -375,8 +447,9 @@ struct AgentWorkbenchView: View {
                 PhotosPicker(selection: $photo, matching: .images) {
                     Image(systemName: "plus")
                         .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
-                        .background(Color(.tertiarySystemFill), in: Circle())
+                        .background(PrimaryTabPalette.elevatedSurface, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .onChange(of: photo) { _, item in load(item) }
@@ -385,17 +458,18 @@ struct AgentWorkbenchView: View {
                 TextField("告诉 Agent 你的想法", text: $message, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($isComposerFocused)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 10)
-                    .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
                     .onSubmit { if canSend { send() } }
 
                 Button { runState.isGenerating ? cancelGeneration() : send() } label: {
                     Image(systemName: runState.isGenerating ? "stop.fill" : "arrow.up")
                         .font(.body.weight(.bold))
-                        .foregroundStyle(canSend || runState.isGenerating ? .white : .secondary)
+                        .foregroundStyle(canSend || runState.isGenerating ? .white : PrimaryTabPalette.tertiaryText)
                         .frame(width: 36, height: 36)
-                        .background(canSend || runState.isGenerating ? Color.indigo : Color(.tertiarySystemFill), in: Circle())
+                        .background(canSend || runState.isGenerating ? PrimaryTabPalette.accent : PrimaryTabPalette.elevatedSurface, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!runState.isGenerating && !canSend)
@@ -405,8 +479,10 @@ struct AgentWorkbenchView: View {
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 8)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) { Divider() }
+        .background(PrimaryTabPalette.background)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PrimaryTabPalette.divider).frame(height: 1)
+        }
     }
 
     private var canSend: Bool {
@@ -625,11 +701,12 @@ private struct ChatMessageView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 15)
                     .padding(.vertical, 11)
-                    .background(Color.indigo, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
             }
         } else {
             AssistantMessageContainer {
                 Text(message.content)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -646,7 +723,7 @@ private struct AssistantMessageContainer<Content: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             ZStack {
-                Circle().fill(Color.indigo.gradient).frame(width: 28, height: 28)
+                Circle().fill(PrimaryTabPalette.accent.gradient).frame(width: 28, height: 28)
                 Image(systemName: "sparkles").font(.caption2.weight(.bold)).foregroundStyle(.white)
             }
             content
@@ -676,7 +753,7 @@ private struct FliggySearchStatusChip: View {
                 }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(Color.orange, in: Capsule())
+                .background(PrimaryTabPalette.accent, in: Capsule())
             case .completed(let ok, _):
                 Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .font(.caption.weight(.semibold))
@@ -684,7 +761,7 @@ private struct FliggySearchStatusChip: View {
             }
             Text(displayText)
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
                 .lineLimit(1)
         }
         .transition(.opacity)
@@ -713,17 +790,17 @@ private struct LiveCandidateCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text(card.title).font(.subheadline.weight(.semibold))
+                Text(card.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 Spacer()
-                ProgressView().controlSize(.mini)
+                ProgressView().controlSize(.mini).tint(PrimaryTabPalette.secondaryText)
             }
-            if !card.timing.isEmpty { Label(card.timing, systemImage: "clock").font(.caption).foregroundStyle(.secondary) }
-            if let place = card.place { Label(place, systemImage: "mappin.and.ellipse").font(.caption) }
-            if let reason = card.reason { Text(reason).font(.caption).foregroundStyle(.secondary) }
+            if !card.timing.isEmpty { Label(card.timing, systemImage: "clock").font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText) }
+            if let place = card.place { Label(place, systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.white.opacity(0.85)) }
+            if let reason = card.reason { Text(reason).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText) }
             Text("地点验证中").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
         }
         .padding(12)
-        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
     }
 }
 
@@ -737,24 +814,24 @@ private struct AgentV2CandidateCard: View {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: candidate.selected ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
-                        .foregroundStyle(candidate.selected ? .indigo : .secondary)
+                        .foregroundStyle(candidate.selected ? PrimaryTabPalette.accent : PrimaryTabPalette.tertiaryText)
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(alignment: .firstTextBaseline) {
                             Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.indigo)
+                                .foregroundStyle(PrimaryTabPalette.accent)
                             Spacer()
-                            Text(candidate.startAt).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            Text(candidate.startAt).font(.caption.monospacedDigit()).foregroundStyle(PrimaryTabPalette.secondaryText)
                         }
-                        Text(candidate.title).font(.headline).foregroundStyle(.primary)
+                        Text(candidate.title).font(.headline).foregroundStyle(.white)
                         Text(candidate.date + (candidate.place.map { " · \($0.name)" } ?? ""))
                             .font(.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(.white.opacity(0.85))
                         if let address = candidate.place?.address, !address.isEmpty {
-                            Text(address).font(.caption).foregroundStyle(.secondary)
+                            Text(address).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
                         }
                         if let reason = candidate.reason {
-                            Text(reason).font(.footnote).foregroundStyle(.secondary)
+                            Text(reason).font(.footnote).foregroundStyle(PrimaryTabPalette.secondaryText)
                         }
                         if !candidate.risks.isEmpty {
                             Label(candidate.risks.joined(separator: "、"), systemImage: "exclamationmark.triangle")
@@ -803,17 +880,17 @@ private struct AgentV2CandidateCard: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 6)
-                    .background(Color.orange, in: Capsule())
+                    .background(PrimaryTabPalette.accent, in: Capsule())
                 }
                 .padding(.leading, 34)
                 .accessibilityLabel("在飞猪查看预订")
             }
         }
         .padding(13)
-        .background(candidate.selected ? Color.indigo.opacity(0.09) : Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(candidate.selected ? PrimaryTabPalette.accent.opacity(0.14) : PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(candidate.selected ? Color.indigo.opacity(0.45) : Color.clear, lineWidth: 1)
+                .stroke(candidate.selected ? PrimaryTabPalette.accent.opacity(0.5) : Color.white.opacity(0.035), lineWidth: 1)
         }
         .opacity(candidate.isCommitReady ? 1 : 0.72)
     }
@@ -909,10 +986,10 @@ private struct AgentContextSheet: View {
                                     Text(interest)
                                 }
                                 .font(.subheadline.weight(.medium))
-                                .foregroundStyle(store.session.preferences.interests.contains(interest) ? .white : .primary)
+                                .foregroundStyle(store.session.preferences.interests.contains(interest) ? .white : PrimaryTabPalette.secondaryText)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
-                                .background(store.session.preferences.interests.contains(interest) ? Color.indigo : Color(.tertiarySystemFill), in: Capsule())
+                                .background(store.session.preferences.interests.contains(interest) ? PrimaryTabPalette.accent : PrimaryTabPalette.elevatedSurface, in: Capsule())
                             }
                             .buttonStyle(.plain)
                         }
@@ -924,6 +1001,10 @@ private struct AgentContextSheet: View {
                     Text("条件会保存在本机，并作为每轮对话的规划前提。")
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(PrimaryTabPalette.background)
+            .tint(PrimaryTabPalette.accent)
+            .preferredColorScheme(.dark)
             .navigationTitle("旅行与偏好")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1003,8 +1084,10 @@ private extension AgentV2Change {
     var operationTitle: String {
         switch operation {
         case .add: "新增"
-        case .replace: "替换"
-        case .remove: "移除"
+        // 区分作用于已确认行程卡片与仅作用于未确认草稿候选的操作，
+        // 避免“替换/移除”让用户误以为已确认的行程被改动。
+        case .replace: targetDraftId != nil ? "更新候选" : "替换行程"
+        case .remove: targetDraftId != nil ? "移除候选" : "移除行程"
         case .move: "移动"
         case .keep: "保留"
         }
@@ -1027,7 +1110,7 @@ private extension AgentV2Change.Operation {
         case .add: .green
         case .replace, .move: .orange
         case .remove: .red
-        case .keep: .indigo
+        case .keep: PrimaryTabPalette.accent
         }
     }
 }

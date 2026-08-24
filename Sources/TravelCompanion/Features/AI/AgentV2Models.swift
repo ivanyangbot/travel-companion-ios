@@ -159,6 +159,11 @@ struct AgentV2Change: Codable, Sendable, Equatable, Identifiable {
     var operation: Operation
     var candidateId: UUID?
     var targetCardId: Int?
+    /// Unconfirmed draft candidate targeted by a replace/remove. Paired with
+    /// `candidateId` for replace (the new candidate supersedes the draft) or
+    /// nil for remove (discard the draft). Mutually exclusive with
+    /// `targetCardId`, which only addresses already-committed trip cards.
+    var targetDraftId: UUID? = nil
     var summary: String
     var impact: String?
 }
@@ -282,6 +287,11 @@ struct AgentV2LocalSession: Codable, Identifiable {
     var attachments: [AgentV2TurnRequest.Attachment]
     var draft: AgentV2Draft?
     var summary: AgentV2Summary?
+    /// Candidate ids produced by the most recent completed turn. Other draft
+    /// candidates carried forward from earlier turns and render in a separate
+    /// "still pending" group. Optional so sessions persisted by older builds
+    /// decode cleanly (nil = treat every candidate as current-turn).
+    var lastTurnCandidateIDs: [UUID]? = nil
 
     static let empty = AgentV2LocalSession(id: UUID(), updatedAt: .now, preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil, allowUnverifiedRecommendations: true), messages: [], attachments: [], draft: nil, summary: nil)
 }

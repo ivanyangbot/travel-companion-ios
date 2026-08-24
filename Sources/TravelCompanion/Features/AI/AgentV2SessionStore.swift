@@ -198,17 +198,63 @@ final class AgentV2SessionStore: ObservableObject {
         stagedDraft = nil
     }
 
-    /// Atomically publishes the fully received turn. A turn that only emitted
-    /// status/question events does not replace the last useful draft.
+    /// Atomically publishes the fully received turn. Unconfirmed candidates
+    /// from the previous draft carry forward unless this run's changes retire
+    /// them via `targetDraftId` (replace → superseded, remove → discarded);
+    /// drafts the model leaves untouched persist into the next turn so the
+    /// user can confirm them later.
     func completeTurn() {
         guard isReceivingNewTurn else { return }
         if hasStagedResult {
             var completed = session
             completed.summary = stagedSummary
             if let stagedDraft {
-                let previousSelectedIDs = Set(completed.draft?.candidates.filter(\.selected).map(\.id) ?? [])
-                completed.draft = normalized(stagedDraft)
-                // Carry forward the user's selection into the new draft.
+                let previous = completed.draft
+                // Drafts retired by this run: replace/remove with a targetDraftId
+                // that matches a previous candidate. replace carries a new
+                // candidateId (the staged supersedent) which is already in
+                // stagedDraft.candidates, so only retire the old id.
+                let retiredIDs = Set(stagedDraft.changes.compactMap { change in
+                    (change.operation == .replace || change.operation == .remove)
+                        ? change.targetDraftId : nil
+                })
+                var mergedCandidates = stagedDraft.candidates
+                var mergedChanges = stagedDraft.changes
+                if let previous {
+                    let newIDs = Set(mergedCandidates.map(\.id))
+                    // Carry forward untouched previous candidates behind the new
+                    // ones so the newest proposals stay at the top of the list.
+                    let carried = previous.candidates.filter { !retiredIDs.contains($0.id) && !newIDs.contains($0.id) }
+                    mergedCandidates.append(contentsOf: carried)
+                    let carriedIDs = Set(carried.map(\.id))
+                    let referencedCandidateIDs = Set(mergedChanges.compactMap(\.candidateId))
+                    let referencedCardIDs = Set(mergedChanges.compactMap(\.targetCardId))
+                    for change in previous.changes {
+                        if let candidateID = change.candidateId {
+                            // Keep a carried candidate's pending add/replace
+                            // intent unless this restated it.
+                            if carriedIDs.contains(candidateID), !referencedCandidateIDs.contains(candidateID) {
+                                mergedChanges.append(change)
+                            }
+                        } else if let cardID = change.targetCardId {
+                            // Pending card-level proposals (e.g. an uncommitted
+                            // remove) survive across turns until confirmed.
+                            if !referencedCardIDs.contains(cardID) {
+                                mergedChanges.append(change)
+                            }
+                        }
+                        // targetDraftId-only changes from previous turns were
+                        // applied in their own merge; drop them here.
+                    }
+                }
+                // This turn's draft-targeting removals stay in the list so the
+                // change list explains why a card disappeared; they are
+                // informational only (server ignores them at commit) and are
+                // dropped by the next turn's merge above.
+                let previousSelectedIDs = Set(previous?.candidates.filter(\.selected).map(\.id) ?? [])
+                completed.lastTurnCandidateIDs = stagedDraft.candidates.map(\.id)
+                completed.draft = normalized(AgentV2Draft(candidates: mergedCandidates, changes: mergedChanges))
+                // Carry forward the user's selection into the merged draft.
                 // Candidates that survive sanitization and existed in the
                 // previous draft keep their selected state.
                 if var draft = completed.draft, !previousSelectedIDs.isEmpty {
@@ -217,9 +263,9 @@ final class AgentV2SessionStore: ObservableObject {
                     }
                     completed.draft = draft
                 }
-            } else {
-                completed.draft = nil
             }
+            // A turn that produced no candidates/changes (pure Q&A) leaves the
+            // previous unconfirmed draft intact instead of discarding it.
             session = completed
             save()
         }
@@ -306,7 +352,10 @@ final class AgentV2SessionStore: ObservableObject {
     func commitSnapshot() -> (draft: AgentV2Draft, selected: [AgentV2Candidate])? {
         guard let draft = session.draft else { return nil }
         let selected = draft.candidates.filter(\.selected)
-        guard !selected.isEmpty else { return nil }
+        // A pure-removal commit (no selected candidates but at least one
+        // pending remove targeting a committed trip card) is valid too.
+        let hasPendingRemoval = draft.changes.contains { $0.operation == .remove && $0.targetCardId != nil }
+        guard !selected.isEmpty || hasPendingRemoval else { return nil }
         return (draft, selected)
     }
 
@@ -315,6 +364,7 @@ final class AgentV2SessionStore: ObservableObject {
         session.draft = nil
         session.summary = nil
         session.attachments = []
+        session.lastTurnCandidateIDs = nil
         save()
     }
 

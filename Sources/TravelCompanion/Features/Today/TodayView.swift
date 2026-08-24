@@ -1118,9 +1118,12 @@ private struct POICard: View {
     private static let verticalPadding: CGFloat = 12
     private static let expandedTopPadding: CGFloat = 12
     private static let expandedBottomPadding: CGFloat = 10
-    private static let detailRowSpacing: CGFloat = 14
-    private static let detailRowHeight: CGFloat = 34
-    private static let detailLocationHeight: CGFloat = 74
+    /// 单行详情行（电话）高度；双行详情行（营业时间、地址）高度。
+    /// 高度必须保持确定性，swiper 依赖这些常量计算卡片展开高度。
+    private static let detailRowHeight: CGFloat = 54
+    private static let detailTallRowHeight: CGFloat = 68
+    private static let detailDividerHeight: CGFloat = 1
+    private static let detailIconWellSize: CGFloat = 36
 
     static func height(
         for cardWidth: CGFloat,
@@ -1190,7 +1193,7 @@ private struct POICard: View {
         .background {
             ZStack {
                 AdjustableBackdropBlur(style: .systemUltraThinMaterialDark, intensity: 0.12)
-                Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255).opacity(0.72)
+                PrimaryTabPalette.elevatedSurface.opacity(0.72)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -1198,21 +1201,21 @@ private struct POICard: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(.white.opacity(0.05), lineWidth: 1)
         }
-        .overlay(alignment: .bottomTrailing) {
-            expansionButton
-                .padding(.trailing, 6)
-                .padding(.bottom, 6)
-        }
+        .shadow(
+            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.12),
+            radius: 14,
+            y: 10
+        )
         .accessibilityLabel("第 \(index + 1) 个地点，\(card.title)，\(timeText)")
     }
 
     private static func detailSectionHeight(for card: TravelCardSnapshot?) -> CGFloat {
         var rowHeights: [CGFloat] = []
         if let businessHours = businessHoursText(for: card), !businessHours.isEmpty {
-            rowHeights.append(detailRowHeight)
+            rowHeights.append(detailTallRowHeight)
         }
         if let location = locationText(for: card), !location.isEmpty {
-            rowHeights.append(detailLocationHeight)
+            rowHeights.append(detailTallRowHeight)
         }
         if let phone = phoneText(for: card), !phone.isEmpty {
             rowHeights.append(detailRowHeight)
@@ -1221,7 +1224,7 @@ private struct POICard: View {
             + expandedBottomPadding
             + summarySpacing
             + rowHeights.reduce(0, +)
-            + detailRowSpacing * CGFloat(max(0, rowHeights.count - 1))
+            + detailDividerHeight * CGFloat(max(0, rowHeights.count - 1))
     }
 
     private static func locationText(for card: TravelCardSnapshot?) -> String? {
@@ -1243,85 +1246,173 @@ private struct POICard: View {
 
     @ViewBuilder
     private var expandedDetails: some View {
-        VStack(alignment: .leading, spacing: Self.detailRowSpacing) {
+        // 分组列表式详情：图标井 + 标签/值双层级，行间用 palette 分隔线。
+        let hasBusinessHours = Self.businessHoursText(for: card) != nil
+        let hasLocation = Self.locationText(for: card) != nil
+        VStack(alignment: .leading, spacing: 0) {
             if let businessHours = Self.businessHoursText(for: card) {
                 // 展开态展示的是 POI 营业时间，不复用收起态的行程到达/离开时间。
-                detailRow(
+                detailInfoRow(
                     iconName: "icon-poi-time-outline",
-                    text: businessHours
+                    label: "营业时间",
+                    value: businessHours,
+                    valueLineLimit: 2,
+                    rowHeight: Self.detailTallRowHeight
                 )
             }
 
             if let locationText = Self.locationText(for: card) {
+                if hasBusinessHours { detailDivider }
                 locationDetailRow(locationText)
             }
 
             if let phoneText = Self.phoneText(for: card) {
+                if hasBusinessHours || hasLocation { detailDivider }
                 phoneDetailRow(phoneText)
             }
 
         }
     }
 
-    private func locationDetailRow(_ locationText: String) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image("icon-poi-location-outline")
-                .resizable()
-                .renderingMode(.template)
-                .scaledToFit()
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
+    private var detailDivider: some View {
+        PrimaryTabPalette.divider
+            .frame(height: Self.detailDividerHeight)
+            .padding(.leading, Self.detailIconWellSize + 12)
+    }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(locationText)
-                    .font(.system(size: 17, weight: .medium))
+    /// 详情行左侧的图标井：elevatedSurface 圆角方块承托白色线性图标，
+    /// 与账本/旅程页的深色分组行视觉一致。
+    private func detailIconWell(_ iconName: String) -> some View {
+        Image(iconName)
+            .resizable()
+            .renderingMode(.template)
+            .scaledToFit()
+            .foregroundStyle(.white)
+            .frame(width: 18, height: 18)
+            .frame(width: Self.detailIconWellSize, height: Self.detailIconWellSize)
+            .background(
+                PrimaryTabPalette.elevatedSurface,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(.white.opacity(0.06), lineWidth: 1)
+            }
+    }
+
+    private func detailInfoRow(
+        iconName: String,
+        label: String,
+        value: String,
+        valueLineLimit: Int,
+        rowHeight: CGFloat
+    ) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            detailIconWell(iconName)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PrimaryTabPalette.tertiaryText)
+                Text(value)
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.white)
-                    .lineLimit(2)
+                    .lineLimit(valueLineLimit)
                     .multilineTextAlignment(.leading)
-
-                if let distanceText {
-                    Text(distanceText)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(red: 180 / 255, green: 180 / 255, blue: 180 / 255))
-                }
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, minHeight: Self.detailLocationHeight, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: rowHeight, maxHeight: rowHeight, alignment: .center)
     }
 
-    private var distanceText: String? {
+    private func locationDetailRow(_ locationText: String) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            detailIconWell("icon-poi-location-outline")
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("地址")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PrimaryTabPalette.tertiaryText)
+                Text(locationText)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let compactDistanceText {
+                Text(compactDistanceText)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(PrimaryTabPalette.accent.opacity(0.9), in: Capsule())
+                    .fixedSize()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: Self.detailTallRowHeight, maxHeight: Self.detailTallRowHeight, alignment: .center)
+    }
+
+    private var distanceInMeters: CLLocationDistance? {
         guard let userLocation,
               let latitude = card.place?.latitude,
               let longitude = card.place?.longitude else {
             return nil
         }
-        let distance = CLLocation(
+        return CLLocation(
             latitude: userLocation.latitude,
             longitude: userLocation.longitude
         ).distance(from: CLLocation(latitude: latitude, longitude: longitude))
+    }
+
+    private var distanceText: String? {
+        guard let distance = distanceInMeters else { return nil }
         return distance >= 1_000
             ? String(format: "距我 %.1f km", distance / 1_000)
             : String(format: "距我 %.0f m", distance)
     }
 
-    @ViewBuilder
+    /// 地址行尾部胶囊用的紧凑距离文案（省略“距我”前缀）。
+    private var compactDistanceText: String? {
+        guard let distance = distanceInMeters else { return nil }
+        return distance >= 1_000
+            ? String(format: "%.1f km", distance / 1_000)
+            : String(format: "%.0f m", distance)
+    }
+
     private func phoneDetailRow(_ phoneText: String) -> some View {
-        if let phoneURL = Self.phoneURL(for: phoneText) {
-            Link(destination: phoneURL) {
-                detailRow(
-                    iconName: "icon-poi-phone-outline",
-                    text: phoneText
-                )
+        HStack(alignment: .center, spacing: 12) {
+            detailIconWell("icon-poi-phone-outline")
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("电话")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PrimaryTabPalette.tertiaryText)
+                Text(phoneText)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("点击拨打商家电话")
-        } else {
-            detailRow(
-                iconName: "icon-poi-phone-outline",
-                text: phoneText
-            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let phoneURL = Self.phoneURL(for: phoneText) {
+                Link(destination: phoneURL) {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(PrimaryTabPalette.accent, in: Circle())
+                }
+                .accessibilityLabel("拨打商家电话")
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: Self.detailRowHeight, maxHeight: Self.detailRowHeight, alignment: .center)
     }
 
     private static func phoneURL(for phoneText: String) -> URL? {
@@ -1330,33 +1421,6 @@ private struct POICard: View {
         let dialString = String(phoneText.unicodeScalars.filter(allowedCharacters.contains))
         guard !dialString.isEmpty else { return nil }
         return URL(string: "tel://\(dialString)")
-    }
-
-    private func detailRow(
-        iconName: String,
-        text: String,
-        lineLimit: Int = 1,
-        rowHeight: CGFloat = Self.detailRowHeight
-    ) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(iconName)
-                .resizable()
-                .renderingMode(.template)
-                .scaledToFit()
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-
-            Text(text)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.white)
-                .lineLimit(lineLimit)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: rowHeight, alignment: .center)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(minHeight: rowHeight, alignment: .center)
     }
 
     @ViewBuilder
@@ -1403,14 +1467,18 @@ private struct POICard: View {
                 )
                 .allowsHitTesting(false)
 
-                Image("icon-poi-more-vertical")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 4, height: 18)
-                    .frame(width: 44, height: 44)
-                    .accessibilityHidden(true)
+                // 左上角类型徽章：与 CardDetailView hero 的类型胶囊同一套配色。
+                kindBadge
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, 10)
+                    .padding(.leading, 12)
+
+                // 展开/收起按钮固定在封面右上角（玻璃样式，与地图页头按钮一致），
+                // 避免展开态下悬浮遮挡详情行尾部的操作按钮。
+                expansionButton
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.top, 2)
+                    .padding(.top, 8)
+                    .padding(.trailing, 10)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Spacer(minLength: 0)
@@ -1424,21 +1492,20 @@ private struct POICard: View {
                     HStack(spacing: 8) {
                         metadataItem(
                             iconName: "icon-poi-pin-outline",
-                            iconSize: CGSize(width: 12, height: 12),
+                            iconSize: CGSize(width: 11, height: 11),
                             text: timeText
                         )
 
                         if let distanceText {
                             metadataItem(
                                 iconName: "icon-poi-distance-outline",
-                                iconSize: CGSize(width: 12, height: 14),
+                                iconSize: CGSize(width: 11, height: 13),
                                 text: distanceText
                             )
                         }
 
                         Spacer(minLength: 0)
                     }
-                    .padding(.trailing, 44)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
@@ -1451,43 +1518,82 @@ private struct POICard: View {
         }
     }
 
+    private var kindBadge: some View {
+        Label(card.kind.title, systemImage: card.kind.systemImage)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(kindTint.opacity(0.92), in: Capsule())
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+    }
+
+    /// 与 CardDetailView / TodayCardDetailSheet 一致的卡片类型配色。
+    private var kindTint: Color {
+        switch card.kind {
+        case .flight: .blue
+        case .hotel: .indigo
+        case .activity: .teal
+        }
+    }
+
     private var expansionButton: some View {
         Button(action: onToggleExpanded) {
             ZStack {
                 Image("icon-poi-info-outline")
                     .resizable()
+                    .renderingMode(.template)
                     .scaledToFit()
-                    .frame(width: 24, height: 24)
+                    .foregroundStyle(.white)
+                    .frame(width: 16, height: 16)
                     .opacity(1 - normalizedExpansionProgress)
                     .scaleEffect(1 - 0.2 * normalizedExpansionProgress)
                     .rotationEffect(.degrees(-90 * Double(normalizedExpansionProgress)))
 
                 Image("icon-poi-close-filled")
                     .resizable()
+                    .renderingMode(.template)
                     .scaledToFit()
-                    .frame(width: 20, height: 20)
+                    .foregroundStyle(.white)
+                    .frame(width: 14, height: 14)
                     .opacity(normalizedExpansionProgress)
                     .scaleEffect(0.8 + 0.2 * normalizedExpansionProgress)
                     .rotationEffect(.degrees(90 * Double(1 - normalizedExpansionProgress)))
             }
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
+            .frame(width: 34, height: 34)
+            .background { TodayGlassBackdrop() }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(normalizedExpansionProgress > 0.5 ? "收起资讯" : "展开资讯")
     }
 
+    /// 封面底部元数据胶囊：深色半透明底 + 细描边，保证在任何封面图上可读。
     private func metadataItem(iconName: String, iconSize: CGSize, text: String) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Image(iconName)
                 .resizable()
+                .renderingMode(.template)
                 .scaledToFit()
+                .foregroundStyle(.white.opacity(0.9))
                 .frame(width: iconSize.width, height: iconSize.height)
 
             Text(text)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(red: 216 / 255, green: 216 / 255, blue: 216 / 255))
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(.white)
                 .lineLimit(1)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(.black.opacity(0.35), in: Capsule())
+        .overlay {
+            Capsule()
+                .strokeBorder(.white.opacity(0.16), lineWidth: 1)
         }
         .fixedSize(horizontal: true, vertical: false)
     }

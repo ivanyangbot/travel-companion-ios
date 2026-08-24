@@ -65,7 +65,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testCompletedTurnReplacesOldDraftAndDiscardsPendingCandidateUntilVerifiedPatch() throws {
+    func testCompletedTurnRetiresDraftOnlyViaTargetDraftId() throws {
         let defaults = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
@@ -74,7 +74,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
             status: .verified,
             place: AIChatPlace(name: "旧地点", address: "旧地址", latitude: 31, longitude: 121, placeId: "old", cityCode: nil)
         )
-        let oldChange = AgentV2Change(id: UUID(), operation: .add, candidateId: old.id, targetCardId: nil, summary: "旧变更", impact: nil)
+        let oldChange = AgentV2Change(id: UUID(), operation: .add, candidateId: old.id, targetCardId: nil, targetDraftId: nil, summary: "旧变更", impact: nil)
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
             preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
@@ -93,7 +93,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
             status: .verified,
             place: AIChatPlace(name: "Kawah Ijen", address: "East Java, Indonesia", latitude: -8.058, longitude: 114.242, placeId: "ijen", cityCode: nil)
         )
-        let newChange = AgentV2Change(id: UUID(), operation: .add, candidateId: candidateID, targetCardId: nil, summary: "新增 Kawah Ijen", impact: nil)
+        let newChange = AgentV2Change(id: UUID(), operation: .replace, candidateId: candidateID, targetCardId: nil, targetDraftId: old.id, summary: "替换旧地点", impact: nil)
 
         store.beginTurn()
         store.apply(.summary(newSummary))
@@ -109,9 +109,203 @@ final class AgentV2SessionStoreTests: XCTestCase {
         store.completeTurn()
 
         XCTAssertEqual(store.session.summary, newSummary)
+        // replace(targetDraftId=old) 退役旧草稿，仅保留新候选。
         XCTAssertEqual(store.session.draft?.candidates.map(\.id), [candidateID])
-        XCTAssertEqual(store.session.draft?.changes.map(\.id), [newChange.id])
         XCTAssertFalse(store.session.draft?.candidates.contains(where: { $0.id == old.id }) == true)
+    }
+
+    @MainActor
+    func testCompletedTurnCarriesForwardUntouchedDrafts() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let kept = candidate(
+            kind: .activity,
+            status: .verified,
+            place: AIChatPlace(name: "保留景点", address: "地址", latitude: 31, longitude: 121, placeId: "kept", cityCode: nil)
+        )
+        let keptChange = AgentV2Change(id: UUID(), operation: .add, candidateId: kept.id, targetCardId: nil, targetDraftId: nil, summary: "新增保留景点", impact: nil)
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [kept], changes: [keptChange]),
+            summary: AgentV2Summary(text: "旧摘要", coveredDates: [], pending: [])
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        let freshID = UUID()
+        let fresh = candidate(id: freshID, kind: .flight, status: .notRequired, place: nil)
+        let freshChange = AgentV2Change(id: UUID(), operation: .add, candidateId: freshID, targetCardId: nil, targetDraftId: nil, summary: "新增航班", impact: nil)
+
+        store.beginTurn()
+        store.apply(.summary(.init(text: "又加了一张", coveredDates: ["2026-09-23"], pending: [])))
+        store.apply(.candidateUpsert(fresh))
+        store.apply(.changeSet([freshChange]))
+        store.completeTurn()
+
+        // 新候选在前，未提及的旧草稿随候选与关联 change 一并延续到下一轮。
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [freshID, kept.id])
+        XCTAssertEqual(Set(store.session.draft?.changes.map(\.id) ?? []), Set([freshChange.id, keptChange.id]))
+    }
+
+    @MainActor
+    func testCompletedTurnRemovesDraftViaTargetDraftId() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let removed = candidate(
+            kind: .activity,
+            status: .verified,
+            place: AIChatPlace(name: "删除景点", address: "地址", latitude: 31, longitude: 121, placeId: "rm", cityCode: nil)
+        )
+        let kept = candidate(
+            kind: .hotel,
+            status: .verified,
+            place: AIChatPlace(name: "保留酒店", address: "地址", latitude: 31, longitude: 121, placeId: "keep", cityCode: nil)
+        )
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [removed, kept], changes: [
+                AgentV2Change(id: UUID(), operation: .add, candidateId: removed.id, targetCardId: nil, targetDraftId: nil, summary: "新增删除景点", impact: nil),
+                AgentV2Change(id: UUID(), operation: .add, candidateId: kept.id, targetCardId: nil, targetDraftId: nil, summary: "新增保留酒店", impact: nil),
+            ]),
+            summary: AgentV2Summary(text: "旧摘要", coveredDates: [], pending: [])
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        store.beginTurn()
+        store.apply(.summary(.init(text: "删掉那张", coveredDates: [], pending: [])))
+        store.apply(.changeSet([AgentV2Change(id: UUID(), operation: .remove, candidateId: nil, targetCardId: nil, targetDraftId: removed.id, summary: "删除草稿", impact: nil)]))
+        store.completeTurn()
+
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [kept.id])
+        XCTAssertEqual(store.session.draft?.changes.compactMap(\.candidateId), [kept.id])
+    }
+
+    @MainActor
+    func testPureReplyTurnPreservesPreviousDraft() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let old = candidate(
+            kind: .activity,
+            status: .verified,
+            place: AIChatPlace(name: "旧景点", address: "地址", latitude: 31, longitude: 121, placeId: "old", cityCode: nil)
+        )
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [old], changes: []),
+            summary: AgentV2Summary(text: "旧摘要", coveredDates: [], pending: [])
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        // 一轮只有摘要、没有候选/changes 的纯问答不应当清空未确认草稿。
+        store.beginTurn()
+        store.apply(.summary(.init(text: "只是回答了一个问题", coveredDates: [], pending: [])))
+        store.completeTurn()
+
+        XCTAssertEqual(store.session.summary?.text, "只是回答了一个问题")
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [old.id])
+    }
+
+    @MainActor
+    func testLastTurnCandidateIDsTrackCurrentTurnForGrouping() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let old = candidate(
+            kind: .activity,
+            status: .verified,
+            place: AIChatPlace(name: "旧景点", address: "地址", latitude: 31, longitude: 121, placeId: "old", cityCode: nil)
+        )
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [old], changes: []), summary: nil
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+        let freshID = UUID()
+
+        store.beginTurn()
+        store.apply(.candidateUpsert(candidate(id: freshID, kind: .flight, status: .notRequired, place: nil)))
+        store.completeTurn()
+
+        // 本轮产出的候选被标记，前几轮遗留的不在集合中，供 UI 分组。
+        XCTAssertEqual(store.session.lastTurnCandidateIDs, [freshID])
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [freshID, old.id])
+
+        store.clearCommittedDraft()
+        XCTAssertNil(store.session.lastTurnCandidateIDs)
+    }
+
+    @MainActor
+    func testCommitSnapshotAllowsPureRemovalCommit() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        var unselected = candidate(kind: .flight, status: .notRequired, place: nil)
+        unselected.selected = false
+        let removal = AgentV2Change(id: UUID(), operation: .remove, candidateId: nil, targetCardId: 42, targetDraftId: nil, summary: "移除第 1 天重复卡", impact: nil)
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [unselected], changes: [removal]), summary: nil
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        let snapshot = try XCTUnwrap(store.commitSnapshot(), "没有选中候选但存在待移除行程卡时也应允许提交")
+        XCTAssertTrue(snapshot.selected.isEmpty)
+        XCTAssertEqual(snapshot.draft.changes.map(\.id), [removal.id])
+    }
+
+    @MainActor
+    func testRemovedDraftChangeStaysVisibleUntilNextTurn() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let removed = candidate(
+            kind: .activity,
+            status: .verified,
+            place: AIChatPlace(name: "删除景点", address: "地址", latitude: 31, longitude: 121, placeId: "rm", cityCode: nil)
+        )
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [removed], changes: []), summary: nil
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+        let removal = AgentV2Change(id: UUID(), operation: .remove, candidateId: nil, targetCardId: nil, targetDraftId: removed.id, summary: "移除该候选", impact: nil)
+
+        store.beginTurn()
+        store.apply(.summary(.init(text: "已移除", coveredDates: [], pending: [])))
+        store.apply(.changeSet([removal]))
+        store.completeTurn()
+
+        // 移除记录保留在变更清单中，向用户解释卡片为何消失。
+        XCTAssertTrue(store.session.draft?.candidates.isEmpty == true)
+        XCTAssertEqual(store.session.draft?.changes.map(\.id), [removal.id])
+
+        // 下一个产出内容的轮次合并时该记录已应用完毕，不再跨轮累积。
+        let freshID = UUID()
+        store.beginTurn()
+        store.apply(.candidateUpsert(candidate(id: freshID, kind: .flight, status: .notRequired, place: nil)))
+        store.apply(.changeSet([AgentV2Change(id: UUID(), operation: .add, candidateId: freshID, targetCardId: nil, targetDraftId: nil, summary: "新增航班", impact: nil)]))
+        store.completeTurn()
+        XCTAssertEqual(store.session.draft?.changes.map(\.targetDraftId) ?? [], [nil])
     }
 
     @MainActor
