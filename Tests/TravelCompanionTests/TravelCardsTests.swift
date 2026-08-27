@@ -503,6 +503,22 @@ final class TravelCardsTests: XCTestCase {
         await engine.createTrip(destination: "上海", startDate: start, endDate: end, currency: "CNY")
         XCTAssertEqual(engine.trips.count, 2)
         XCTAssertEqual(engine.trip?.destination, "上海")
+
+        let hangzhou = try XCTUnwrap(engine.trips.first { $0.displayName == "杭州" })
+        await engine.updateTrip(
+            hangzhou,
+            destination: "苏州",
+            startDate: start,
+            endDate: end,
+            currency: "CNY"
+        )
+        XCTAssertEqual(try repository.cachedTrip(id: hangzhou.id)?.destination, "苏州")
+
+        let shanghai = try XCTUnwrap(engine.trips.first { $0.displayName == "上海" })
+        await engine.deleteTrip(shanghai)
+        XCTAssertEqual(engine.trips.map(\.displayName), ["苏州"])
+        XCTAssertEqual(engine.trip?.destination, "苏州")
+        XCTAssertEqual(engine.selectedTripID, hangzhou.id)
         XCTAssertTrue(try repository.pendingOperations().isEmpty)
     }
 

@@ -443,6 +443,96 @@ final class SyncEngine: ObservableObject {
         }
     }
 
+    func updateTrip(
+        _ summary: TripSummary,
+        destination: String,
+        startDate: Date,
+        endDate: Date,
+        currency: String
+    ) async {
+        let request = TripPatchRequest(
+            destination: destination.trimmingCharacters(in: .whitespacesAndNewlines),
+            startDate: Self.dayFormatter.string(from: startDate),
+            endDate: Self.dayFormatter.string(from: endDate),
+            currency: currency.uppercased()
+        )
+        if localOnly {
+            do {
+                guard var current = try repository.cachedTrip(id: summary.id) else {
+                    status = .failed("找不到要编辑的旅行。")
+                    return
+                }
+                if !current.expenses.isEmpty, current.currency?.uppercased() != request.currency {
+                    status = .failed("已有支出记录，不能变更行程币种。")
+                    return
+                }
+                current.destination = request.destination
+                current.startDate = request.startDate
+                current.endDate = request.endDate
+                current.currency = request.currency
+                current.updatedAt = .now
+                try repository.save(current)
+                updateLocalSummary(for: current)
+                if selectedTripID == current.id { trip = current }
+                status = .localOnly
+            } catch {
+                status = .failed("无法保存本地修改。")
+            }
+            return
+        }
+
+        status = .syncing
+        do {
+            let body = try await apiClient.encode(request)
+            let payload = PendingOperationPayload(
+                method: "PATCH",
+                path: "/v1/trip",
+                tripID: summary.id,
+                body: body,
+                baseVersion: summary.version,
+                idempotencyKey: UUID()
+            )
+            _ = try await apiClient.send(payload, tripID: summary.id)
+            await refresh()
+        } catch {
+            status = .failed(error.localizedDescription)
+        }
+    }
+
+    func deleteTrip(_ summary: TripSummary) async {
+        if localOnly {
+            do {
+                try repository.discardOperations(for: summary.id)
+                try repository.removeCachedTrip(id: summary.id)
+                trips.removeAll { $0.id == summary.id }
+                if selectedTripID == summary.id {
+                    selectedTripID = trips.first?.id
+                    trip = try selectedTripID.flatMap { try repository.cachedTrip(id: $0) }
+                    await apiClient.setActiveTripID(selectedTripID)
+                }
+                status = .localOnly
+            } catch {
+                status = .failed("无法删除本地旅行。")
+            }
+            return
+        }
+
+        status = .syncing
+        do {
+            try await apiClient.deleteTrip(id: summary.id)
+            try repository.discardOperations(for: summary.id)
+            try repository.removeCachedTrip(id: summary.id)
+            if selectedTripID == summary.id {
+                selectedTripID = nil
+                trip = nil
+                await apiClient.setActiveTripID(nil)
+            }
+            await refresh()
+        } catch {
+            status = .failed(error.localizedDescription)
+        }
+    }
+
     func saveSetup(destination: String, startDate: Date, endDate: Date, currency: String) async {
         if let current = trip, !current.expenses.isEmpty, current.currency?.uppercased() != currency.uppercased() {
             status = .failed("已有支出记录，不能变更行程币种。")

@@ -315,6 +315,24 @@ struct AgentHomeView: View {
                         startNewConversation()
                         resetSuggestions()
                         Task { await syncEngine.selectTrip(summary.id) }
+                    },
+                    onEdit: { summary, destination, startDate, endDate, currency in
+                        Task {
+                            await syncEngine.updateTrip(
+                                summary,
+                                destination: destination,
+                                startDate: startDate,
+                                endDate: endDate,
+                                currency: currency
+                            )
+                        }
+                    },
+                    onDelete: { summary in
+                        if summary.id == syncEngine.selectedTripID {
+                            startNewConversation()
+                            resetSuggestions()
+                        }
+                        Task { await syncEngine.deleteTrip(summary) }
                     }
                 )
                 .presentationDetents([.medium])
@@ -2071,7 +2089,11 @@ private struct AgentTripPickerSheet: View {
     let trips: [TripSummary]
     let onClear: () -> Void
     let onSelect: (TripSummary) -> Void
+    let onEdit: (TripSummary, String, Date, Date, String) -> Void
+    let onDelete: (TripSummary) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var editingTrip: TripSummary?
+    @State private var tripPendingDeletion: TripSummary?
 
     var body: some View {
         NavigationStack {
@@ -2113,6 +2135,23 @@ private struct AgentTripPickerSheet: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityAddTraits(summary.id == selectedTripID ? .isSelected : [])
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if summary.role == "owner" {
+                                    Button(role: .destructive) {
+                                        tripPendingDeletion = summary
+                                    } label: {
+                                        Label("删除", systemImage: "trash")
+                                    }
+                                }
+
+                                Button {
+                                    editingTrip = summary
+                                } label: {
+                                    Label("编辑", systemImage: "pencil")
+                                }
+                                .tint(PrimaryTabPalette.accent)
+                            }
+                            .accessibilityHint(summary.role == "owner" ? "向左轻扫可编辑或删除" : "向左轻扫可编辑")
                         }
                     }
                 }
@@ -2126,6 +2165,32 @@ private struct AgentTripPickerSheet: View {
             }
         }
         .tint(PrimaryTabPalette.accent)
+        .sheet(item: $editingTrip) { summary in
+            TripSetupSheet(initialTrip: summary) { destination, startDate, endDate, currency in
+                editingTrip = nil
+                onEdit(summary, destination, startDate, endDate, currency)
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
+        .alert(
+            "删除旅行？",
+            isPresented: Binding(
+                get: { tripPendingDeletion != nil },
+                set: { if !$0 { tripPendingDeletion = nil } }
+            ),
+            presenting: tripPendingDeletion
+        ) { summary in
+            Button("取消", role: .cancel) {
+                tripPendingDeletion = nil
+            }
+            Button("删除", role: .destructive) {
+                tripPendingDeletion = nil
+                onDelete(summary)
+            }
+        } message: { summary in
+            Text("“\(summary.displayName)”中的行程、支出和手书内容都会永久删除，此操作无法撤销。")
+        }
     }
 
     private func tripRow(title: String, subtitle: String, isSelected: Bool) -> some View {

@@ -98,6 +98,16 @@ actor APIClient {
         return try decoder.decode(APIEnvelope<TripSummary>.self, from: data).data
     }
 
+    func deleteTrip(id: Int) async throws {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: "/v1/trips/\(id)"))
+        request.httpMethod = "DELETE"
+        authorize(&request, tripID: id)
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+    }
+
     func createInvite(for tripID: Int, expiresInHours: Int? = nil) async throws -> TripInvite {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: "/v1/trips/\(tripID)/invites"))

@@ -21,6 +21,27 @@ struct TripSetupSheet: View {
         _currency = State(initialValue: initialTrip?.currency ?? "CNY")
     }
 
+    init(initialTrip summary: TripSummary, onSave: @escaping (String, Date, Date, String) -> Void) {
+        let snapshot = SharedTripSnapshot(
+            id: summary.id,
+            destination: summary.destination,
+            startDate: summary.startDate,
+            endDate: summary.endDate,
+            currency: summary.currency,
+            version: summary.version,
+            updatedAt: summary.updatedAt,
+            days: []
+        )
+        initialTrip = snapshot
+        isNewTrip = false
+        self.onSave = onSave
+        let today = Date()
+        _destination = State(initialValue: summary.destination ?? "")
+        _startDate = State(initialValue: summary.startDate.flatMap(Self.formatter.date(from:)) ?? today)
+        _endDate = State(initialValue: summary.endDate.flatMap(Self.formatter.date(from:)) ?? Calendar.current.date(byAdding: .day, value: 2, to: today) ?? today)
+        _currency = State(initialValue: summary.currency ?? "CNY")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(isNewTrip ? "创建新旅程" : (initialTrip == nil ? "从这里开始规划" : "编辑共享行程"))
