@@ -177,9 +177,14 @@ struct AgentPhotoPickerSheet: View {
     let onPick: ([PHPickerResult]) -> Void
 
     var body: some View {
-        AgentPhotoLibraryPicker(selectionLimit: maximumSelectionCount) { results in
-            dismiss()
-            onPick(results)
+        ZStack {
+            Color(uiColor: .secondarySystemBackground)
+                .ignoresSafeArea()
+
+            AgentPhotoLibraryPicker(selectionLimit: maximumSelectionCount) { results in
+                dismiss()
+                onPick(results)
+            }
         }
         .ignoresSafeArea(edges: .bottom)
         .preferredColorScheme(.dark)
@@ -198,11 +203,16 @@ struct AgentPhotoLibraryPicker: UIViewControllerRepresentable {
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = context.coordinator
         picker.overrideUserInterfaceStyle = .dark
+        picker.view.backgroundColor = .secondarySystemBackground
         return picker
     }
 
     func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {
         uiViewController.overrideUserInterfaceStyle = .dark
+        // Unlocking a protected Photos collection briefly rebuilds the
+        // picker's remote view hierarchy. Keep the host view opaque so the
+        // rebuilt hierarchy never exposes the sheet's black backing view.
+        uiViewController.view.backgroundColor = .secondarySystemBackground
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
