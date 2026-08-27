@@ -53,27 +53,27 @@ struct ExpenseListView: View {
                 }
             }
             .alert(
-                "删除这笔支出？",
+                "expense.deleteTitle",
                 isPresented: Binding(
                     get: { pendingDeletion != nil },
                     set: { if !$0 { pendingDeletion = nil } }
                 ),
                 presenting: pendingDeletion
             ) { expense in
-                Button("删除", role: .destructive) {
+                Button("common.delete", role: .destructive) {
                     Task { await syncEngine.deleteExpense(expense) }
                     pendingDeletion = nil
                 }
-                Button("取消", role: .cancel) { pendingDeletion = nil }
+                Button("common.cancel", role: .cancel) { pendingDeletion = nil }
             } message: { _ in
-                Text("删除后会同步移除这笔公开共享支出。")
+                Text("expense.deleteSharedNote")
             }
         }
     }
 
     private var expenseHeader: some View {
         ZStack {
-            Text("账本")
+            Text("expense.ledgerTitle")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
 
@@ -82,8 +82,8 @@ struct ExpenseListView: View {
 
                 if section == .expenses {
                     Menu {
-                        Button("手动添加", systemImage: "plus") { addingExpense = true }
-                        Button("扫小票 / 对话", systemImage: "doc.viewfinder") { showingAIScan = true }
+                        Button("expense.manualAdd", systemImage: "plus") { addingExpense = true }
+                        Button("expense.scanChat", systemImage: "doc.viewfinder") { showingAIScan = true }
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 21, weight: .medium))
@@ -91,7 +91,7 @@ struct ExpenseListView: View {
                     }
                     .primaryTabHeaderButtonStyle()
                     .disabled(syncEngine.trip?.currency == nil)
-                    .accessibilityLabel("添加支出")
+                    .accessibilityLabel(Text("expense.addA11y"))
                 } else {
                     Color.clear.frame(width: 48, height: 48)
                 }
@@ -133,7 +133,7 @@ struct ExpenseListView: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .accessibilityValue(option == section ? "已选择" : "")
+                .accessibilityValue(option == section ? Text("common.selected") : Text(""))
             }
         }
         .padding(4)
@@ -153,11 +153,11 @@ struct ExpenseListView: View {
                     ExpenseSummaryView(trip: trip, currency: currency)
 
                     HStack {
-                        Text("支出明细")
+                        Text("expense.section")
                             .font(.system(size: 19, weight: .semibold))
                             .foregroundStyle(.white)
                         Spacer()
-                        Text("\(trip.expenses.count) 笔")
+                        Text(String(format: String(localized: "expense.countFormat"), trip.expenses.count))
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
@@ -165,9 +165,9 @@ struct ExpenseListView: View {
 
                     if trip.expenses.isEmpty {
                         ContentUnavailableView(
-                            "还没有实际价",
+                            "expense.emptyTitle",
                             systemImage: "receipt",
-                            description: Text("手动添加或扫小票记录交通、住宿和餐饮的实际花费。")
+                            description: Text("expense.emptyDesc")
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 36)
@@ -188,9 +188,9 @@ struct ExpenseListView: View {
             .scrollIndicators(.hidden)
         } else {
             ContentUnavailableView(
-                "请先设置行程",
+                "expense.needTripTitle",
                 systemImage: "calendar.badge.exclamationmark",
-                description: Text("在行程页填写目的地、日期和币种后即可记录支出。")
+                description: Text("expense.needTripDesc")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, 112)
@@ -243,8 +243,8 @@ struct ExpenseListView: View {
         .contentShape(Rectangle())
         .onTapGesture { editorTarget = expense }
         .contextMenu {
-            Button("编辑", systemImage: "pencil") { editorTarget = expense }
-            Button("删除", systemImage: "trash", role: .destructive) { pendingDeletion = expense }
+            Button("common.edit", systemImage: "pencil") { editorTarget = expense }
+            Button("common.delete", systemImage: "trash", role: .destructive) { pendingDeletion = expense }
         }
     }
 
@@ -262,18 +262,18 @@ struct ExpenseListView: View {
             EmptyView()
         case .pending(let count):
             HStack {
-                Label("有 \(count) 项修改待同步", systemImage: "clock.arrow.circlepath")
+                Label(String(format: String(localized: "expense.pendingSync"), count), systemImage: "clock.arrow.circlepath")
                 Spacer()
-                Button("重试") { Task { await syncEngine.retry() } }
+                Button("common.retry") { Task { await syncEngine.retry() } }
                     .font(.caption.weight(.semibold))
             }
             .font(.caption)
             .foregroundStyle(.orange)
         case .conflict:
             HStack {
-                Label("检测到协作覆盖，已显示服务器最新结果", systemImage: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90")
+                Label("expense.conflictNote", systemImage: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90")
                 Spacer()
-                Button("刷新") { Task { await syncEngine.retry() } }
+                Button("common.refresh") { Task { await syncEngine.retry() } }
                     .font(.caption.weight(.semibold))
             }
             .font(.caption)
@@ -284,7 +284,7 @@ struct ExpenseListView: View {
             HStack(alignment: .top) {
                 Label(message, systemImage: "wifi.exclamationmark")
                 Spacer()
-                Button("重试") { Task { await syncEngine.retry() } }
+                Button("common.retry") { Task { await syncEngine.retry() } }
                     .font(.caption.weight(.semibold))
             }
             .font(.caption)
@@ -300,9 +300,9 @@ private enum ExpenseSection: CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .expenses: "支出"
-        case .wallet: "卡包"
-        case .memo: "备忘"
+        case .expenses: String(localized: "expense.tab.expenses")
+        case .wallet: String(localized: "expense.tab.wallet")
+        case .memo: String(localized: "expense.tab.memo")
         }
     }
 

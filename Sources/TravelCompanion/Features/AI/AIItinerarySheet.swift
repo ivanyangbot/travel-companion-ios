@@ -35,22 +35,22 @@ struct AIItinerarySheet: View {
                 conversation
                 inputBar
             }
-            .navigationTitle("AI 填入行程")
+            .navigationTitle("aiitinerary.title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }.disabled(isSending || isImporting)
+                    Button("common.cancel") { dismiss() }.disabled(isSending || isImporting)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if !selectedCardIDs.isEmpty {
-                        Button("导入选中 \(selectedCardIDs.count)") { importSelected() }
+                        Button(String(format: String(localized: "aiitinerary.importSelected"), selectedCardIDs.count)) { importSelected() }
                             .disabled(isSending || isImporting)
                     }
                 }
             }
             .overlay {
                 if isImporting {
-                    ProgressView("正在加入同步队列…")
+                    ProgressView("aiitinerary.queuing")
                         .padding(20)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
@@ -87,9 +87,9 @@ struct AIItinerarySheet: View {
     private var hint: some View {
         VStack(spacing: 10) {
             Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.indigo)
-            Text("和 AI 一起规划行程")
+            Text("aiitinerary.hintTitle")
                 .font(.headline)
-            Text("描述你想去的地方、想补充的日期，或上传攻略图片。AI 会在对话中生成卡片，勾选后一键导入。")
+            Text("aiitinerary.hintDesc")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -108,7 +108,7 @@ struct AIItinerarySheet: View {
                     // its own bubble until the first reply delta arrives.
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
-                        Text(turn.status ?? "正在思考…").font(.subheadline).foregroundStyle(.secondary)
+                        Text(turn.status ?? String(localized: "aiitinerary.thinking")).font(.subheadline).foregroundStyle(.secondary)
                     }
                     .padding(12)
                     .background(Color.gray.opacity(0.15), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -192,7 +192,7 @@ struct AIItinerarySheet: View {
                 }
                 .disabled(isSending)
                 .onChange(of: photoItems) { _, _ in loadSelectedImages() }
-                TextField("描述你想补充的行程…", text: $inputText, axis: .vertical)
+                TextField("aiitinerary.placeholder", text: $inputText, axis: .vertical)
                     .lineLimit(1...4)
                     .focused($inputFocused)
                     .onSubmit { Task { await send() } }
@@ -230,7 +230,7 @@ struct AIItinerarySheet: View {
     private func send() async {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !images.isEmpty else { return }
-        let userText = text.isEmpty ? "请根据图片内容生成行程。" : text
+        let userText = text.isEmpty ? String(localized: "aiitinerary.defaultMessage") : text
         let imageDataURIs = images.map(\.dataURI)
         turns.append(ChatTurn(isUser: true, text: userText, cards: []))
         // Build history before seeding the empty assistant turn, and skip any
@@ -262,12 +262,12 @@ struct AIItinerarySheet: View {
                     break
                 case .reply(let chunk):
                     streamingTextBuffer += chunk
-                    turns[assistantIndex].status = "正在回复…"
+                    turns[assistantIndex].status = String(localized: "aiitinerary.replying")
                     renderStreamingTextIfNeeded(at: assistantIndex)
                 case .card(let index, let card):
                     flushStreamingText(at: assistantIndex)
                     insertStreamedCard(card, at: index, into: assistantIndex)
-                    turns[assistantIndex].status = "正在生成第 \(index + 1) 张卡片…"
+                    turns[assistantIndex].status = String(format: String(localized: "aiitinerary.generatingCard"), index + 1)
                 case .cardUpdate(let index, let extras, let notes):
                     applyStreamedCardUpdate(extras: extras, notes: notes, at: index, into: assistantIndex)
                 case .cardPlace(let index, let place, let verified):

@@ -16,8 +16,8 @@ struct MemoListEditor: View {
     @State private var errorMessage: String?
 
     private static let symbols: [(String, String)] = [
-        ("checklist", "清单"), ("suitcase", "行李"), ("cart", "采购"),
-        ("list.bullet", "待办"), ("airplane", "出行"), ("stethoscope", "医药"),
+        ("checklist", String(localized: "memolistsymbol.list")), ("suitcase", String(localized: "memolistsymbol.luggage")), ("cart", String(localized: "memolistsymbol.shopping")),
+        ("list.bullet", String(localized: "memolistsymbol.todo")), ("airplane", String(localized: "memolistsymbol.travel")), ("stethoscope", String(localized: "memolistsymbol.medical")),
     ]
 
     init(list: LocalMemoList?, onSaved: @escaping (String, String) -> Void = { _, _ in }) {
@@ -34,13 +34,13 @@ struct MemoListEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("清单") {
-                    TextField("标题，例如：行李清单", text: $title)
+                Section("memolisteditor.listLabel") {
+                    TextField("memolisteditor.titlePlaceholder", text: $title)
                     symbolPicker
                 }
-                Section("物品") {
+                Section("memolisteditor.itemsSection") {
                     if drafts.isEmpty {
-                        Text("还没有物品，下面添加。").font(.subheadline).foregroundStyle(.secondary)
+                        Text("memolisteditor.itemsEmpty").font(.subheadline).foregroundStyle(.secondary)
                     } else {
                         ForEach($drafts) { $draft in
                             HStack {
@@ -51,7 +51,7 @@ struct MemoListEditor: View {
                                         .foregroundStyle(draft.isChecked ? .indigo : .secondary)
                                 }
                                 .buttonStyle(.plain)
-                                TextField("物品名称", text: $draft.name)
+                                TextField("memolisteditor.itemPlaceholder", text: $draft.name)
                                     .textInputAutocapitalization(.sentences)
                             }
                         }
@@ -60,28 +60,28 @@ struct MemoListEditor: View {
                     }
                     HStack {
                         Image(systemName: "plus.circle").foregroundStyle(.secondary)
-                        TextField("添加物品", text: $newItemName)
+                        TextField("memolisteditor.addItemPlaceholder", text: $newItemName)
                             .textInputAutocapitalization(.sentences)
                             .onSubmit(addItem)
                     }
                 }
                 Section {
-                    Label("清单与物品仅保存在本机，不与服务器同步。", systemImage: "lock.fill")
+                    Label("memolisteditor.localNote", systemImage: "lock.fill")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(list == nil ? "新建清单" : "编辑清单")
+            .navigationTitle(list == nil ? "memolisteditor.addTitle" : "memolisteditor.editTitle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("保存", action: save).disabled(!canSave) }
+                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("common.save", action: save).disabled(!canSave) }
                 ToolbarItem(placement: .topBarTrailing) {
                     EditButton().disabled(drafts.isEmpty)
                 }
             }
-            .alert("无法保存", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-                Button("好", role: .cancel) { errorMessage = nil }
+            .alert("memolisteditor.cannotSave", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("common.ok", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
         }
     }
@@ -129,7 +129,7 @@ struct MemoListEditor: View {
         addItem()
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
-            errorMessage = "请填写清单标题。"
+            errorMessage = String(localized: "memolisteditor.errorTitle")
             return
         }
         let clean: [ItemDraft] = drafts
@@ -165,7 +165,7 @@ struct MemoListEditor: View {
             onSaved(trimmedTitle, symbol)
             dismiss()
         } catch {
-            errorMessage = "无法保存清单：\(error.localizedDescription)"
+            errorMessage = String(format: String(localized: "memolisteditor.saveFailed"), error.localizedDescription)
         }
     }
 }

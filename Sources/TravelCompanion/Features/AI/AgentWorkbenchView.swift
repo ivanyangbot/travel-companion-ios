@@ -58,9 +58,9 @@ struct AgentWorkbenchView: View {
                         Task { await syncEngine.clearSelectedTrip() }
                     } label: {
                         if syncEngine.selectedTripID == nil {
-                            Label("暂不选择行程", systemImage: "checkmark")
+                            Label("agent.workbenchNoTrip", systemImage: "checkmark")
                         } else {
-                            Text("暂不选择行程")
+                            Text("agent.workbenchNoTrip")
                         }
                     }
                     if !syncEngine.trips.isEmpty {
@@ -102,8 +102,8 @@ struct AgentWorkbenchView: View {
                 }
                 .buttonStyle(.glass)
                 .frame(maxWidth: proxy.size.width * 0.5, alignment: .leading)
-                .accessibilityLabel("切换行程")
-                .accessibilityHint("选择要规划的行程，或打开旅行与偏好设置")
+                .accessibilityLabel(Text("agent.switchTripA11y"))
+                .accessibilityHint(Text("agent.selectTripHint"))
 
                 Spacer(minLength: 0)
 
@@ -111,14 +111,14 @@ struct AgentWorkbenchView: View {
                     Image(systemName: "clock.arrow.circlepath")
                 }
                 .buttonStyle(.glass)
-                .accessibilityLabel("历史对话")
+                .accessibilityLabel(Text("agent.historyA11y"))
 
                 Button { startNewConversation() } label: {
                     Image(systemName: "plus")
                 }
                 .buttonStyle(.glass)
                 .disabled(isWelcomeState)
-                .accessibilityLabel("新建对话")
+                .accessibilityLabel(Text("agent.newConversationA11y"))
             }
         }
         }
@@ -131,8 +131,8 @@ struct AgentWorkbenchView: View {
     }
 
     private var tripTitle: String {
-        guard let trip = syncEngine.trip, trip.isConfigured else { return "未设置旅行" }
-        return trip.destination ?? "本次旅行"
+        guard let trip = syncEngine.trip, trip.isConfigured else { return String(localized: "agent.noTripTitle") }
+        return trip.destination ?? String(localized: "agent.currentTripTitle")
     }
 
     private var isWelcomeState: Bool {
@@ -161,7 +161,7 @@ AgentIntroGlobeView(diameter: 208)
         .padding(.top, 12)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("告诉豆奶你想去哪里。")
+                Text("agent.welcomeTitle")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
             }
@@ -170,7 +170,7 @@ AgentIntroGlobeView(diameter: 208)
 
             if !displayedPrompts.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("可以这样问")
+                    Text("agent.examplesTitle")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                     ForEach(Array(displayedPrompts.enumerated()), id: \.element) { index, prompt in
@@ -222,8 +222,8 @@ AgentIntroGlobeView(diameter: 208)
     }
 
     private var tripContextSubtitle: String {
-        guard let trip = syncEngine.trip, trip.isConfigured else { return "先设置目的地、日期，再开始规划" }
-        var details = ["\(trip.startDate ?? "") – \(trip.endDate ?? "")"]
+        guard let trip = syncEngine.trip, trip.isConfigured else { return String(localized: "agent.welcomeSubtitle") }
+        var details = [String(format: String(localized: "agent.dateRange"), trip.startDate ?? "", trip.endDate ?? "")]
         let preferences = preferenceLabels
         if !preferences.isEmpty { details.append(preferences.joined(separator: " · ")) }
         return details.joined(separator: "  ·  ")
@@ -232,9 +232,9 @@ AgentIntroGlobeView(diameter: 208)
     private var preferenceLabels: [String] {
         let preferences = store.session.preferences
         return [
-            preferenceTitle(preferences.pace, values: ["relaxed": "轻松", "balanced": "均衡", "packed": "特种兵"]),
-            preferenceTitle(preferences.companions, values: ["solo": "独自", "couple": "情侣", "parents": "带父母", "children": "带儿童"]),
-            preferenceTitle(preferences.budget, values: ["value": "省钱", "balanced": "适中", "premium": "品质优先"])
+            preferenceTitle(preferences.pace, values: ["relaxed": String(localized: "agent.preference.relaxed"), "balanced": String(localized: "agent.preference.balanced"), "packed": String(localized: "agent.preference.intense")]),
+            preferenceTitle(preferences.companions, values: ["solo": String(localized: "agent.preference.solo"), "couple": String(localized: "agent.preference.couple"), "parents": String(localized: "agent.preference.parents"), "children": String(localized: "agent.preference.kids")]),
+            preferenceTitle(preferences.budget, values: ["value": String(localized: "agent.preference.budget"), "balanced": String(localized: "agent.preference.mid"), "premium": String(localized: "agent.preference.premium")])
         ].compactMap { $0 }
     }
 
@@ -317,7 +317,7 @@ AgentIntroGlobeView(diameter: 208)
             if !runState.liveCards.isEmpty {
                 AssistantMessageContainer(showsAvatar: false) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("正在生成候选")
+                        Text("agent.generatingCandidates")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
                         ForEach(runState.liveCards) { card in
@@ -345,7 +345,7 @@ AgentIntroGlobeView(diameter: 208)
         VStack(alignment: .leading, spacing: 16) {
             if let summary = store.session.summary {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("本轮建议", systemImage: "sparkles")
+                    Label("agent.roundLabel", systemImage: "sparkles")
                         .font(.headline)
                         .foregroundStyle(.white)
                     Text(summary.text)
@@ -368,16 +368,16 @@ AgentIntroGlobeView(diameter: 208)
                     let carried = draft.candidates.filter { !lastTurnIDs.contains($0.id) }
                     VStack(alignment: .leading, spacing: 10) {
                         if !current.isEmpty {
-                            candidateGroup(title: carried.isEmpty ? "候选行程" : "本轮新增（\(current.count)）", candidates: current)
+                            candidateGroup(title: carried.isEmpty ? String(localized: "agent.candidatesGroup") : String(format: String(localized: "agent.newThisRound"), current.count), candidates: current)
                         }
                         if !carried.isEmpty {
-                            candidateGroup(title: "前几轮待确认（\(carried.count)）", candidates: carried)
+                            candidateGroup(title: String(format: String(localized: "agent.carriedOver"), carried.count), candidates: carried)
                         }
                     }
                 }
 
                 if !draft.changes.isEmpty {
-                    DisclosureGroup("查看变更清单（\(draft.changes.count)）") {
+                    DisclosureGroup(String(format: String(localized: "agent.changeList"), draft.changes.count)) {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(draft.changes) { change in
                                 HStack(alignment: .top, spacing: 10) {
@@ -410,11 +410,11 @@ AgentIntroGlobeView(diameter: 208)
                 let canCommit = !runState.isCommitting && !hasBlockingSelection && (!selected.isEmpty || !pendingRemovals.isEmpty)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("可导入 \(commitReady.count) 项" + (pendingRemovals.isEmpty ? "" : " · 待移除 \(pendingRemovals.count) 项"))
+                        Text(String(format: String(localized: "agent.importableCount"), commitReady.count) + (pendingRemovals.isEmpty ? "" : " " + String(format: String(localized: "agent.pendingRemovalCount"), pendingRemovals.count)))
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                         Spacer()
-                        Button(allCommitReadySelected ? "取消全选" : "全选可导入项") {
+                        Button(allCommitReadySelected ? String(localized: "agent.deselectAll") : String(localized: "agent.selectAll")) {
                             store.setSelected(!allCommitReadySelected, ids: Set(commitReady.map(\.id)))
                         }
                         .font(.subheadline.weight(.semibold))
@@ -425,7 +425,7 @@ AgentIntroGlobeView(diameter: 208)
                     Button { commit() } label: {
                         HStack {
                             if runState.isCommitting { ProgressView().tint(.white) }
-                            Text(selected.isEmpty ? "确认移除（\(pendingRemovals.count)）" : "确认加入行程（\(selected.count)）")
+                            Text(selected.isEmpty ? String(format: String(localized: "agent.confirmRemove"), pendingRemovals.count) : String(format: String(localized: "agent.confirmAdd"), selected.count))
                             Spacer()
                             Image(systemName: "arrow.right")
                         }
@@ -440,15 +440,15 @@ AgentIntroGlobeView(diameter: 208)
                     .opacity(canCommit || runState.isCommitting ? 1 : 0.45)
 
                     if hasBlockingSelection {
-                        Text("仍在验证的地点暂不可加入；“地点待确认”的用户原文项目可以直接加入，稍后再补地图点位。")
+                        Text("agent.captionVerify")
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     } else if selected.isEmpty && !pendingRemovals.isEmpty {
-                        Text("确认后只会从行程中移除变更清单里列出的卡片，其他内容不变。")
+                        Text("agent.captionRemove")
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     } else {
-                        Text("确认前不会改动当前行程，未选择的候选仍留在本机草稿中。")
+                        Text("agent.captionKeep")
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
@@ -462,13 +462,13 @@ AgentIntroGlobeView(diameter: 208)
     /// plan_new 产出的旅程提案确认卡：仅在仍无生效旅程时展示。
     private func tripProposalCard(_ proposal: AgentV2TripProposal) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("旅程提案", systemImage: "map")
+            Label("agent.proposalLabel", systemImage: "map")
                 .font(.headline)
                 .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: 6) {
                 Label(proposal.destination, systemImage: "location.fill")
-                Label("\(proposal.startDate) 至 \(proposal.endDate)", systemImage: "calendar")
-                Label("币种 \(proposal.currency)", systemImage: "creditcard")
+                Label(String(format: String(localized: "agent.proposalRange"), proposal.startDate, proposal.endDate), systemImage: "calendar")
+                Label(String(format: String(localized: "agent.proposalCurrency"), proposal.currency), systemImage: "creditcard")
             }
             .font(.subheadline)
             .foregroundStyle(.white.opacity(0.85))
@@ -476,7 +476,7 @@ AgentIntroGlobeView(diameter: 208)
             Button { confirmTripProposal(proposal) } label: {
                 HStack {
                     if isCreatingTripFromProposal { ProgressView().tint(.white) }
-                    Text("确认创建旅程")
+                    Text("agent.createTripButton")
                     Spacer()
                     Image(systemName: "arrow.right")
                 }
@@ -490,7 +490,7 @@ AgentIntroGlobeView(diameter: 208)
             .disabled(isCreatingTripFromProposal)
             .opacity(isCreatingTripFromProposal ? 0.7 : 1)
 
-            Text("确认后才会创建旅程；候选仍需在下方选择后加入行程。")
+            Text("agent.captionCreate")
                 .font(.caption)
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
         }
@@ -516,9 +516,9 @@ AgentIntroGlobeView(diameter: 208)
                 HStack(spacing: 8) {
                     Image(systemName: "photo.on.rectangle.angled")
                         .foregroundStyle(PrimaryTabPalette.accent)
-                    Text("已附 \(store.session.attachments.count) 张图片")
+                    Text(String(format: String(localized: "agent.attachedPhotos"), store.session.attachments.count))
                         .foregroundStyle(.white)
-                    Text("· 发送失败后仍可重试").foregroundStyle(PrimaryTabPalette.secondaryText)
+                    Text("agent.retryNote").foregroundStyle(PrimaryTabPalette.secondaryText)
                     Spacer()
                 }
                 .font(.caption)
@@ -536,9 +536,9 @@ AgentIntroGlobeView(diameter: 208)
                 }
                 .buttonStyle(.plain)
                 .onChange(of: photo) { _, item in load(item) }
-                .accessibilityLabel("添加攻略图片")
+                .accessibilityLabel(Text("agent.addPhotosA11y"))
 
-                TextField("告诉豆奶你的旅游灵感", text: $message, axis: .vertical)
+                TextField("agent.inputPlaceholder", text: $message, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($isComposerFocused)
                     .foregroundStyle(.white)
@@ -556,7 +556,7 @@ AgentIntroGlobeView(diameter: 208)
                 }
                 .buttonStyle(.plain)
                 .disabled(!runState.isGenerating && !canSend)
-                .accessibilityLabel(runState.isGenerating ? "停止生成" : "发送")
+                .accessibilityLabel(runState.isGenerating ? String(localized: "agent.stopA11y") : String(localized: "agent.sendA11y"))
             }
         }
         .padding(.horizontal, 12)
@@ -620,7 +620,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
                 pace: preferences.pace,
                 companions: preferences.companions,
                 budget: preferences.budget,
-                interests: preferences.interests.isEmpty ? nil : preferences.interests
+                interests: preferences.interests.isEmpty ? nil : AgentInterest.displayNames(for: preferences.interests)
             ),
             existingItinerary: hasActiveTrip ? syncEngine.existingItinerarySnapshot() : nil
         )
@@ -687,7 +687,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
         // 服务端每轮最多接受 9 张附件；超出会在整轮校验时 400，提前拦截。
         guard store.session.attachments.count < 9 else {
             photo = nil
-            runState.error = "每轮最多附带 9 张图片，请先清除对话与草稿后再添加。"
+            runState.error = String(localized: "agent.errorMaxImages")
             return
         }
         Task {
@@ -711,7 +711,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
     }
 
     private func send() {
-        guard let request = makeRequest() else { runState.error = "请先完成旅行设置。"; return }
+        guard let request = makeRequest() else { runState.error = String(localized: "agent.errorSetup"); return }
         // plan_new（无生效旅程或「暂不选择行程」）时 tripID 为 nil，服务端不强制本接口的旅程鉴权。
         let tripID = syncEngine.trip?.id
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: message, createdAt: .now)
@@ -810,7 +810,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
         formatter.dateFormat = "yyyy-MM-dd"
         guard let startDate = formatter.date(from: proposal.startDate),
               let endDate = formatter.date(from: proposal.endDate) else {
-            runState.error = "旅程计划的日期无法识别，请让豆奶重新生成计划。"
+            runState.error = String(localized: "agent.errorPlanDate")
             return
         }
         isCreatingTripFromProposal = true
@@ -819,7 +819,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
             if syncEngine.trip != nil {
                 store.clearPendingProposal()
             } else {
-                runState.error = "旅程创建失败，请稍后重试。"
+                runState.error = String(localized: "agent.errorCreateFailed")
             }
             isCreatingTripFromProposal = false
         }
@@ -831,11 +831,11 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
         // session. The button's `draft`/`selected` values belong to an earlier
         // SwiftUI render and can be stale after a streaming turn completes.
         guard let snapshot = store.commitSnapshot() else {
-            runState.error = "当前没有可确认的候选，请重新选择后确认。"
+            runState.error = String(localized: "agent.errorNoCandidates")
             return
         }
         guard snapshot.selected.allSatisfy(\.isCommitReady) else {
-            runState.error = "选中的候选仍在生成或缺少必要时间信息，请稍后再确认。"
+            runState.error = String(localized: "agent.errorNotReady")
             return
         }
 
@@ -904,9 +904,9 @@ private struct AgentHistorySheet: View {
             Group {
                 if store.archives.isEmpty {
                     ContentUnavailableView(
-                        "暂无历史对话",
+                        "agent.historyEmptyTitle",
                         systemImage: "clock.arrow.circlepath",
-                        description: Text("点击「新建对话」后，当前对话会自动保存在这里。")
+                        description: Text("agent.historyEmptyDesc")
                     )
                 } else {
                     List {
@@ -923,7 +923,7 @@ private struct AgentHistorySheet: View {
                                         .lineLimit(1)
                                     HStack(spacing: 6) {
                                         Text(archived.updatedAt, style: .relative)
-                                        Text("· \(archived.messages.count) 条消息")
+                                        Text(String(format: String(localized: "agent.messageCount"), archived.messages.count))
                                     }
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -934,20 +934,20 @@ private struct AgentHistorySheet: View {
                                 Button(role: .destructive) {
                                     store.deleteArchivedSession(id: archived.id)
                                 } label: {
-                                    Label("删除", systemImage: "trash")
+                                    Label("common.delete", systemImage: "trash")
                                 }
                             }
-                            .accessibilityLabel("恢复对话：\(title(for: archived))")
+                            .accessibilityLabel(String(format: String(localized: "agent.restoreConversationA11y"), title(for: archived)))
                         }
                     }
                     .listStyle(.plain)
                 }
             }
-            .navigationTitle("历史对话")
+            .navigationTitle("agent.historyTitle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("common.done") { dismiss() }
                 }
             }
         }
@@ -961,7 +961,7 @@ private struct AgentHistorySheet: View {
             ?? session.messages.first?.content
             ?? ""
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "未命名对话" : String(trimmed.prefix(40))
+        return trimmed.isEmpty ? String(localized: "common.unnamedConversation") : String(trimmed.prefix(40))
     }
 }
 
@@ -1061,9 +1061,9 @@ private struct FliggySearchStatusChip: View {
             return "\(title) · \(term)"
         case .completed(let ok, let count):
             if ok, let count {
-                return "飞猪已返回 \(count) 个结果"
+                return String(format: String(localized: "agent.flightResults"), count)
             }
-            return "飞猪实时数据暂不可用，已用其他来源继续"
+            return String(localized: "agent.flightUnavailable")
         }
     }
 }
@@ -1081,7 +1081,7 @@ private struct LiveCandidateCard: View {
             if !card.timing.isEmpty { Label(card.timing, systemImage: "clock").font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText) }
             if let place = card.place { Label(place, systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.white.opacity(0.85)) }
             if let reason = card.reason { Text(reason).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText) }
-            Text("地点验证中").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
+            Text("agent.verifyingBadge").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
         }
         .padding(12)
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
@@ -1139,12 +1139,12 @@ private struct LegacyAgentV2CandidateCard: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityValue(candidate.selected ? "已选择" : "未选择")
-            .accessibilityHint(candidate.isCommitReady ? "轻点切换选择" : "信息完整后才可选择")
+            .accessibilityValue(candidate.selected ? String(localized: "common.selected") : String(localized: "common.notSelected"))
+            .accessibilityHint(candidate.isCommitReady ? String(localized: "common.tapToToggle") : "信息完整后才可选择")
 
             if let xiaohongshuURL {
                 Link(destination: xiaohongshuURL) {
-                    Label("小红书来源 · 打开原笔记", systemImage: "arrow.up.right.square")
+                    Label("agent.xhsSourceLink", systemImage: "arrow.up.right.square")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.red)
                 }
@@ -1158,7 +1158,7 @@ private struct LegacyAgentV2CandidateCard: View {
                 Link(destination: fliggyBookingURL) {
                     HStack(spacing: 5) {
                         Image(systemName: "airplane")
-                        Text("查看预订")
+                        Text("agent.viewBooking")
                         Image(systemName: "arrow.up.right")
                             .font(.caption2.weight(.bold))
                     }
@@ -1169,7 +1169,7 @@ private struct LegacyAgentV2CandidateCard: View {
                     .background(PrimaryTabPalette.accent, in: Capsule())
                 }
                 .padding(.leading, 34)
-                .accessibilityLabel("在飞猪查看预订")
+                .accessibilityLabel(Text("agent.viewBookingA11y"))
             }
         }
         .padding(13)
@@ -1211,9 +1211,9 @@ private struct LegacyAgentV2CandidateCard: View {
             let amount = major.truncatingRemainder(dividingBy: 1) == 0
                 ? String(format: "%.0f", major)
                 : String(format: "%.2f", major)
-            return "¥\(amount)"
+            return String(format: String(localized: "agent.priceFormat"), amount)
         }
-        if candidate.notes?.contains("实时价格见预订链接") == true { return "实时价" }
+        if candidate.notes?.contains("实时价格见预订链接") == true { return String(localized: "agent.priceLive") }
         return nil
     }
 
@@ -1233,24 +1233,24 @@ private struct AgentContextSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("本次旅行") {
+                Section("agent.tripSection") {
                     if let trip = syncEngine.trip, trip.isConfigured {
-                        LabeledContent("目的地", value: trip.destination ?? "待设置")
-                        LabeledContent("日期", value: "\(trip.startDate ?? "") – \(trip.endDate ?? "")")
+                        LabeledContent("agent.destinationLabel", value: trip.destination ?? String(localized: "agent.valueUnset"))
+                        LabeledContent("agent.dateLabel", value: String(format: String(localized: "agent.dateRange"), trip.startDate ?? "", trip.endDate ?? ""))
                     } else {
-                        ContentUnavailableView("请先完成旅行设置", systemImage: "calendar.badge.exclamationmark", description: Text("豆奶需要目的地、日期等信息来检查地点与冲突。"))
+                        ContentUnavailableView("agent.setupEmptyTitle", systemImage: "calendar.badge.exclamationmark", description: Text("agent.setupEmptyDesc"))
                     }
                 }
 
-                Section("规划条件") {
-                    Picker("节奏", selection: binding(\.pace)) {
-                        Text("未设置").tag(""); Text("轻松").tag("relaxed"); Text("均衡").tag("balanced"); Text("特种兵").tag("packed")
+                Section("agent.conditionsSection") {
+                    Picker("agent.paceLabel", selection: binding(\.pace)) {
+                        Text("agent.preference.unset").tag(""); Text("agent.preference.relaxed").tag("relaxed"); Text("agent.preference.balanced").tag("balanced"); Text("agent.preference.intense").tag("packed")
                     }
-                    Picker("同行人", selection: binding(\.companions)) {
-                        Text("未设置").tag(""); Text("独自").tag("solo"); Text("情侣").tag("couple"); Text("带父母").tag("parents"); Text("带儿童").tag("children")
+                    Picker("agent.companyLabel", selection: binding(\.companions)) {
+                        Text("agent.preference.unset").tag(""); Text("agent.preference.solo").tag("solo"); Text("agent.preference.couple").tag("couple"); Text("agent.preference.parents").tag("parents"); Text("agent.preference.kids").tag("children")
                     }
-                    Picker("预算", selection: binding(\.budget)) {
-                        Text("未设置").tag(""); Text("省钱").tag("value"); Text("适中").tag("balanced"); Text("品质优先").tag("premium")
+                    Picker("agent.budgetLabel", selection: binding(\.budget)) {
+                        Text("agent.preference.unset").tag(""); Text("agent.preference.budget").tag("value"); Text("agent.preference.mid").tag("balanced"); Text("agent.preference.premium").tag("premium")
                     }
                 }
 
@@ -1274,7 +1274,7 @@ private struct AgentContextSheet: View {
                     .padding(.vertical, 4)
 
                     HStack(spacing: 10) {
-                        TextField("添加自定义偏好", text: $customInterest)
+                        TextField("agent.customInterestPlaceholder", text: $customInterest)
                             .font(.subheadline)
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12)
@@ -1290,20 +1290,20 @@ private struct AgentContextSheet: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(customInterest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityLabel("添加自定义偏好")
+                        .accessibilityLabel(Text("agent.customInterestA11y"))
                     }
                 } header: {
-                    Text("偏好")
+                    Text("agent.preferencesSection")
                 }
             }
             .scrollContentBackground(.hidden)
             .background(PrimaryTabPalette.background)
             .tint(PrimaryTabPalette.accent)
             .preferredColorScheme(.dark)
-            .navigationTitle("旅行与偏好")
+            .navigationTitle("agent.preferencesTitle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("common.done") { dismiss() } }
             }
         }
     }
@@ -1376,10 +1376,10 @@ private struct FlowLayout: Layout {
 private extension AgentV2Candidate.PlaceStatus {
     var title: String {
         switch self {
-        case .verified: "地点已验证"
-        case .pending: "地点验证中"
-        case .failed: "地点待确认"
-        case .notRequired: "无需地点"
+        case .verified: String(localized: "agent.verifiedBadge")
+        case .pending: String(localized: "agent.verifyingBadge")
+        case .failed: String(localized: "agent.pendingBadge")
+        case .notRequired: String(localized: "agent.noPlaceNeededBadge")
         }
     }
 }
@@ -1387,13 +1387,13 @@ private extension AgentV2Candidate.PlaceStatus {
 private extension AgentV2Change {
     var operationTitle: String {
         switch operation {
-        case .add: "新增"
+        case .add: String(localized: "agent.change.new")
         // 区分作用于已确认行程卡片与仅作用于未确认草稿候选的操作，
         // 避免“替换/移除”让用户误以为已确认的行程被改动。
-        case .replace: targetDraftId != nil ? "更新候选" : "替换行程"
-        case .remove: targetDraftId != nil ? "移除候选" : "移除行程"
-        case .move: "移动"
-        case .keep: "保留"
+        case .replace: targetDraftId != nil ? String(localized: "agent.change.updateCandidate") : String(localized: "agent.change.replaceTrip")
+        case .remove: targetDraftId != nil ? String(localized: "agent.change.removeCandidate") : String(localized: "agent.change.removeTrip")
+        case .move: String(localized: "agent.change.move")
+        case .keep: String(localized: "agent.change.keep")
         }
     }
 }
@@ -1422,9 +1422,9 @@ private extension AgentV2Change.Operation {
 private extension TravelCardSnapshot.Kind {
     var agentTitle: String {
         switch self {
-        case .activity: "活动"
-        case .hotel: "酒店"
-        case .flight: "航班"
+        case .activity: String(localized: "agent.kind.activity")
+        case .hotel: String(localized: "agent.kind.hotel")
+        case .flight: String(localized: "agent.kind.flight")
         }
     }
 
@@ -1556,8 +1556,8 @@ enum AgentImageAttachmentError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unreadable: "无法读取所选图片。"
-        case .compressionFailed: "图片自动压缩失败，请重新选择。"
+        case .unreadable: String(localized: "agent.imageUnreadable")
+        case .compressionFailed: String(localized: "agent.imageCompressFailed")
         }
     }
 }

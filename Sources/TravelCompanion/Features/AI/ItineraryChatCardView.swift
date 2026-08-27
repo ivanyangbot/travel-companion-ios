@@ -30,12 +30,12 @@ struct ItineraryChatCardView: View {
                     // its place against Apple Maps in the background.
                     HStack(spacing: 5) {
                         ProgressView().controlSize(.mini)
-                        Text("地点验证中…")
+                        Text("chatcard.verifying")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
                 } else if card.kind == .activity || card.kind == .hotel {
-                    Label("地点待手动确认，默认不导入", systemImage: "exclamationmark.triangle.fill")
+                    Label("chatcard.manualConfirm", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
@@ -49,12 +49,12 @@ struct ItineraryChatCardView: View {
                             .foregroundStyle(.secondary)
                     }
                     if let from = extras.fromAirport, let to = extras.toAirport, !from.isEmpty, !to.isEmpty {
-                        Text("\(from) → \(to)")
+                        Text(String(format: String(localized: "chatcard.transit"), from, to))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     if let priceMinor = extras.priceMinor {
-                        Text("预估参考价 \(formattedPrice(priceMinor))")
+                        Text(String(format: String(localized: "chatcard.estimatePrice"), formattedPrice(priceMinor)))
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.orange)
                     }
@@ -64,7 +64,7 @@ struct ItineraryChatCardView: View {
                 }
             }
             Spacer(minLength: 4)
-            Toggle("导入此卡片", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
+            Toggle("chatcard.importToggle", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
                 .labelsHidden()
                 .tint(tint)
                 .disabled(card.placePending)

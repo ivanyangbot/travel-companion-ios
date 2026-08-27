@@ -28,40 +28,40 @@ struct ExpenseEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("实际价") {
-                    TextField("0.00", text: $amountText)
+                Section("expenseeditor.actualSection") {
+                    TextField("expenseeditor.amountPlaceholder", text: $amountText)
                         .keyboardType(.decimalPad)
-                    Text("币种：\(trip.currency ?? "请先设置")；金额会精确保存为最小货币单位。")
+                    Text(String(format: String(localized: "expenseeditor.currencyNote"), trip.currency ?? String(localized: "expenseeditor.currencyPending")))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                Section("归类") {
-                    Picker("类别", selection: $category) {
+                Section("expenseeditor.categorySection") {
+                    Picker("expenseeditor.categoryLabel", selection: $category) {
                         ForEach(ExpenseCategory.allCases) { category in
                             Label(category.title, systemImage: category.systemImage).tag(category)
                         }
                     }
-                    DatePicker("发生日期", selection: $occurredOn, displayedComponents: .date)
+                    DatePicker("expenseeditor.dateLabel", selection: $occurredOn, displayedComponents: .date)
                 }
-                Section("关联行程（可选）") {
-                    Picker("行程卡片", selection: $cardID) {
-                        Text("不关联").tag(Int?.none)
+                Section("expenseeditor.linkSection") {
+                    Picker("expenseeditor.cardLabel", selection: $cardID) {
+                        Text("expenseeditor.noCard").tag(Int?.none)
                         ForEach(allCards, id: \.serverID) { card in
                             Text(card.title).tag(Optional(card.serverID!))
                         }
                     }
                 }
-                Section("备注（可选）") {
-                    TextField("例如：机场到酒店", text: $note, axis: .vertical)
+                Section("expenseeditor.noteSection") {
+                    TextField("expenseeditor.notePlaceholder", text: $note, axis: .vertical)
                         .lineLimit(2...5)
                 }
                 if let validationMessage { Text(validationMessage).foregroundStyle(.red) }
             }
-            .navigationTitle(existingExpense == nil ? "新增实际价" : "编辑实际价")
+            .navigationTitle(existingExpense == nil ? "expenseeditor.addTitle" : "expenseeditor.editTitle")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { save() }
+                    Button("common.save") { save() }
                         .disabled(trip.currency == nil)
                 }
             }
@@ -74,7 +74,7 @@ struct ExpenseEditorView: View {
 
     private func save() {
         guard let currency = trip.currency, let amountMinor = ExpenseMoney.amountMinor(from: amountText, currency: currency) else {
-            validationMessage = "请输入有效的正数金额，且小数位不能超过该币种精度。"
+            validationMessage = String(localized: "expenseeditor.errorInvalid")
             return
         }
         let normalizedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)

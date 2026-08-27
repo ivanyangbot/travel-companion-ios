@@ -111,9 +111,9 @@ enum GooeyPinNumberScenarioID: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .rightEdge: "4 · 右侧"
-        case .upperLeft: "3 · 左上"
-        case .generated: "随机"
+        case .rightEdge: String(localized: "demo.pos4Right")
+        case .upperLeft: String(localized: "demo.pos3Left")
+        case .generated: String(localized: "demo.random")
         }
     }
 }
@@ -1688,15 +1688,15 @@ private enum GooeyDemoTab: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .gooey: "Gooey Pin"
-        case .agentIntro: "Agent 初始页"
+        case .gooey: String(localized: "demo.tabGooey")
+        case .agentIntro: String(localized: "demo.tabAgent")
         }
     }
 
     var navigationTitle: String {
         switch self {
-        case .gooey: "Pin Gooey Demo"
-        case .agentIntro: "Agent 初始页 Demo"
+        case .gooey: String(localized: "demo.titleGooey")
+        case .agentIntro: String(localized: "demo.titleAgent")
         }
     }
 }
@@ -1737,7 +1737,7 @@ struct GooeyPinDemoView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("Demo 页面", selection: $selectedDemoTab) {
+                Picker("demo.pageLabel", selection: $selectedDemoTab) {
                     ForEach(GooeyDemoTab.allCases, id: \.self) { tab in
                         Text(tab.title).tag(tab)
                     }
@@ -1764,8 +1764,8 @@ struct GooeyPinDemoView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("关闭") { dismiss() }
-                        .accessibilityLabel("关闭 Demo")
+                    Button("common.close") { dismiss() }
+                        .accessibilityLabel(Text("demo.closeA11y"))
                 }
             }
         }
@@ -1802,19 +1802,28 @@ struct GooeyPinDemoView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label(
-                    demoState.snapState == .fused ? "融合" : "分离",
+                    demoState.snapState == .fused ? String(localized: "demo.fused") : String(localized: "demo.separated"),
                     systemImage: demoState.snapState == .fused ? "drop.fill" : "circle.dotted"
                 )
                 .font(.subheadline.weight(.semibold))
                 Spacer()
                 Text(
-                    "表面间距 \(Int(stageMetrics.surfaceGap.rounded())) pt · 角度 \(Int(stageMetrics.angleDegrees.rounded()) % 360)°"
+                    String(
+                        format: String(localized: "demo.metrics"),
+                        Int(stageMetrics.surfaceGap.rounded()),
+                        Int(stageMetrics.angleDegrees.rounded()) % 360
+                    )
                 )
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(.secondary)
             }
             Text(
-                "主示例：融合 \(numberScenario.fusedText) · 分离 \(numberScenario.separatedAggregateText) + \(numberScenario.extractedMember.value)"
+                String(
+                    format: String(localized: "demo.mainExample"),
+                    numberScenario.fusedText,
+                    numberScenario.separatedAggregateText,
+                    numberScenario.extractedMember.value
+                )
             )
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
@@ -1865,12 +1874,14 @@ struct GooeyPinDemoView: View {
     }
 
     private var layoutPanel: some View {
-        parameterGroup("布局") {
-            Toggle("手动控制", isOn: $manualControlEnabled)
+        parameterGroup(String(localized: "demo.layoutGroup")) {
+            Toggle("demo.manualControl", isOn: $manualControlEnabled)
                 .accessibilityHint(
-                    manualControlEnabled
-                        ? "开启时可直接拖动每个 Pin"
-                        : "关闭时由地图平移和缩放自动驱动 Pin 融合与分离"
+                    Text(
+                        manualControlEnabled
+                            ? String(localized: "demo.manualHint")
+                            : String(localized: "demo.autoHint")
+                    )
                 )
 
             Stepper(
@@ -1878,47 +1889,50 @@ struct GooeyPinDemoView: View {
                 in: GooeyPinRandomLayoutGenerator.pinCountRange
             ) {
                 HStack {
-                    Text("生成 Pin 数量")
+                    Text("demo.pinCountLabel")
                     Spacer()
                     Text("\(requestedPinCount)")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
             }
-            .accessibilityLabel("生成 Pin 数量")
-            .accessibilityValue("\(requestedPinCount) 个")
+            .accessibilityLabel(Text("demo.pinCountLabel"))
+            .accessibilityValue(Text(String(format: String(localized: "demo.pinCountValue"), requestedPinCount)))
 
             Button {
                 regenerateRandomLayout()
             } label: {
-                Label("随机生成布局", systemImage: "die.face.5.fill")
+                Label("demo.randomLayout", systemImage: "die.face.5.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .accessibilityHint("生成新的成员相对位置、抽取成员和分离方位")
+            .accessibilityHint(Text("demo.randomLayoutHint"))
 
-            Text("当前舞台有 \(2 + demoState.supplementalPins.count) 个可见 Pin；聚合 Pin 无论包含多少数字都只计为 1 个。")
+            Text(String(format: String(localized: "demo.visiblePins"), 2 + demoState.supplementalPins.count))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(
                 manualControlEnabled
-                    ? "可直接拖动任意 Pin；接近时融合数字，拖离后可按新相对位置插入另一个 Pin。"
-                    : "首页自动模式：Pin 不可单独拖动；拖拽地图或双指缩放改变屏幕位置，碰撞时自动聚合，离开时自动分离。"
+                    ? String(localized: "demo.manualCaption")
+                    : String(localized: "demo.autoCaption")
             )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Label("聚合 Pin 宽度按首页文字测量规则自动适配", systemImage: "textformat.size")
+            Label("demo.adaptLabel", systemImage: "textformat.size")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
                 Label(
-                    "地图缩放 \(Double(mapCamera.scale).formatted(.number.precision(.fractionLength(2))))×",
+                    String(
+                        format: String(localized: "demo.mapScale"),
+                        Double(mapCamera.scale).formatted(.number.precision(.fractionLength(2)))
+                    ),
                     systemImage: "map"
                 )
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 Spacer()
-                Button("重置视角") {
+                Button("demo.resetView") {
                     animateAssistance { mapCamera = .standard }
                 }
                 .font(.caption)
@@ -1927,20 +1941,20 @@ struct GooeyPinDemoView: View {
     }
 
     private var appearancePanel: some View {
-        parameterGroup("Gooey 外观") {
-            parameterSlider("模糊半径", value: $demoState.parameters.blurRadius, range: 0...24, unit: "pt")
-            parameterSlider("Alpha 阈值", value: $demoState.parameters.alphaThreshold, range: 0.05...0.95, digits: 2)
-            parameterSlider("源不透明度", value: $demoState.parameters.sourceOpacity, range: 0.2...1, digits: 2)
-            parameterSlider("橙色描边", value: $demoState.parameters.strokeWidth, range: 0...6, unit: "pt", digits: 1)
-            parameterSlider("阴影", value: $demoState.parameters.shadowRadius, range: 0...24, unit: "pt")
+        parameterGroup(String(localized: "demo.appearanceGroup")) {
+            parameterSlider(String(localized: "demo.blurRadius"), value: $demoState.parameters.blurRadius, range: 0...24, unit: String(localized: "demo.unitPt"))
+            parameterSlider(String(localized: "demo.alphaThreshold"), value: $demoState.parameters.alphaThreshold, range: 0.05...0.95, digits: 2)
+            parameterSlider(String(localized: "demo.sourceOpacity"), value: $demoState.parameters.sourceOpacity, range: 0.2...1, digits: 2)
+            parameterSlider(String(localized: "demo.orangeStroke"), value: $demoState.parameters.strokeWidth, range: 0...6, unit: String(localized: "demo.unitPt"), digits: 1)
+            parameterSlider(String(localized: "demo.shadow"), value: $demoState.parameters.shadowRadius, range: 0...24, unit: String(localized: "demo.unitPt"))
         }
     }
 
     private var behaviorPanel: some View {
-        parameterGroup("辅助动作与滞回") {
-            parameterSlider("辅助分离距离", value: $demoState.parameters.separationDistance, range: 40...120, unit: "pt")
+        parameterGroup(String(localized: "demo.hysteresisGroup")) {
+            parameterSlider(String(localized: "demo.auxDistance"), value: $demoState.parameters.separationDistance, range: 40...120, unit: String(localized: "demo.unitPt"))
             parameterSlider(
-                "融合阈值",
+                String(localized: "demo.fuseThreshold"),
                 value: Binding(
                     get: { demoState.parameters.mergeThreshold },
                     set: { newValue in
@@ -1954,7 +1968,7 @@ struct GooeyPinDemoView: View {
                 unit: "pt"
             )
             parameterSlider(
-                "分离阈值",
+                String(localized: "demo.separateThreshold"),
                 value: Binding(
                     get: { demoState.parameters.splitThreshold },
                     set: { newValue in
@@ -1967,8 +1981,8 @@ struct GooeyPinDemoView: View {
                 range: 4...60,
                 unit: "pt"
             )
-            parameterSlider("弹簧响应", value: $demoState.parameters.springResponse, range: 0.1...1, unit: "s", digits: 2)
-            parameterSlider("弹簧阻尼", value: $demoState.parameters.springDamping, range: 0.2...1, digits: 2)
+            parameterSlider(String(localized: "demo.springResponse"), value: $demoState.parameters.springResponse, range: 0.1...1, unit: String(localized: "demo.unitS"), digits: 2)
+            parameterSlider(String(localized: "demo.springDamping"), value: $demoState.parameters.springDamping, range: 0.2...1, digits: 2)
         }
     }
 
@@ -1976,11 +1990,11 @@ struct GooeyPinDemoView: View {
         Button {
             regenerateRandomLayout(resetParameters: true)
         } label: {
-            Label("恢复默认", systemImage: "arrow.counterclockwise")
+            Label("demo.restoreDefaults", systemImage: "arrow.counterclockwise")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .accessibilityLabel("恢复全部 Gooey 参数并重新随机生成布局")
+        .accessibilityLabel(Text("demo.restoreHint"))
     }
 
     private func regenerateRandomLayout() {
@@ -2492,9 +2506,9 @@ private struct GooeyPinStage: View {
             .allowsHitTesting(activeSupplementalPinID == nil && activeDragPin != .single)
             .zIndex(activeDragPin == .aggregate ? 4 : 1)
             .accessibilityElement()
-            .accessibilityLabel("聚合 Pin")
+            .accessibilityLabel(Text("demo.clusterPinA11y"))
             .accessibilityValue(accessibilityValue(for: .aggregate, layout: displayLayout))
-            .accessibilityHint("可二维拖动，或使用动作移动、融合和分离")
+            .accessibilityHint(Text("demo.pinDragHint"))
             .modifier(PinAccessibilityActions(pin: .aggregate, layout: worldLayout, handler: onAccessibilityAction))
 
         Color.clear
@@ -2505,9 +2519,9 @@ private struct GooeyPinStage: View {
             .allowsHitTesting(activeSupplementalPinID == nil && activeDragPin != .aggregate)
             .zIndex(activeDragPin == .single ? 4 : 1.25)
             .accessibilityElement()
-            .accessibilityLabel("单体 Pin")
+            .accessibilityLabel(Text("demo.singlePinA11y"))
             .accessibilityValue(accessibilityValue(for: .single, layout: displayLayout))
-            .accessibilityHint("可二维拖动，或使用动作移动、融合和分离")
+            .accessibilityHint(Text("demo.pinDragHint"))
             .modifier(PinAccessibilityActions(pin: .single, layout: worldLayout, handler: onAccessibilityAction))
 
         ForEach(hitGeometry.aggregateEndHandleFrames.indices, id: \.self) { index in
@@ -2558,9 +2572,15 @@ private struct GooeyPinStage: View {
                     )
                     .zIndex(activeSupplementalPinID == pin.id ? 5 : 2.5)
                     .accessibilityElement()
-                    .accessibilityLabel(pin.text.contains(".") ? "聚合 Pin" : "单体 Pin")
-                    .accessibilityValue("数字 \(pin.text)")
-                    .accessibilityHint("可二维拖动并与其他 Pin 产生 Gooey 融合")
+                    .accessibilityLabel(
+                        Text(
+                            pin.text.contains(".")
+                                ? String(localized: "demo.clusterPinA11y")
+                                : String(localized: "demo.singlePinA11y")
+                        )
+                    )
+                    .accessibilityValue(Text(String(format: String(localized: "demo.pinNumberValue"), pin.text)))
+                    .accessibilityHint(Text("demo.supplementalHint"))
             }
         }
     }
@@ -2630,7 +2650,12 @@ private struct GooeyPinStage: View {
         case .single:
             numberText = numberScenario.extractedMember.value
         }
-        return "数字 \(numberText)，横坐标 \(Int(frame.midX.rounded()))，纵坐标 \(Int(frame.midY.rounded()))"
+        return String(
+            format: String(localized: "demo.pinCoordsValue"),
+            numberText,
+            Int(frame.midX.rounded()),
+            Int(frame.midY.rounded())
+        )
     }
 }
 
@@ -2641,22 +2666,22 @@ private struct PinAccessibilityActions: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .accessibilityAction(named: Text("向上移动")) {
+            .accessibilityAction(named: Text("demo.moveUp")) {
                 handler(pin, .move(CGSize(width: 0, height: -12)), layout)
             }
-            .accessibilityAction(named: Text("向下移动")) {
+            .accessibilityAction(named: Text("demo.moveDown")) {
                 handler(pin, .move(CGSize(width: 0, height: 12)), layout)
             }
-            .accessibilityAction(named: Text("向左移动")) {
+            .accessibilityAction(named: Text("demo.moveLeft")) {
                 handler(pin, .move(CGSize(width: -12, height: 0)), layout)
             }
-            .accessibilityAction(named: Text("向右移动")) {
+            .accessibilityAction(named: Text("demo.moveRight")) {
                 handler(pin, .move(CGSize(width: 12, height: 0)), layout)
             }
-            .accessibilityAction(named: Text("融合")) {
+            .accessibilityAction(named: Text("demo.fused")) {
                 handler(pin, .snap(.fused), layout)
             }
-            .accessibilityAction(named: Text("分离")) {
+            .accessibilityAction(named: Text("demo.separated")) {
                 handler(pin, .snap(.separated), layout)
             }
     }
@@ -2721,7 +2746,7 @@ private struct GooeyPinMapBackground: View {
             context.stroke(grid, with: .color(.white.opacity(0.055)), lineWidth: 1)
         }
         .background(Color(red: 25 / 255, green: 25 / 255, blue: 25 / 255))
-        .accessibilityLabel("模拟地图，可拖拽平移并双指缩放")
+        .accessibilityLabel(Text("demo.mapBackgroundA11y"))
     }
 }
 
@@ -2827,11 +2852,11 @@ private struct AgentIntroDemoView: View {
                             AgentIntroGlobeView(diameter: 224)
                         }
 
-                        Text("一起把旅程安排好")
+                        Text("agentdemo.welcomeTitle")
                             .font(.title2.weight(.bold))
                             .foregroundStyle(.white)
                             .padding(.top, 40)
-                        Text("说说你想去哪里、同行人和时间范围。\n我会先给出可检查的建议，确认后才会加入行程。")
+                        Text("agentdemo.welcomeSubtitle")
                             .font(.subheadline)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                             .multilineTextAlignment(.center)
@@ -2842,7 +2867,7 @@ private struct AgentIntroDemoView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "sparkles")
                             .foregroundStyle(PrimaryTabPalette.accent)
-                        Text("告诉豆奶你的下一个行程…")
+                        Text("agent.composerHint")
                     }
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -2866,15 +2891,15 @@ private struct AgentIntroDemoView: View {
     /// 思考动画实验区：ASCII 圆点渲染对比 + 状态丝滑切换。
     private var thinkingOrbDemoSections: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("思考动画实验")
+            Text("demo.thinkingSection")
                 .font(.headline)
                 .foregroundStyle(.white)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("ASCII 圆点")
+                Text("demo.asciiDots")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
-                Text("与 Vendor/ThinkingOrbsKit 共用同一套引擎（resolvePreset + orbFrame），把每个圆点画成 \".\" 字符，字号随点半径缩放，墨色与透明度沿用引擎输出。")
+                Text("demo.asciiCaption")
                     .font(.caption)
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
                 AsciiOrbGridDemo()
@@ -2884,10 +2909,10 @@ private struct AgentIntroDemoView: View {
             .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 20)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("状态丝滑切换")
+                Text("demo.smoothSection")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
-                Text("同一 Canvas 内同时绘制新旧两个状态，交叉溶解并轻微缩放；每 2.4 秒自动轮播，点按图标或下方标签可立即切换。")
+                Text("demo.smoothCaption")
                     .font(.caption)
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
                 OrbStateCrossfadeDemo()
@@ -3008,6 +3033,14 @@ private struct AsciiOrbGridDemo: View {
         case dots = "原版圆点"
 
         var id: String { rawValue }
+
+        /// 展示名走本地化；rawValue 保持中文作为稳定存储值。
+        var displayName: String {
+            switch self {
+            case .ascii: String(localized: "demo.renderAscii")
+            case .dots: String(localized: "demo.renderDots")
+            }
+        }
     }
 
     @State private var style: GlyphStyle = .ascii
@@ -3016,9 +3049,9 @@ private struct AsciiOrbGridDemo: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Picker("渲染方式", selection: $style) {
+            Picker("demo.renderLabel", selection: $style) {
                 ForEach(GlyphStyle.allCases) { style in
-                    Text(style.rawValue).tag(style)
+                    Text(style.displayName).tag(style)
                 }
             }
             .pickerStyle(.segmented)
@@ -3095,7 +3128,7 @@ private struct OrbStateCrossfadeDemo: View {
             .contentShape(Rectangle())
             .onTapGesture { advance() }
             .accessibilityElement()
-            .accessibilityLabel("思考状态：\(currentState.demoTitle)，点按切换到下一个")
+            .accessibilityLabel(Text(String(format: String(localized: "demo.orbStateA11y"), currentState.demoTitle)))
 
             VStack(spacing: 4) {
                 Text(currentState.demoTitle)
@@ -3129,7 +3162,7 @@ private struct OrbStateCrossfadeDemo: View {
             }
 
             Toggle(isOn: $autoCycling) {
-                Text("自动轮播")
+                Text("demo.autoCarousel")
                     .font(.subheadline)
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
@@ -3174,15 +3207,15 @@ private extension OrbState {
     /// 状态映射保持一致。
     var demoTitle: String {
         switch self {
-        case .working: "思考中"
-        case .searching: "搜索中"
-        case .solving: "核对中"
-        case .listening: "理解中"
-        case .connecting: "联网中"
-        case .weaving: "整理中"
-        case .composing: "生成中"
-        case .breathing: "推理中"
-        case .shaping: "塑形中"
+        case .working: String(localized: "orbstate.thinking")
+        case .searching: String(localized: "orbstate.searching")
+        case .solving: String(localized: "orbstate.verifying")
+        case .listening: String(localized: "orbstate.understanding")
+        case .connecting: String(localized: "orbstate.networking")
+        case .weaving: String(localized: "orbstate.organizing")
+        case .composing: String(localized: "orbstate.generating")
+        case .breathing: String(localized: "orbstate.reasoning")
+        case .shaping: String(localized: "orbstate.shaping")
         }
     }
 }

@@ -666,7 +666,7 @@ struct AgentV2SSEParser: Sendable {
 
 struct AgentV2IncompleteStreamError: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
-        "连接中断，未收到完整结果，请重试。上一轮草稿已保留。"
+        String(localized: "error.streamIncomplete")
     }
 }
 
@@ -698,7 +698,7 @@ enum AgentV2StreamRetryPolicy {
 
     static func userMessage(for error: Error) -> String {
         if shouldRetry(error) {
-            return "网络连接不稳定，本轮没有完整结束。你的输入和附件已保留，请稍后重试。"
+            return String(localized: "error.streamUnstable")
         }
         return error.localizedDescription
     }
@@ -707,7 +707,7 @@ enum AgentV2StreamRetryPolicy {
 enum APIConfigurationError: LocalizedError {
     case missingBaseURL
 
-    var errorDescription: String? { "服务配置缺失，请稍后重试或联系开发者。" }
+    var errorDescription: String? { String(localized: "error.missingConfig") }
 }
 
 /// Non-2xx response whose body is not the `{error:{...}}` envelope (e.g. a
@@ -718,9 +718,9 @@ struct APIResponseError: LocalizedError {
 
     var errorDescription: String? {
         switch statusCode {
-        case 404: return "服务器未找到该接口（404），请将后端更新至最新版本。"
-        case 500...599: return "服务器暂时不可用（\(statusCode)），请稍后重试。"
-        default: return "服务器返回了无法识别的响应（\(statusCode)）。"
+        case 404: return String(localized: "error.notFound404")
+        case 500...599: return String(format: String(localized: "error.serverUnavailable"), statusCode)
+        default: return String(format: String(localized: "error.serverUnrecognized"), statusCode)
         }
     }
 }

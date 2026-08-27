@@ -1,5 +1,28 @@
 import Foundation
 
+/// 预置兴趣标签的稳定 code：会话偏好中只保存 code（与 agent.interest.* 本地化
+/// key 一一对应），展示时映射为当前语言名称，切换语言后已保存的偏好不受影响；
+/// 发送给后端时再映射回展示名，保证提示词可读。自定义兴趣不在此列，原样存取。
+enum AgentInterest {
+    static let presets = ["food", "culture", "nature", "shopping", "photo", "nightlife"]
+
+    static func displayName(for code: String) -> String {
+        switch code {
+        case "food": String(localized: "agent.interest.food")
+        case "culture": String(localized: "agent.interest.culture")
+        case "nature": String(localized: "agent.interest.nature")
+        case "shopping": String(localized: "agent.interest.shopping")
+        case "photo": String(localized: "agent.interest.photo")
+        case "nightlife": String(localized: "agent.interest.nightlife")
+        default: code
+        }
+    }
+
+    static func displayNames(for codes: [String]) -> [String] {
+        codes.map(displayName(for:))
+    }
+}
+
 /// Versioned, local-first contract for the PRD Agent workbench.  The server
 /// receives an explicit snapshot each turn and never owns a conversation.
 struct AgentV2TurnRequest: Codable, Sendable {
@@ -310,11 +333,11 @@ enum AgentV2FliggySearchKind: String, Sendable, Equatable {
     /// Chip copy while the search is running.
     var progressTitle: String {
         switch self {
-        case .hotel: "正在查询飞猪酒店实时价格"
-        case .flight: "正在查询机票实时价格"
-        case .train: "正在查询火车票实时价格"
-        case .poi: "正在查询景点门票实时价格"
-        case .fast, .ai, .other: "正在查询飞猪实时库存"
+        case .hotel: String(localized: "agentv2.queryHotels")
+        case .flight: String(localized: "agentv2.queryFlights")
+        case .train: String(localized: "agentv2.queryTrains")
+        case .poi: String(localized: "agentv2.queryTickets")
+        case .fast, .ai, .other: String(localized: "agentv2.queryInventory")
         }
     }
 }
@@ -327,7 +350,7 @@ struct AgentV2LiveCard: Identifiable, Equatable {
     let index: Int
     var fields: [String: String] = [:]
 
-    var title: String { fields["title"] ?? "正在整理候选…" }
+    var title: String { fields["title"] ?? String(localized: "agentv2.organizing") }
     var timing: String {
         [fields["date"], fields["startAt"]].compactMap { $0 }.joined(separator: " · ")
     }

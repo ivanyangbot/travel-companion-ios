@@ -35,7 +35,7 @@ private enum WalletProtectedModelContainer {
             }
             return container
         } catch {
-            fatalError("无法初始化本机数据存储：\(error.localizedDescription)")
+            fatalError(String(format: String(localized: "app.fatalStoreError"), error.localizedDescription))
         }
     }
 }

@@ -32,9 +32,9 @@ struct TravelCardView: View {
             if let place = card.place { placeRow(place) }
             // 预估价/实际价只显示一个：填写了实际价就优先展示实际价。
             if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: currency) {
-                priceRow(actual, label: "实际价")
+                priceRow(actual, label: String(localized: "travelcard.actualLabel"))
             } else if let estimated = CardPrice.format(minor: card.priceMinor, currency: currency) {
-                priceRow(estimated, label: "预估价")
+                priceRow(estimated, label: String(localized: "travelcard.estimateLabel"))
             }
             if let ticket = CardPrice.format(minor: card.ticketPriceMinor, currency: currency) {
                 ticketRow(ticket)
@@ -50,10 +50,10 @@ struct TravelCardView: View {
             actions
         }
         .travelCardStyle(tint: tint)
-        .alert("已复制", isPresented: Binding(get: { copiedValue != nil }, set: { if !$0 { copiedValue = nil } })) {
-            Button("好", role: .cancel) { copiedValue = nil }
+        .alert("common.copied", isPresented: Binding(get: { copiedValue != nil }, set: { if !$0 { copiedValue = nil } })) {
+            Button("common.ok", role: .cancel) { copiedValue = nil }
         } message: {
-            Text("已复制到剪贴板。订单号和地址可能含有个人信息，请仅粘贴到可信应用。")
+            Text("common.copiedPrivacyNote")
         }
     }
 
@@ -106,7 +106,7 @@ struct TravelCardView: View {
     private func ticketRow(_ price: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "ticket").foregroundStyle(.secondary)
-            Text("门票").font(.caption).foregroundStyle(.secondary)
+            Text("travelcard.ticketLabel").font(.caption).foregroundStyle(.secondary)
             Text(price).font(.subheadline.weight(.semibold))
             Spacer()
         }
@@ -115,7 +115,7 @@ struct TravelCardView: View {
     private func stayRow(_ minutes: Int) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "hourglass").foregroundStyle(.secondary)
-            Text("停留").font(.caption).foregroundStyle(.secondary)
+            Text("travelcard.stayLabel").font(.caption).foregroundStyle(.secondary)
             Text(Self.stayText(minutes)).font(.subheadline.weight(.semibold))
             Spacer()
         }
@@ -137,9 +137,9 @@ struct TravelCardView: View {
     private static func stayText(_ minutes: Int) -> String {
         let hours = minutes / 60
         let rest = minutes % 60
-        if hours > 0, rest > 0 { return "\(hours) 小时 \(rest) 分钟" }
-        if hours > 0 { return "\(hours) 小时" }
-        return "\(rest) 分钟"
+        if hours > 0, rest > 0 { return String(format: String(localized: "common.durationHourMinute"), hours, rest) }
+        if hours > 0 { return String(format: String(localized: "common.durationHours"), hours) }
+        return String(format: String(localized: "common.durationMinutes"), rest)
     }
 
     private var header: some View {
@@ -155,15 +155,15 @@ struct TravelCardView: View {
             }
             Spacer(minLength: 8)
             Menu {
-                Button("编辑", systemImage: "pencil", action: onEdit)
-                Button("上移", systemImage: "arrow.up", action: { onMove(-1) }).disabled(!canMoveUp)
-                Button("下移", systemImage: "arrow.down", action: { onMove(1) }).disabled(!canMoveDown)
-                Button("删除", systemImage: "trash", role: .destructive, action: onDelete)
+                Button("common.edit", systemImage: "pencil", action: onEdit)
+                Button("travelcard.moveUp", systemImage: "arrow.up", action: { onMove(-1) }).disabled(!canMoveUp)
+                Button("travelcard.moveDown", systemImage: "arrow.down", action: { onMove(1) }).disabled(!canMoveDown)
+                Button("common.delete", systemImage: "trash", role: .destructive, action: onDelete)
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityLabel("\(card.title) 的更多操作")
+            .accessibilityLabel(Text(String(format: String(localized: "common.moreActions"), card.title)))
         }
     }
 
@@ -189,31 +189,31 @@ struct TravelCardView: View {
             }
             Spacer()
             Menu {
-                Button("复制地点", systemImage: "doc.on.doc") {
+                Button("travelcard.copyPlace", systemImage: "doc.on.doc") {
                     copy([place.name, place.address].compactMap { $0 }.joined(separator: " "))
                 }
-                Button("在 Apple 地图打开", systemImage: "location") { linkHandler.openInMaps(for: place) }
+                Button("travelcard.openInAppleMaps", systemImage: "location") { linkHandler.openInMaps(for: place) }
                     .disabled(place.latitude == nil || place.longitude == nil)
-                Button("规划路线", systemImage: "point.topleft.down.curvedto.point.bottomright") { showsRoute = true }
+                Button("travelcard.planRoute", systemImage: "point.topleft.down.curvedto.point.bottomright") { showsRoute = true }
                     .disabled(place.latitude == nil || place.longitude == nil)
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityLabel("地点操作")
+            .accessibilityLabel(Text("travelcard.placeActionsA11y"))
         }
         .sheet(isPresented: $showsRoute) { RouteSheet(origin: place, routeCards: routeCards) }
     }
 
     private func bookingRow(_ code: String) -> some View {
         HStack(spacing: 8) {
-            Text("订单号 \(code)").font(.subheadline.monospaced())
+            Text(String(format: String(localized: "common.orderNumber"), code)).font(.subheadline.monospaced())
             Spacer()
             Button { copy(code) } label: {
                 Image(systemName: "doc.on.doc")
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityLabel("复制订单号")
+            .accessibilityLabel(Text("common.copyOrderNumber"))
         }
         .padding(.vertical, 2)
     }
@@ -222,11 +222,11 @@ struct TravelCardView: View {
     private var actions: some View {
         if let value = card.url, let url = ExternalLinkHandler.validatedHTTPSURL(value) {
             HStack(spacing: 10) {
-                Button("打开链接", systemImage: "arrow.up.right.square") { linkHandler.openPublicLink(value) }
+                Button("common.openLink", systemImage: "arrow.up.right.square") { linkHandler.openPublicLink(value) }
                     .buttonStyle(.glass)
                     .frame(minHeight: 44)
-                ShareLink(item: url, subject: Text(card.title), message: Text("来自同行的旅行卡片")) {
-                    Label("分享", systemImage: "square.and.arrow.up")
+                ShareLink(item: url, subject: Text(card.title), message: Text("common.shareCardMessage")) {
+                    Label("common.share", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.glass)
                 .frame(minHeight: 44)

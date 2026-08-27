@@ -22,7 +22,7 @@ final class AlarmScheduler: ObservableObject {
             authorizationState = state
             return state == .authorized
         } catch {
-            errorMessage = "无法获取闹钟授权：\(error.localizedDescription)"
+            errorMessage = String(format: String(localized: "alarm.authFailed"), error.localizedDescription)
             return false
         }
     }
@@ -33,10 +33,10 @@ final class AlarmScheduler: ObservableObject {
         let granted = await ensureAuthorization()
         guard granted else { return false }
         guard fireDate > .now else {
-            errorMessage = "建议的闹钟时间 \(Self.timeFormatter.string(from: fireDate)) 已经过去，请手动选择一个时间。"
+            errorMessage = String(format: String(localized: "alarm.timePassed"), Self.timeFormatter.string(from: fireDate))
             return false
         }
-        let stopButton = AlarmButton(text: "停止", textColor: .white, systemImageName: "stop.fill")
+        let stopButton = AlarmButton(text: String(localized: "alarm.stop"), textColor: .white, systemImageName: "stop.fill")
         let alert = AlarmPresentation.Alert(
             title: LocalizedStringResource(stringLiteral: title),
             stopButton: stopButton,
@@ -53,7 +53,7 @@ final class AlarmScheduler: ObservableObject {
             _ = try await AlarmManager.shared.schedule(id: UUID(), configuration: configuration)
             return true
         } catch {
-            errorMessage = "无法添加闹钟：\(error.localizedDescription)"
+            errorMessage = String(format: String(localized: "alarm.addFailed"), error.localizedDescription)
             return false
         }
     }
@@ -61,7 +61,7 @@ final class AlarmScheduler: ObservableObject {
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日 HH:mm"
+        formatter.dateFormat = String(localized: "memoassist.dateFormat")
         return formatter
     }()
 }

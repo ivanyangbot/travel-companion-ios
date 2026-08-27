@@ -236,10 +236,10 @@ struct TodayWeatherRow: View {
             }
             HStack(spacing: 3) {
                 if let current = entry.current {
-                    Text("\(current)°")
+                    Text(String(format: String(localized: "weather.currentTemp"), current))
                         .font(.caption.weight(.bold))
                 }
-                Text("\(entry.low)°/\(entry.high)°")
+                Text(String(format: String(localized: "weather.lowHigh"), entry.low, entry.high))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -265,15 +265,15 @@ struct TodayWeatherRow: View {
             .frame(height: 12)
             .fixedSize()
         }
-        .accessibilityLabel("天气数据来源：\(attribution.serviceName)")
+        .accessibilityLabel(Text(String(format: String(localized: "weather.sourceA11y"), attribution.serviceName)))
     }
 
     private func accessibilityText(for entry: TodayWeatherEntry) -> String {
         var parts: [String] = []
         if let label = entry.label, !label.isEmpty { parts.append(label) }
         parts.append(entry.condition)
-        if let current = entry.current { parts.append("现在 \(current) 度") }
-        parts.append("\(entry.low) 到 \(entry.high) 度")
-        return parts.joined(separator: "，")
+        if let current = entry.current { parts.append(String(format: String(localized: "weather.nowA11y"), current)) }
+        parts.append(String(format: String(localized: "weather.rangeA11y"), entry.low, entry.high))
+        return parts.joined(separator: String(localized: "lottery.contextSeparator"))
     }
 }

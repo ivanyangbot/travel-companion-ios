@@ -168,9 +168,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .flight: "机票"
-            case .hotel: "酒店"
-            case .activity: "活动"
+            case .flight: String(localized: "kind.flight")
+            case .hotel: String(localized: "kind.hotel")
+            case .activity: String(localized: "kind.activity")
             }
         }
         var systemImage: String {

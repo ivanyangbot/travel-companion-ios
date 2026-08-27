@@ -23,12 +23,12 @@ final class MapLinkHandler: ObservableObject {
             URLQueryItem(name: "mode", value: mode.mapsURLMode),
         ]
         guard let url = components.url else {
-            alertMessage = "无法生成 Apple 地图导航链接。"
+            alertMessage = String(localized: "maplink.cannotBuild")
             return
         }
         UIApplication.shared.open(url, options: [:]) { [weak self] opened in
             if !opened {
-                self?.alertMessage = "无法打开 Apple 地图，请确认设备已安装并启用地图服务。"
+                self?.alertMessage = String(localized: "maplink.cannotOpen")
             }
         }
     }

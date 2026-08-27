@@ -107,8 +107,8 @@ enum AppleSignInError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingIdentityToken: "未收到 Apple 登录凭证，请重试。"
-        case .invalidCredential: "Apple 返回了无法识别的登录凭证。"
+        case .missingIdentityToken: String(localized: "error.noIdentityToken")
+        case .invalidCredential: String(localized: "error.invalidCredential")
         }
     }
 }

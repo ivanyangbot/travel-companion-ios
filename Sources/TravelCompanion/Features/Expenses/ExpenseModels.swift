@@ -6,12 +6,12 @@ enum ExpenseCategory: String, Codable, CaseIterable, Sendable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .transport: "交通"
-        case .lodging: "住宿"
-        case .food: "餐饮"
-        case .tickets: "门票"
-        case .shopping: "购物"
-        case .other: "其他"
+        case .transport: String(localized: "expense.category.transport")
+        case .lodging: String(localized: "expense.category.lodging")
+        case .food: String(localized: "expense.category.food")
+        case .tickets: String(localized: "expense.category.tickets")
+        case .shopping: String(localized: "expense.category.shopping")
+        case .other: String(localized: "expense.category.other")
         }
     }
     var systemImage: String {
@@ -34,7 +34,7 @@ enum ExpensePaidBy: String, Codable, CaseIterable, Sendable, Identifiable {
 enum ExpenseSplitMode: String, Codable, CaseIterable, Sendable, Identifiable {
     case equal, `self`
     var id: String { rawValue }
-    var title: String { self == .equal ? "平摊" : "自己承担" }
+    var title: String { self == .equal ? String(localized: "expense.split.equal") : String(localized: "expense.split.self") }
 }
 
 enum ExpenseMoney {
@@ -166,7 +166,7 @@ enum ExpenseSettlementCalculator {
 enum ExpenseMemberNames {
     static func name(for person: ExpensePaidBy) -> String {
         let key = person == .personA ? "expense.memberA.name" : "expense.memberB.name"
-        let fallback = person == .personA ? "成员 A" : "成员 B"
+        let fallback = person == .personA ? String(localized: "expense.memberA") : String(localized: "expense.memberB")
         let saved = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return saved.isEmpty ? fallback : saved
     }

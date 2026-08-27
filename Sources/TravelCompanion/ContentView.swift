@@ -33,9 +33,9 @@ struct ContentView: View {
 
         var title: String {
             switch self {
-            case .journey: "旅程"
-            case .expenses: "账本"
-            case .notes: "手书"
+            case .journey: String(localized: "tab.journey")
+            case .expenses: String(localized: "tab.ledger")
+            case .notes: String(localized: "tab.journal")
             }
         }
 
@@ -106,7 +106,7 @@ struct ContentView: View {
                         }
                     )
                 } else {
-                    ProgressView("豆奶正在赶来...")
+                    ProgressView("root.agentIncoming")
                 }
             }
             .presentationDetents([.fraction(0.8), .large])
@@ -180,13 +180,13 @@ struct ContentView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("唤起豆奶")
+        .accessibilityLabel(Text("root.summonAgentA11y"))
     }
 
     private func presentSharedLinkInAgentIfPossible() {
         guard let url = sharedLinkStore.pendingURL,
               syncEngine?.trip?.isConfigured == true else { return }
-        agentInitialMessage = "请解析这篇小红书攻略，提取其中明确提到的地点并整理成可选择的行程卡：\n\(url.absoluteString)"
+        agentInitialMessage = String(format: String(localized: "root.agentXhsPrompt"), url.absoluteString)
         showsAgent = true
     }
 
@@ -201,19 +201,19 @@ struct ContentView: View {
                     appleSignIn: appleSignIn
                 )
         } else {
-            sectionLoadingPlaceholder("正在准备旅程…")
+            sectionLoadingPlaceholder(String(localized: "root.preparingJourney"))
         }
         case .expenses:
             if let syncEngine {
                 ExpenseListView(syncEngine: syncEngine)
         } else {
-            sectionLoadingPlaceholder("正在准备账本…")
+            sectionLoadingPlaceholder(String(localized: "root.preparingLedger"))
         }
         case .notes:
             if let syncEngine {
                 NotesView(syncEngine: syncEngine, journalSync: journalSync)
         } else {
-            sectionLoadingPlaceholder("正在准备手书…")
+            sectionLoadingPlaceholder(String(localized: "root.preparingJournal"))
         }
         }
     }
@@ -266,7 +266,7 @@ struct ContentView: View {
                     Button(section.title) {
                         selectSection(section)
                     }
-                    .accessibilityValue(section == selectedSection ? "已选择" : "")
+                    .accessibilityValue(section == selectedSection ? String(localized: "common.selected") : "")
                 }
             }
         }

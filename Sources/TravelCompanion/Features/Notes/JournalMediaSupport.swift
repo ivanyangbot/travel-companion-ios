@@ -213,9 +213,9 @@ enum JournalMediaError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .tooLarge: "单个文件不能超过 5GB。"
-        case .unreadable: "无法读取所选文件。"
-        case .unsupported: "暂不支持这种媒体类型。"
+        case .tooLarge: String(localized: "media.tooLarge")
+        case .unreadable: String(localized: "media.unreadable")
+        case .unsupported: String(localized: "media.unsupported")
         }
     }
 }
@@ -241,7 +241,7 @@ struct JournalMediaView: View {
         }
         .overlay(alignment: .topLeading) {
             if media.kind == "livePhoto" {
-                Label("LIVE", systemImage: "livephoto")
+                Label("journal.liveBadge", systemImage: "livephoto")
                     .font(.caption2.bold())
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)

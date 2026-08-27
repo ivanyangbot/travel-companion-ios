@@ -28,12 +28,12 @@ struct AIExpenseConversationSheet: View {
                 chatList
                 inputBar
             }
-            .navigationTitle("扫小票 · 实际价")
+            .navigationTitle("expenseAI.title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(isGenerating) }
+                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() }.disabled(isGenerating) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("预览") { showsPreview = true }
+                    Button("walleteditor.previewLabel") { showsPreview = true }
                         .disabled(draft == nil || !missingRequired.isEmpty)
                 }
             }
@@ -62,7 +62,7 @@ struct AIExpenseConversationSheet: View {
             if messages.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "doc.viewfinder").font(.system(size: 40)).foregroundStyle(.tint)
-                    Text("拍下小票或描述这笔花费，我来帮你整理成实际价支出。")
+                    Text("expenseAI.hint")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 .padding(.vertical, 60)
@@ -103,11 +103,11 @@ struct AIExpenseConversationSheet: View {
                     Image(systemName: "photo.on.rectangle").font(.title2).frame(minWidth: 44, minHeight: 44)
                 }
                 .disabled(images.count >= Self.maxImages)
-                .accessibilityLabel("添加小票图片")
+                .accessibilityLabel(Text("expenseAI.addPhotoA11y"))
                 .onChange(of: photoItems) { _, _ in loadSelectedImages() }
                 ZStack(alignment: .topLeading) {
                     if inputText.isEmpty {
-                        Text("描述这笔花费，例如：午餐炒饭 25000 印尼盾").foregroundStyle(.tertiary)
+                        Text("expenseAI.placeholder").foregroundStyle(.tertiary)
                             .padding(.horizontal, 8).padding(.vertical, 10)
                     }
                     TextEditor(text: $inputText)
@@ -120,7 +120,7 @@ struct AIExpenseConversationSheet: View {
                     Image(systemName: "paperplane.fill").font(.title3).frame(minWidth: 44, minHeight: 44)
                 }
                 .disabled(!canSend)
-                .accessibilityLabel("发送")
+                .accessibilityLabel(Text("expenseAI.sendA11y"))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -132,7 +132,7 @@ struct AIExpenseConversationSheet: View {
     }
 
     private var generatingOverlay: some View {
-        ProgressView("正在生成…")
+        ProgressView("expenseAI.generating")
             .padding(20)
             .glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
@@ -144,7 +144,7 @@ struct AIExpenseConversationSheet: View {
     private func send() {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty else { return }
-        messages.append(ChatMessage(role: .user, text: trimmed.isEmpty ? "（附小票图片）" : trimmed))
+        messages.append(ChatMessage(role: .user, text: trimmed.isEmpty ? String(localized: "expenseAI.receiptAttached") : trimmed))
         let imageDataURIs = images.map(\.dataURI)
         let history = messages.map { AIExpenseConversationRequest.Message(role: $0.role.rawValue, content: $0.text) }
         inputText = ""
@@ -234,42 +234,42 @@ struct ExpenseDraftPreviewSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("实际价") {
-                    LabeledContent("金额") {
+                Section("expenseeditor.actualSection") {
+                    LabeledContent("expenseAI.amount") {
                         Text(formattedAmount).font(.headline.monospacedDigit())
                     }
                     if let category = draft.category {
-                        LabeledContent("类别") { Label(category.title, systemImage: category.systemImage) }
+                        LabeledContent("expenseAI.category") { Label(category.title, systemImage: category.systemImage) }
                     }
                     if let occurredOn = draft.occurredOn {
-                        LabeledContent("日期", value: occurredOn)
+                        LabeledContent("expenseAI.date", value: occurredOn)
                     }
                 }
-                Section("关联行程（可选）") {
-                    Picker("行程卡片", selection: $cardID) {
-                        Text("不关联").tag(Int?.none)
+                Section("expenseeditor.linkSection") {
+                    Picker("expenseeditor.cardLabel", selection: $cardID) {
+                        Text("expenseeditor.noCard").tag(Int?.none)
                         ForEach(allCards, id: \.serverID) { card in
                             Text(card.title).tag(Optional(card.serverID!))
                         }
                     }
                 }
                 if let note = draft.note, !note.isEmpty {
-                    Section("备注") { Text(note) }
+                    Section("cardeditor.notesSection") { Text(note) }
                 }
                 if !missingRequired.isEmpty {
                     Section {
-                        Label("还需补充：" + missingRequired.map(Self.fieldLabel).joined(separator: "、"), systemImage: "exclamationmark.circle")
+                        Label(String(localized: "expenseAI.needMore") + missingRequired.map(Self.fieldLabel).joined(separator: "、"), systemImage: "exclamationmark.circle")
                             .font(.subheadline).foregroundStyle(.orange)
                     }
                 }
             }
-            .navigationTitle("支出预览")
+            .navigationTitle("expenseAI.previewTitle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { onCancel() } }
-                ToolbarItem(placement: .primaryAction) { Button("修改") { onModify() }.foregroundStyle(.secondary) }
+                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { onCancel() } }
+                ToolbarItem(placement: .primaryAction) { Button("expenseAI.edit") { onModify() }.foregroundStyle(.secondary) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("确认添加") { onConfirm(buildRequest()) }.disabled(!missingRequired.isEmpty)
+                    Button("expenseAI.confirmAdd") { onConfirm(buildRequest()) }.disabled(!missingRequired.isEmpty)
                 }
             }
         }
@@ -298,9 +298,9 @@ struct ExpenseDraftPreviewSheet: View {
 
     static func fieldLabel(_ name: String) -> String {
         switch name {
-        case "amountMinor": "金额"
-        case "category": "类别"
-        case "occurredOn": "日期"
+        case "amountMinor": String(localized: "expenseAI.amount")
+        case "category": String(localized: "expenseAI.category")
+        case "occurredOn": String(localized: "expenseAI.date")
         default: name
         }
     }

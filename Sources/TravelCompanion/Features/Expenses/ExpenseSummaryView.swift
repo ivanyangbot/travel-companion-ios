@@ -33,21 +33,21 @@ struct ExpenseSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("支出概览")
+                Text("expensesummary.title")
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                 Spacer()
-                Text("实际 \(expenses.count) 笔")
+                Text(String(format: String(localized: "expensesummary.count"), expenses.count))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
-            totalRow(label: "实际已支出", amount: actualTotal, prominent: false)
-            totalRow(label: "预估（待记实际）", amount: estimatedTotal, prominent: false)
+            totalRow(label: String(localized: "expensesummary.actual"), amount: actualTotal, prominent: false)
+            totalRow(label: String(localized: "expensesummary.estimated"), amount: estimatedTotal, prominent: false)
             Divider().overlay(PrimaryTabPalette.divider)
-            totalRow(label: "全行程合计（实际 + 预估）", amount: grandTotal, prominent: true)
+            totalRow(label: String(localized: "expensesummary.total"), amount: grandTotal, prominent: true)
             Divider().overlay(PrimaryTabPalette.divider)
             VStack(alignment: .leading, spacing: 8) {
-                Text("实际分类")
+                Text("expensesummary.byCategory")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
                 ForEach(ExpenseCategory.allCases) { category in

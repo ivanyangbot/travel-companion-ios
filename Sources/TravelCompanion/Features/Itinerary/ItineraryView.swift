@@ -58,53 +58,53 @@ struct ItineraryView: View {
     var body: some View {
         NavigationStack {
             alertContent
-            .alert("删除日期？", isPresented: Binding(
+            .alert("itinerary.deleteDayTitle", isPresented: Binding(
                 get: { dayPendingDeletion != nil },
                 set: { if !$0 { dayPendingDeletion = nil } }
             ), presenting: dayPendingDeletion) { day in
-                Button("删除", role: .destructive) {
+                Button("common.delete", role: .destructive) {
                     Task { await syncEngine.deleteDay(day) }
                     dayPendingDeletion = nil
                 }
-                Button("取消", role: .cancel) { dayPendingDeletion = nil }
+                Button("common.cancel", role: .cancel) { dayPendingDeletion = nil }
             } message: { _ in
-                Text("日期内含有行程卡片时，服务器会拒绝删除。")
+                Text("itinerary.deleteDayMessage")
             }
-            .alert("退出登录？", isPresented: $showsSignOutConfirmation) {
-                Button("退出登录", role: .destructive) {
+            .alert("settings.signOutConfirmTitle", isPresented: $showsSignOutConfirmation) {
+                Button("settings.signOutConfirmButton", role: .destructive) {
                     if !appleSignIn.signOut() {
-                        signOutErrorMessage = appleSignIn.errorMessage ?? "请稍后重试。"
+                        signOutErrorMessage = appleSignIn.errorMessage ?? String(localized: "settings.signOutFailedRetry")
                     }
                 }
-                Button("取消", role: .cancel) {}
+                Button("common.cancel", role: .cancel) {}
             } message: {
-                Text("退出后将停止云端同步，仍可继续使用本地模式。")
+                Text("settings.signOutMessage")
             }
-            .alert("无法退出登录", isPresented: Binding(
+            .alert("settings.signOutFailedTitle", isPresented: Binding(
                 get: { signOutErrorMessage != nil },
                 set: { if !$0 { signOutErrorMessage = nil } }
             )) {
-                Button("好", role: .cancel) { signOutErrorMessage = nil }
+                Button("common.ok", role: .cancel) { signOutErrorMessage = nil }
             } message: {
                 Text(signOutErrorMessage ?? "")
             }
-            .alert("删除行程卡片？", isPresented: Binding(
+            .alert("itinerary.deleteCardTitle", isPresented: Binding(
                 get: { cardPendingDeletion != nil },
                 set: { if !$0 { cardPendingDeletion = nil } }
             ), presenting: cardPendingDeletion) { card in
-                Button("删除", role: .destructive) {
+                Button("common.delete", role: .destructive) {
                     Task { await syncEngine.deleteCard(card) }
                     cardPendingDeletion = nil
                 }
-                Button("取消", role: .cancel) { cardPendingDeletion = nil }
+                Button("common.cancel", role: .cancel) { cardPendingDeletion = nil }
             } message: { _ in
-                Text("删除后会同步移除这张公开共享卡片。")
+                Text("itinerary.deleteCardMessage")
             }
-            .alert("无法打开链接", isPresented: Binding(
+            .alert("common.cannotOpenLink", isPresented: Binding(
                 get: { linkHandler.alertMessage != nil },
                 set: { if !$0 { linkHandler.alertMessage = nil } }
             )) {
-                Button("好", role: .cancel) { linkHandler.alertMessage = nil }
+                Button("common.ok", role: .cancel) { linkHandler.alertMessage = nil }
             } message: {
                 Text(linkHandler.alertMessage ?? "")
             }
@@ -227,11 +227,11 @@ struct ItineraryView: View {
         } else if case .failed(let message) = syncEngine.status {
             VStack(spacing: 16) {
                 ContentUnavailableView(
-                    "无法加载共享行程",
+                    "today.errorLoadSharedTrip",
                     systemImage: "wifi.exclamationmark",
                     description: Text(message)
                 )
-                Button("重试") { Task { await syncEngine.retry() } }
+                Button("common.retry") { Task { await syncEngine.retry() } }
             }
         } else if case .synced = syncEngine.status {
             ScrollView {
@@ -258,7 +258,7 @@ struct ItineraryView: View {
                 .padding()
             }
         } else {
-            ProgressView("正在打开共享行程…")
+            ProgressView("today.openingSharedTrip")
         }
     }
 
@@ -283,11 +283,11 @@ struct ItineraryView: View {
 
                     if days.isEmpty {
                         ContentUnavailableView {
-                            Label("还没有日期", systemImage: "calendar.badge.plus")
+                            Label("itinerary.noDatesTitle", systemImage: "calendar.badge.plus")
                         } description: {
-                            Text("添加旅行日期后即可安排卡片。")
+                            Text("itinerary.noDatesDesc")
                         } actions: {
-                            Button("添加日期") { activeDaySheet = .add }
+                            Button("itinerary.addDateButton") { activeDaySheet = .add }
                                 .buttonStyle(.borderedProminent)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -427,7 +427,7 @@ struct ItineraryView: View {
                     }
                     .itineraryHeaderButtonStyle()
                     .disabled(!syncEngine.isUserAuthenticated || syncEngine.selectedTripID == nil)
-                    .accessibilityLabel("分享行程")
+                    .accessibilityLabel(Text("itinerary.shareTripA11y"))
 
                     Spacer(minLength: 0)
 
@@ -443,14 +443,14 @@ struct ItineraryView: View {
                         .frame(width: 40, height: 40)
                     }
                     .itineraryHeaderButtonStyle()
-                    .accessibilityLabel("切换到地图模式")
+                    .accessibilityLabel(Text("itinerary.mapModeA11y"))
                 }
             }
             .frame(height: 48)
             .padding(.horizontal, 4)
 
             HStack(spacing: 6) {
-                Text(trip.destination?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "未命名旅程")
+                Text(trip.destination?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? String(localized: "common.unnamedTrip"))
                     .font(.system(size: 23, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -463,7 +463,7 @@ struct ItineraryView: View {
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("编辑行程")
+                .accessibilityLabel(Text("itinerary.editTripA11y"))
 
                 Spacer(minLength: 0)
             }
@@ -615,13 +615,13 @@ struct ItineraryView: View {
         .background(JourneyPalette.listSurface)
         .contentShape(Rectangle())
         .contextMenu {
-            Button("添加行程卡片", systemImage: "plus") { activeCardEditor = .create(day) }
-            Button("编辑日期", systemImage: "calendar") { activeDaySheet = .edit(day) }
-            Button("删除日期", systemImage: "trash", role: .destructive) { dayPendingDeletion = day }
+            Button("itinerary.addCardMenu", systemImage: "plus") { activeCardEditor = .create(day) }
+            Button("itinerary.editDateMenu", systemImage: "calendar") { activeDaySheet = .edit(day) }
+            Button("itinerary.deleteDateMenu", systemImage: "trash", role: .destructive) { dayPendingDeletion = day }
                 .disabled(day.serverID == nil && syncEngine.isUserAuthenticated)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityHint("长按可添加卡片或编辑日期")
+        .accessibilityHint(Text("itinerary.cardHint"))
     }
 
     @ViewBuilder
@@ -637,7 +637,7 @@ struct ItineraryView: View {
                     activeCardEditor = .create(day)
                 } label: {
                     Label(
-                        draggedListCardDestinationDayID == day.id ? "松手移动到此日期" : "这一天还没有行程，点击添加",
+                        draggedListCardDestinationDayID == day.id ? "itinerary.dropHere" : "itinerary.emptyDayButton",
                         systemImage: draggedListCardDestinationDayID == day.id ? "arrow.down.to.line" : "plus.circle"
                     )
                         .font(.subheadline.weight(.medium))
@@ -729,10 +729,10 @@ struct ItineraryView: View {
                     }
                 }
                 .opacity(isDragging ? 0 : 1)
-                .accessibilityHint("打开详情；长按并拖动可调整顺序")
+                .accessibilityHint(Text("itinerary.cardDetailHint"))
         } else {
             itinerarySwipeableCard(card, index: index, day: day, days: days)
-                .accessibilityHint("打开详情；卡片同步完成后可长按拖动排序")
+                .accessibilityHint(Text("itinerary.cardDetailHintSyncing"))
         }
     }
 
@@ -788,7 +788,7 @@ struct ItineraryView: View {
                     style: .continuous
                 )
             )
-            .accessibilityLabel("删除行程卡片")
+            .accessibilityLabel(Text("itinerary.swipeDeleteA11y"))
             .opacity(actionVisibility)
             .allowsHitTesting(actionsAreOpen)
 
@@ -833,7 +833,7 @@ struct ItineraryView: View {
                 slotFromTrailing: 1,
                 revealedWidth: revealedWidth
             ))
-            .accessibilityLabel("询问豆奶")
+            .accessibilityLabel(Text("itinerary.swipeAskA11y"))
             .opacity(actionVisibility)
             .allowsHitTesting(actionsAreOpen)
 
@@ -879,7 +879,7 @@ struct ItineraryView: View {
                 slotFromTrailing: 2,
                 revealedWidth: revealedWidth
             ))
-            .accessibilityLabel("编辑行程卡片")
+            .accessibilityLabel(Text("itinerary.swipeEditA11y"))
             .opacity(actionVisibility)
             .allowsHitTesting(actionsAreOpen)
 
@@ -918,14 +918,14 @@ struct ItineraryView: View {
                 }
             )
         )
-        .accessibilityAction(named: "编辑") {
+        .accessibilityAction(named: Text("common.edit")) {
             closeListCardActions()
             activeCardEditor = .edit(day, card)
         }
-        .accessibilityAction(named: "询问豆奶") {
+        .accessibilityAction(named: Text("itinerary.swipeAskA11y")) {
             openAgent(for: card, in: day)
         }
-        .accessibilityAction(named: "删除") {
+        .accessibilityAction(named: Text("common.delete")) {
             closeListCardActions()
             cardPendingDeletion = card
         }
@@ -991,7 +991,7 @@ struct ItineraryView: View {
                 .frame(width: 64)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("\(index + 1).\(card.title)")
+                    Text(String(format: String(localized: "itinerary.cardTitle"), index + 1, card.title))
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
@@ -1065,7 +1065,7 @@ struct ItineraryView: View {
                     )
 
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("\(index + 1).\(card.title)")
+                        Text(String(format: String(localized: "itinerary.cardTitle"), index + 1, card.title))
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
@@ -1833,12 +1833,12 @@ struct ItineraryView: View {
                     }
                 }
                 Divider()
-                Button("新建旅程", systemImage: "plus") { showsNewTripEditor = true }
+                Button("itinerary.newTripMenu", systemImage: "plus") { showsNewTripEditor = true }
             } label: {
                 Image("icon-plan-outline")
                     .journeyActionIcon()
             }
-            .accessibilityLabel("切换旅程")
+            .accessibilityLabel(Text("itinerary.switchTripA11y"))
 
             Button {
                 showsSharingSheet = true
@@ -1847,20 +1847,20 @@ struct ItineraryView: View {
                     .journeyActionIcon()
             }
             .disabled(!syncEngine.isUserAuthenticated || syncEngine.selectedTripID == nil)
-            .accessibilityLabel("查看共享成员")
+            .accessibilityLabel(Text("itinerary.membersA11y"))
 
             Button { Task { await syncEngine.retry() } } label: {
                 Image("icon-reload-outline")
                     .journeyActionIcon()
             }
-            .accessibilityLabel("重新同步")
+            .accessibilityLabel(Text("itinerary.resyncA11y"))
 
             Button { showsSignOutConfirmation = true } label: {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
                     .journeyActionIcon()
             }
             .disabled(!appleSignIn.isAuthenticated)
-            .accessibilityLabel("退出登录")
+            .accessibilityLabel(Text("itinerary.signOutA11y"))
 
             Button {
                 agentSheet = ItineraryAgentSheet(initialMessage: nil)
@@ -1869,7 +1869,7 @@ struct ItineraryView: View {
                     .journeyActionIcon()
             }
             .disabled(syncEngine.trip?.isConfigured != true)
-            .accessibilityLabel("AI 填入行程")
+            .accessibilityLabel(Text("itinerary.aiFillA11y"))
         }
         .padding(5)
         .frame(maxWidth: .infinity)
@@ -1903,9 +1903,9 @@ struct ItineraryView: View {
                     .font(.title2)
                     .foregroundStyle(.indigo)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("未登录·本地模式")
+                    Text("itinerary.localModeTitle")
                         .font(.headline)
-                    Text("全部功能均可使用，旅行内容会先保存在本机；登录后再开启云端同步。")
+                    Text("itinerary.localModeDesc")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1929,14 +1929,14 @@ struct ItineraryView: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.white)
-                        Text("正在登录…")
+                        Text("itinerary.signingIn")
                             .font(.body.weight(.semibold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
                     .background(.black, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .accessibilityLabel("正在登录")
+                    .accessibilityLabel(Text("itinerary.signingInA11y"))
                     .allowsHitTesting(false)
                 }
             }
@@ -1953,7 +1953,7 @@ struct ItineraryView: View {
 
     private func tripHeader(_ trip: SharedTripSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(trip.destination ?? "未设置目的地")
+            Text(trip.destination ?? String(localized: "itinerary.noDestination"))
                 .font(.system(size: 39, weight: .black, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -1972,7 +1972,7 @@ struct ItineraryView: View {
                 .stroke(.white.opacity(0.17), lineWidth: 1)
         }
         .overlay(alignment: .topTrailing) {
-            Button("编辑") { showsTripEditor = true }
+            Button("common.edit") { showsTripEditor = true }
                 .font(.headline.weight(.bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 18)
@@ -1986,9 +1986,9 @@ struct ItineraryView: View {
     private func timeline(_ trip: SharedTripSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Text("时间轴").font(.system(size: 30, weight: .black, design: .rounded))
+                    Text("itinerary.timelineSection").font(.system(size: 30, weight: .black, design: .rounded))
                     Spacer()
-                    Button("添加日期", systemImage: "plus") { activeDaySheet = .add }
+                    Button("itinerary.addDateButton", systemImage: "plus") { activeDaySheet = .add }
                         .font(.title3.weight(.bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
@@ -2006,23 +2006,23 @@ struct ItineraryView: View {
                             Button(role: .destructive) { dayPendingDeletion = day } label: { Image(systemName: "trash") }
                                 .journeyRoundControl()
                                 .disabled(day.serverID == nil && syncEngine.isUserAuthenticated)
-                                .accessibilityLabel("删除日期")
+                                .accessibilityLabel(Text("itinerary.deleteDateMenu"))
                             Button { activeCardEditor = .create(day) } label: { Image(systemName: "plus") }
                                 .journeyRoundControl()
-                                .accessibilityLabel("添加行程卡片")
+                                .accessibilityLabel(Text("itinerary.addCardMenu"))
                         }
-                        Text("行程卡片").font(.title3.weight(.black))
+                        Text("itinerary.cardsSection").font(.title3.weight(.black))
                         let cards = day.cards.sorted(by: Self.cardTimeOrder)
                         if !cards.isEmpty && !cards.contains(where: { $0.kind == .hotel }) {
-                            Label("今日未添加住宿", systemImage: "bed.double")
+                            Label("itinerary.noLodging", systemImage: "bed.double")
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.38))
                         }
                         if cards.isEmpty {
-                            Label("暂无行程卡片", systemImage: "rectangle.stack")
+                            Label("itinerary.noCards", systemImage: "rectangle.stack")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
-                            Text("添加机票、酒店或活动，订单号和公开网页链接会随卡片保存。")
+                            Text("itinerary.noCardsDesc")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         } else {
@@ -2044,7 +2044,7 @@ struct ItineraryView: View {
                                     .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                                     .onTapGesture { detailCard = card }
                                     .accessibilityAddTraits(.isButton)
-                                    .accessibilityHint("打开 \(card.title) 的完整行程与 POI 详情")
+                                    .accessibilityHint(Text(String(format: String(localized: "itinerary.openDetailHint"), card.title)))
                                 }
                                 if cardIndex < cards.count - 1,
                                    let originPoint = card.place?.point,
@@ -2070,7 +2070,7 @@ struct ItineraryView: View {
                     }
                 }
                 if trip.days.isEmpty {
-                    ContentUnavailableView("还没有日期", systemImage: "calendar.badge.plus", description: Text("添加旅行日期后即可安排卡片。"))
+                    ContentUnavailableView("itinerary.noDatesTitle", systemImage: "calendar.badge.plus", description: Text("itinerary.noDatesDesc"))
                 }
         }
     }
@@ -2089,7 +2089,7 @@ struct ItineraryView: View {
             .foregroundStyle(.secondary)
             .frame(width: 44, alignment: .trailing)
             .padding(.top, 18)
-            .accessibilityLabel("开始时间 \(Self.cardTimeFormatter.string(from: card.startAt))")
+            .accessibilityLabel(Text(String(format: String(localized: "itinerary.startTimeA11y"), Self.cardTimeFormatter.string(from: card.startAt))))
     }
 
     /// 当日实际价支出：按 occurredOn == day.date 过滤，绑定到行程当日页。
@@ -2098,7 +2098,7 @@ struct ItineraryView: View {
         let expenses = trip.expenses.filter { $0.occurredOn == day.date }.sorted { $0.updatedAt > $1.updatedAt }
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("当日实际支出").font(.subheadline.weight(.semibold))
+                Text("itinerary.dayExpensesSection").font(.subheadline.weight(.semibold))
                 Spacer()
                 if let currency = trip.currency {
                     Text(ExpenseMoney.formatted(expenses.reduce(Int64(0)) { $0 + $1.amountMinor }, currency: currency))
@@ -2107,7 +2107,7 @@ struct ItineraryView: View {
                 }
             }
             if expenses.isEmpty {
-                Text("这一天还没有记录实际价。")
+                Text("itinerary.dayExpensesEmpty")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             } else {
@@ -2117,7 +2117,7 @@ struct ItineraryView: View {
                             .foregroundStyle(.secondary)
                         Text(expense.category.title).font(.subheadline)
                         if let note = expense.note, !note.isEmpty {
-                            Text("· \(note)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(String(format: String(localized: "itinerary.expenseNotePrefix"), note)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer()
                         if let currency = trip.currency {
@@ -2127,7 +2127,7 @@ struct ItineraryView: View {
                     }
                 }
             }
-            Button("添加实际支出", systemImage: "plus") {
+            Button("itinerary.addExpenseButton", systemImage: "plus") {
                 expenseEditorDate = Self.dayDate(from: day.date)
             }
             .font(.caption.weight(.semibold))
@@ -2236,12 +2236,12 @@ struct ItineraryView: View {
 
     private var statusText: String? {
         switch syncEngine.status {
-        case .loading: return "正在加载"
+        case .loading: return String(localized: "itinerary.statusLoading")
         case .synced: return nil
         case .syncing: return nil
-        case .pending(let count): return "待同步 \(count) 项"
-        case .conflict: return "可能覆盖"
-        case .localOnly: return appleSignIn.isAuthenticated ? nil : "本地模式·全部功能可用"
+        case .pending(let count): return String(format: String(localized: "itinerary.statusPending"), count)
+        case .conflict: return String(localized: "itinerary.statusConflict")
+        case .localOnly: return appleSignIn.isAuthenticated ? nil : String(localized: "itinerary.statusLocal")
         case .offline(let message), .failed(let message): return message
         }
     }
@@ -2744,7 +2744,15 @@ enum ItineraryLargeImageCardLayout {
 }
 
 enum ItineraryListPresentation {
-    private static let weekdaySymbols = ["日", "一", "二", "三", "四", "五", "六"]
+    private static let weekdaySymbols = [
+        String(localized: "common.weekday.0"),
+        String(localized: "common.weekday.1"),
+        String(localized: "common.weekday.2"),
+        String(localized: "common.weekday.3"),
+        String(localized: "common.weekday.4"),
+        String(localized: "common.weekday.5"),
+        String(localized: "common.weekday.6")
+    ]
 
     static func selectedIndex(date: String?, in days: [TripDaySnapshot]) -> Int {
         guard !days.isEmpty else { return 0 }
@@ -2765,7 +2773,9 @@ enum ItineraryListPresentation {
     static func timelineLabel(_ day: TripDaySnapshot, _ isToday: Bool) -> String {
         guard let date = dayFormatter.date(from: day.date) else { return day.date }
         let weekday = weekdaySymbols[calendar.component(.weekday, from: date) - 1]
-        return isToday ? "今日 \(weekday)" : "\(numericFormatter.string(from: date)) \(weekday)"
+        return isToday
+            ? String(format: String(localized: "common.timelineToday"), weekday)
+            : String(format: String(localized: "common.timelineDate"), numericFormatter.string(from: date), weekday)
     }
 
     static func monthDay(for day: TripDaySnapshot) -> String {
@@ -2783,8 +2793,8 @@ enum ItineraryListPresentation {
             .prefix(2)
             .map { ($0.place?.name.nilIfEmpty ?? $0.title).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        guard !titles.isEmpty else { return "尚未安排行程" }
-        return String(titles.joined(separator: "，").prefix(8))
+        guard !titles.isEmpty else { return String(localized: "itinerary.daySummaryEmpty") }
+        return String(titles.joined(separator: String(localized: "lottery.contextSeparator")).prefix(8))
     }
 
     static func orderedCards(_ cards: [TravelCardSnapshot]) -> [TravelCardSnapshot] {
@@ -2815,7 +2825,7 @@ enum ItineraryListPresentation {
     static func timeRange(for card: TravelCardSnapshot) -> String {
         let start = timeFormatter.string(from: card.startAt)
         guard let endAt = card.endAt else { return start }
-        return "\(start)~\(timeFormatter.string(from: endAt))"
+        return String(format: String(localized: "itinerary.cardTimeRange"), start, timeFormatter.string(from: endAt))
     }
 
     static func currentOrNextCardID(
@@ -2852,15 +2862,15 @@ enum ItineraryListPresentation {
 
     static func agentPrompt(for card: TravelCardSnapshot, date: String) -> String {
         var context = [
-            "日期：\(date)",
-            "行程卡：\(card.title)",
-            "时间：\(timeRange(for: card))"
+            String(format: String(localized: "itinerary.agentDate"), date),
+            String(format: String(localized: "itinerary.agentCard"), card.title),
+            String(format: String(localized: "itinerary.agentTime"), timeRange(for: card))
         ]
         if let place = card.place?.name.trimmingCharacters(in: .whitespacesAndNewlines),
            !place.isEmpty {
-            context.append("地点：\(place)")
+            context.append(String(format: String(localized: "itinerary.agentPlace"), place))
         }
-        return "请帮我优化下面这张行程卡，并结合前后行程检查时间、地点和衔接。请先给出建议，再询问我想修改什么。\n" + context.joined(separator: "\n")
+        return String(localized: "itinerary.agentPrefix") + context.joined(separator: "\n")
     }
 
     private static let dayFormatter: DateFormatter = {

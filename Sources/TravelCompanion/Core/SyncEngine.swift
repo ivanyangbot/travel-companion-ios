@@ -90,7 +90,7 @@ final class SyncEngine: ObservableObject {
                 selectedTripID = trip?.id
             }
         } catch {
-            status = .failed("本机缓存无法读取。")
+            status = .failed(String(localized: "error.cacheUnreadable"))
             return
         }
         if localOnly {
@@ -172,10 +172,10 @@ final class SyncEngine: ObservableObject {
         } catch {
             if localMigrationStore.hasPendingMigration {
                 status = trip == nil
-                    ? .failed("本地数据同步失败，请重试。")
-                    : .offline("本地数据等待同步，联网后会自动重试")
+                    ? .failed(String(localized: "error.syncLocalFailed"))
+                    : .offline(String(localized: "error.waitingOnline"))
             } else {
-                status = trip == nil ? .failed("无法加载共享行程") : .offline("离线浏览中")
+                status = trip == nil ? .failed(String(localized: "today.errorLoadSharedTrip")) : .offline(String(localized: "error.offlineBrowsing"))
             }
         }
     }
@@ -368,18 +368,18 @@ final class SyncEngine: ObservableObject {
 
     func createShareInvite() async -> URL? {
         guard let selectedTripID else {
-            status = .failed("请先创建一个旅程。")
+            status = .failed(String(localized: "error.createTripFirst"))
             return nil
         }
         guard trips.first(where: { $0.id == selectedTripID })?.canShare == true else {
-            status = .failed("只有行程创建者可以创建邀请。")
+            status = .failed(String(localized: "error.ownerOnlyInvite"))
             return nil
         }
         do {
             let invite = try await apiClient.createInvite(for: selectedTripID)
             return try await apiClient.inviteLandingURL(token: invite.token)
         } catch {
-            status = .failed("无法创建共享邀请。")
+            status = .failed(String(localized: "error.inviteCreateFailed"))
             return nil
         }
     }
@@ -406,7 +406,7 @@ final class SyncEngine: ObservableObject {
             await refresh()
             return true
         } catch {
-            status = .failed("无法加入共享旅程。请确认邀请仍有效。")
+            status = .failed(String(localized: "error.joinTripFailed"))
             return false
         }
     }
@@ -437,7 +437,7 @@ final class SyncEngine: ObservableObject {
                 updateLocalSummary(for: snapshot)
                 status = .localOnly
             } catch {
-                status = .failed("无法创建本地旅程。")
+                status = .failed(String(localized: "error.localTripCreateFailed"))
             }
             return
         }
@@ -449,7 +449,7 @@ final class SyncEngine: ObservableObject {
             trip = nil
             await refresh()
         } catch {
-            status = .failed("无法创建旅程。")
+            status = .failed(String(localized: "error.tripCreateFailed"))
         }
     }
 
@@ -469,11 +469,11 @@ final class SyncEngine: ObservableObject {
         if localOnly {
             do {
                 guard var current = try repository.cachedTrip(id: summary.id) else {
-                    status = .failed("找不到要编辑的旅行。")
+                    status = .failed(String(localized: "error.tripNotFoundForEdit"))
                     return
                 }
                 if !current.expenses.isEmpty, current.currency?.uppercased() != request.currency {
-                    status = .failed("已有支出记录，不能变更行程币种。")
+                    status = .failed(String(localized: "error.currencyLocked"))
                     return
                 }
                 current.destination = request.destination
@@ -486,7 +486,7 @@ final class SyncEngine: ObservableObject {
                 if selectedTripID == current.id { trip = current }
                 status = .localOnly
             } catch {
-                status = .failed("无法保存本地修改。")
+                status = .failed(String(localized: "error.localSaveFailed"))
             }
             return
         }
@@ -522,7 +522,7 @@ final class SyncEngine: ObservableObject {
                 }
                 status = .localOnly
             } catch {
-                status = .failed("无法删除本地旅行。")
+                status = .failed(String(localized: "error.localTripDeleteFailed"))
             }
             return
         }
@@ -545,7 +545,7 @@ final class SyncEngine: ObservableObject {
 
     func saveSetup(destination: String, startDate: Date, endDate: Date, currency: String) async {
         if let current = trip, !current.expenses.isEmpty, current.currency?.uppercased() != currency.uppercased() {
-            status = .failed("已有支出记录，不能变更行程币种。")
+            status = .failed(String(localized: "error.currencyLocked"))
             return
         }
         let formatter = Self.dayFormatter
@@ -561,7 +561,7 @@ final class SyncEngine: ObservableObject {
             current.endDate = request.endDate
             current.currency = request.currency
             current.updatedAt = .now
-            do { try saveLocalSnapshot(current) } catch { status = .failed("无法保存本地修改。") }
+            do { try saveLocalSnapshot(current) } catch { status = .failed(String(localized: "error.localSaveFailed")) }
             return
         }
         await enqueueTripPatch(request)
@@ -585,7 +585,7 @@ final class SyncEngine: ObservableObject {
             try repository.enqueue(method: "POST", path: "/v1/days", tripID: current.id, body: body, baseVersion: current.version)
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存本地修改。")
+            status = .failed(String(localized: "error.localSaveFailed"))
         }
     }
 
@@ -617,7 +617,7 @@ final class SyncEngine: ObservableObject {
             trip = nil
             trips = []
             selectedTripID = nil
-            status = .failed("本机缓存无法读取。")
+            status = .failed(String(localized: "error.cacheUnreadable"))
         }
     }
 
@@ -820,7 +820,7 @@ final class SyncEngine: ObservableObject {
         try repository.queueConfirmedAIDraftCards(selected)
         let targetDates = Set(selected.map(\.date))
         for date in targetDates where !(self.trip?.days.contains { $0.date == date } ?? false) {
-            guard let parsed = Self.dayFormatter.date(from: date) else { throw AIDraftImportError.invalidDraft("日期格式无效。") }
+            guard let parsed = Self.dayFormatter.date(from: date) else { throw AIDraftImportError.invalidDraft(String(localized: "error.invalidDateFormat")) }
             await addDay(parsed)
         }
         try await queueConfirmedAIDraftCardsIfReady()
@@ -850,7 +850,7 @@ final class SyncEngine: ObservableObject {
     func updateAPIBaseURL(_ value: String) -> String? {
         guard let url = AppConfiguration.saveAPIBaseURL(value) else {
             return AppConfiguration.apiBaseURLValidationMessage(for: value)
-                ?? "无法保存 API 地址。"
+                ?? String(localized: "error.apiUrlSaveFailed")
         }
         apiClient = APIClient(baseURL: url)
         apiBaseURLText = url.absoluteString
@@ -867,7 +867,7 @@ final class SyncEngine: ObservableObject {
             updated.days[index].date = newDate
             updated.days[index].updatedAt = .now
             updated.updatedAt = .now
-            do { try saveLocalSnapshot(updated) } catch { status = .failed("无法保存本地修改。") }
+            do { try saveLocalSnapshot(updated) } catch { status = .failed(String(localized: "error.localSaveFailed")) }
             return
         }
         guard let dayID = day.serverID else { return }
@@ -884,7 +884,7 @@ final class SyncEngine: ObservableObject {
             current.days.removeAll { $0.id == day.id }
             for index in current.days.indices { current.days[index].position = index }
             current.updatedAt = .now
-            do { try saveLocalSnapshot(current) } catch { status = .failed("无法保存本地修改。") }
+            do { try saveLocalSnapshot(current) } catch { status = .failed(String(localized: "error.localSaveFailed")) }
             return
         }
         guard let dayID = day.serverID else { return }
@@ -920,7 +920,7 @@ final class SyncEngine: ObservableObject {
             }
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存日期顺序。")
+            status = .failed(String(localized: "error.dayOrderFailed"))
         }
     }
 
@@ -934,7 +934,7 @@ final class SyncEngine: ObservableObject {
             let card = TravelCardSnapshot(
                 dayID: dayID,
                 kind: request.kind ?? .activity,
-                title: request.title ?? "未命名行程",
+                title: request.title ?? String(localized: "error.unnamedCardTitle"),
                 startAt: Self.parseTimestamp(request.startAt) ?? .now,
                 endAt: Self.parseTimestamp(request.endAt),
                 place: Self.optimisticPlace(from: request.place),
@@ -964,7 +964,7 @@ final class SyncEngine: ObservableObject {
             try repository.enqueue(method: "POST", path: "/v1/cards", tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存行程卡片。")
+            status = .failed(String(localized: "error.cardSaveFailed"))
         }
     }
 
@@ -972,7 +972,7 @@ final class SyncEngine: ObservableObject {
         if localOnly, var current = trip {
             Self.apply(request, to: card, in: &current)
             current.updatedAt = .now
-            do { try saveLocalSnapshot(current) } catch { status = .failed("无法保存行程卡片。") }
+            do { try saveLocalSnapshot(current) } catch { status = .failed(String(localized: "error.cardSaveFailed")) }
             return
         }
         guard let cardID = card.serverID else { return }
@@ -987,7 +987,7 @@ final class SyncEngine: ObservableObject {
                 current.days[index].cards.removeAll { $0.id == card.id }
             }
             current.updatedAt = .now
-            do { try saveLocalSnapshot(current) } catch { status = .failed("无法保存行程卡片。") }
+            do { try saveLocalSnapshot(current) } catch { status = .failed(String(localized: "error.cardSaveFailed")) }
             return
         }
         guard let cardID = card.serverID else { return }
@@ -1002,7 +1002,7 @@ final class SyncEngine: ObservableObject {
         guard var current = trip, let currency = current.currency, request.currency == currency,
               let amountMinor = request.amountMinor, let category = request.category,
               let occurredOn = request.occurredOn else {
-            status = .failed("请先设置行程币种，并填写完整支出。")
+            status = .failed(String(localized: "error.expensePreflight"))
             return
         }
         let baseVersion = current.version
@@ -1015,7 +1015,7 @@ final class SyncEngine: ObservableObject {
             try repository.enqueue(method: "POST", path: "/v1/expenses", tripID: current.id, body: body, baseVersion: baseVersion, clientEntityID: expense.id)
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存支出。")
+            status = .failed(String(localized: "error.expenseSaveFailed"))
         }
     }
 
@@ -1067,7 +1067,7 @@ final class SyncEngine: ObservableObject {
             }
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存卡片顺序。")
+            status = .failed(String(localized: "error.cardOrderFailed"))
         }
     }
 
@@ -1112,7 +1112,7 @@ final class SyncEngine: ObservableObject {
             }
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存卡片顺序。")
+            status = .failed(String(localized: "error.cardOrderFailed"))
         }
     }
 
@@ -1139,7 +1139,7 @@ final class SyncEngine: ObservableObject {
                   sourceDay.serverID != nil,
                   destinationDay.serverID != nil,
                   (sourceCardsBeforeMove + destinationCardsBeforeMove).allSatisfy({ $0.serverID != nil }) else {
-                status = .failed("卡片同步完成后才能跨日期移动。")
+                status = .failed(String(localized: "error.cardSyncBeforeMove"))
                 return
             }
         }
@@ -1200,7 +1200,7 @@ final class SyncEngine: ObservableObject {
             }
             await replayPendingOperations()
         } catch {
-            status = .failed("无法跨日期移动卡片。")
+            status = .failed(String(localized: "error.crossDayMoveFailed"))
         }
     }
 
@@ -1209,7 +1209,7 @@ final class SyncEngine: ObservableObject {
         do {
             let body = try await apiClient.encode(request)
             guard let activeTripID = selectedTripID ?? trip?.id else {
-                status = .failed("请先选择一个旅程。")
+                status = .failed(String(localized: "error.selectTripFirst"))
                 return
             }
             let now = Date()
@@ -1224,7 +1224,7 @@ final class SyncEngine: ObservableObject {
             try repository.enqueue(method: "PATCH", path: "/v1/trip", tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存本地修改。")
+            status = .failed(String(localized: "error.localSaveFailed"))
         }
     }
 
@@ -1258,8 +1258,8 @@ final class SyncEngine: ObservableObject {
                     // Discard the stale intent and refresh instead of re-creating it locally.
                     try repository.remove(operation)
                     await refresh()
-                    let resource = operation.path.contains("/expenses") ? "支出" : "行程卡片"
-                    status = .failed("该\(resource)已在另一台设备删除，已刷新行程。")
+                    let resource = operation.path.contains("/expenses") ? String(localized: "error.resource.expense") : String(localized: "error.resource.card")
+                    status = .failed(String(format: String(localized: "error.resourceDeleted"), resource))
                     return
                 } catch let problem as APIProblem where problem.isPermanentClientFailure {
                     // A 4xx means this exact request will not become valid by
@@ -1270,7 +1270,7 @@ final class SyncEngine: ObservableObject {
                     return
                 } catch {
                     try repository.incrementRetry(operation)
-                    status = encounteredConflict ? .conflict : .offline("有 \(operations.count) 项待同步")
+                    status = encounteredConflict ? .conflict : .offline(String(format: String(localized: "error.pendingCount"), operations.count))
                     return
                 }
             }
@@ -1283,7 +1283,7 @@ final class SyncEngine: ObservableObject {
             }
             status = encounteredConflict ? .conflict : .synced
         } catch {
-            status = .failed("待同步队列无法读取。")
+            status = .failed(String(localized: "error.queueUnreadable"))
         }
     }
 
@@ -1299,7 +1299,7 @@ final class SyncEngine: ObservableObject {
             try repository.enqueue(method: method, path: path, tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存本地修改。")
+            status = .failed(String(localized: "error.localSaveFailed"))
         }
     }
 
@@ -1315,7 +1315,7 @@ final class SyncEngine: ObservableObject {
             try repository.enqueue(method: method, path: path, tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存行程卡片。")
+            status = .failed(String(localized: "error.cardSaveFailed"))
         }
     }
 
@@ -1331,7 +1331,7 @@ final class SyncEngine: ObservableObject {
             try repository.enqueue(method: method, path: path, tripID: current.id, body: body, baseVersion: baseVersion)
             await replayPendingOperations()
         } catch {
-            status = .failed("无法保存支出。")
+            status = .failed(String(localized: "error.expenseSaveFailed"))
         }
     }
 
@@ -1339,7 +1339,7 @@ final class SyncEngine: ObservableObject {
         guard var current = trip else { return }
         do {
             guard let operation = try repository.pendingOperation(for: expense.id), operation.method == "POST", operation.path == "/v1/expenses" else {
-                status = .failed("这笔离线支出正在确认服务器结果，请稍后重试。")
+                status = .failed(String(localized: "error.pendingExpenseConfirming"))
                 return
             }
             let body = try await apiClient.encode(request)
@@ -1351,7 +1351,7 @@ final class SyncEngine: ObservableObject {
             try repository.replaceBody(operation, with: body)
             await replayPendingOperations()
         } catch {
-            status = .failed("无法更新离线支出。")
+            status = .failed(String(localized: "error.pendingExpenseUpdateFailed"))
         }
     }
 
@@ -1359,7 +1359,7 @@ final class SyncEngine: ObservableObject {
         guard var current = trip else { return }
         do {
             guard let operation = try repository.pendingOperation(for: expense.id), operation.method == "POST", operation.path == "/v1/expenses" else {
-                status = .failed("这笔离线支出正在确认服务器结果，请稍后重试。")
+                status = .failed(String(localized: "error.pendingExpenseConfirming"))
                 return
             }
             current.expenses = ExpenseOptimisticMutation.removing(expense, from: current.expenses)
@@ -1369,7 +1369,7 @@ final class SyncEngine: ObservableObject {
             let remaining = try repository.pendingOperations().count
             status = localOnly ? .localOnly : (remaining == 0 ? .synced : .pending(remaining))
         } catch {
-            status = .failed("无法取消离线支出。")
+            status = .failed(String(localized: "error.pendingExpenseCancelFailed"))
         }
     }
 
@@ -1431,7 +1431,7 @@ final class SyncEngine: ObservableObject {
             guard let dayIndex = current.days.firstIndex(where: { $0.date == draftCard.date }),
                   let kind = TravelCardSnapshot.Kind(rawValue: draftCard.kind) else { continue }
             guard try repository.pendingOperation(for: draftCard.localID) == nil else { continue }
-            let time = (draftCard.time?.isEmpty == false ? draftCard.time! : "09:00")
+            let time = (draftCard.time?.isEmpty == false ? draftCard.time! : String(localized: "error.defaultCardTime"))
             let startAt = "\(draftCard.date)T\(time):00Z"
             let place = await resolvedPlace(from: draftCard.placeData)
             let extras = draftCard.extraData.flatMap { try? JSONDecoder().decode(AICardExtras.self, from: $0) }
@@ -1648,7 +1648,7 @@ enum TripSharingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .requiresSignIn: "请先使用 Apple 登录，再查看共享成员。"
+        case .requiresSignIn: String(localized: "error.signInFirst")
         }
     }
 }
@@ -1724,9 +1724,9 @@ private enum LocalTripMigrationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .accountMismatch: "本地数据迁移记录与当前账户不匹配。"
-        case .missingCreatedTrip: "服务器未返回刚创建的旅程。"
-        case .missingImportedDay: "服务器未返回刚同步的行程日期。"
+        case .accountMismatch: String(localized: "error.migrationAccountMismatch")
+        case .missingCreatedTrip: String(localized: "error.migrationNoTrip")
+        case .missingImportedDay: String(localized: "error.migrationNoDay")
         }
     }
 }
@@ -1810,7 +1810,7 @@ enum AIDraftImportError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .tripNotConfigured: "请先设置有效的旅行日期。"
+        case .tripNotConfigured: String(localized: "error.aiTripNotConfigured")
         case let .invalidDraft(message): message
         case let .submissionFailed(message): message
         }

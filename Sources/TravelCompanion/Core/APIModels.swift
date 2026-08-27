@@ -72,7 +72,7 @@ struct TripMemberSummary: Decodable, Sendable, Identifiable, Equatable {
         if let name, !name.isEmpty { return name }
         let email = email?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let email, !email.isEmpty { return email }
-        return isOwner ? "旅程创建者" : "同行成员"
+        return isOwner ? String(localized: "member.ownerFallback") : String(localized: "member.fallback")
     }
 }
 
@@ -91,7 +91,7 @@ struct TripSummary: Decodable, Sendable, Identifiable, Equatable {
 
     var displayName: String {
         let destination = destination?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (destination?.isEmpty == false ? destination : nil) ?? "未命名旅程"
+        return (destination?.isEmpty == false ? destination : nil) ?? String(localized: "common.unnamedTrip")
     }
 }
 
@@ -141,9 +141,9 @@ enum RouteMode: String, Codable, CaseIterable, Sendable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .walking: "步行"
-        case .driving: "驾车"
-        case .transit: "公交"
+        case .walking: String(localized: "mode.walking")
+        case .driving: String(localized: "mode.driving")
+        case .transit: String(localized: "mode.transit")
         }
     }
     var systemImage: String {
@@ -352,7 +352,7 @@ struct APIProblem: Decodable, Error, LocalizedError {
 
     var errorDescription: String? {
         guard let detail = details?.first, !detail.reason.isEmpty else { return message }
-        return "\(message)\n\n字段：\(detail.field)\n原因：\(detail.reason)"
+        return String(format: String(localized: "error.problemDetail"), message, detail.field, detail.reason)
     }
 
     var isPermanentClientFailure: Bool {
@@ -683,25 +683,25 @@ struct AIItineraryDraft: Codable, Sendable, Equatable {
     var selectedCards: [Card] { days.flatMap(\.cards).filter(\.isSelected) }
 
     func validationMessage(startDate: String, days: Int) -> String? {
-        guard let start = Self.dateFormatter.date(from: startDate), days > 0 else { return "行程日期尚未设置。" }
-        guard let end = Calendar(identifier: .gregorian).date(byAdding: .day, value: days - 1, to: start) else { return "行程日期无效。" }
+        guard let start = Self.dateFormatter.date(from: startDate), days > 0 else { return String(localized: "error.validation.dateUnset") }
+        guard let end = Calendar(identifier: .gregorian).date(byAdding: .day, value: days - 1, to: start) else { return String(localized: "error.validation.dateInvalid") }
         for card in selectedCards {
             let title = card.title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard (1 ... 160).contains(title.count),
                   let date = Self.dateFormatter.date(from: card.date), date >= start, date <= end else {
-                return "所选卡片标题需为 1–160 个字符，且日期需在旅行范围内。"
+                return String(localized: "error.validation.titleRange")
             }
             if let time = card.time, !time.isEmpty, !Self.timeIsValid(time) {
-                return "时间请使用 HH:mm 格式。"
+                return String(localized: "error.validation.timeFormat")
             }
             if let place = card.place, place.name.trimmingCharacters(in: .whitespacesAndNewlines).count > 160 {
-                return "地点名称最多 160 个字符。"
+                return String(localized: "error.validation.placeLength")
             }
             if let notes = card.notes, notes.trimmingCharacters(in: .whitespacesAndNewlines).count > 2_000 {
-                return "备注最多 2000 个字符。"
+                return String(localized: "error.validation.noteLength")
             }
         }
-        return selectedCards.isEmpty ? "请至少选择一张卡片。" : nil
+        return selectedCards.isEmpty ? String(localized: "error.validation.noCards") : nil
     }
 
     private static let dateFormatter: DateFormatter = {

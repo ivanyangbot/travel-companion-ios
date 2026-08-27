@@ -14,23 +14,23 @@ struct PlaceSearchView: View {
         NavigationStack {
             List {
                 Section {
-                    TextField("搜索景点、酒店或机场", text: $keyword)
+                    TextField("placesearch.placeholder", text: $keyword)
                         .submitLabel(.search)
                         .onSubmit(search)
-                    TextField("城市（可选）", text: $city)
+                    TextField("placesearch.city", text: $city)
                         .submitLabel(.search)
                         .onSubmit(search)
-                    Button("搜索", systemImage: "magnifyingglass", action: search)
+                    Button("placesearch.searchButton", systemImage: "magnifyingglass", action: search)
                         .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
                 } footer: {
-                    Text("地点搜索由 Apple 地图在本机完成，不会通过同行服务端查询第三方地图。")
+                    Text("placesearch.footer")
                 }
                 if isSearching {
-                    Section { HStack { Spacer(); ProgressView("正在搜索 Apple 地图…"); Spacer() } }
+                    Section { HStack { Spacer(); ProgressView("placesearch.searching"); Spacer() } }
                 } else if let errorMessage {
-                    ContentUnavailableView("无法搜索地点", systemImage: "map", description: Text(errorMessage))
+                    ContentUnavailableView("placesearch.errorTitle", systemImage: "map", description: Text(errorMessage))
                 } else if !results.isEmpty {
-                    Section("搜索结果") {
+                    Section("placesearch.results") {
                         ForEach(results) { result in
                             Button {
                                 onSelect(result)
@@ -45,8 +45,8 @@ struct PlaceSearchView: View {
                     }
                 }
             }
-            .navigationTitle("搜索地点")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            .navigationTitle("placesearch.title")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() } } }
         }
     }
 
@@ -61,9 +61,9 @@ struct PlaceSearchView: View {
                     query: cleanedKeyword,
                     city: city.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 )
-                if results.isEmpty { errorMessage = "Apple 地图没有找到匹配地点，请换一个关键词。" }
+                if results.isEmpty { errorMessage = String(localized: "placesearch.noResults") }
             } catch {
-                errorMessage = "无法完成 Apple 地图搜索，请检查网络后重试。"
+                errorMessage = String(localized: "placesearch.failed")
             }
             isSearching = false
         }

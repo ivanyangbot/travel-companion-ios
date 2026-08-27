@@ -3166,12 +3166,12 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
             showsCategoryBubble: placement.showsCategoryBubble
         )
 
-        let title = annotation.title ?? "地点"
+        let title = annotation.title ?? String(localized: "maplibre.placeFallback")
         if placement.representedMemberIDs.count > 1,
            let labelText = placement.labelText {
-            accessibilityLabel = "行程地点 \(labelText)"
+            accessibilityLabel = String(format: String(localized: "maplibre.clusterA11y"), labelText)
         } else {
-        accessibilityLabel = placement.isHighlighted ? "正在查看，\(title)" : title
+        accessibilityLabel = placement.isHighlighted ? String(format: String(localized: "maplibre.viewingA11y"), title) : title
         }
         transform = .identity
     }

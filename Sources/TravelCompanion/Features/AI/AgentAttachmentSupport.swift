@@ -23,13 +23,13 @@ enum AgentAttachmentError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unreadable:
-            "无法读取这个附件，请换一个文件重试。"
+            String(localized: "attachment.unreadable")
         case .unsupportedFile:
-            "暂不支持这种文件格式。请选择图片、PDF、文本或常见 Office 文档。"
+            String(localized: "attachment.unsupported")
         case .emptyFile:
-            "这个文件没有内容。"
+            String(localized: "attachment.empty")
         case .tooLarge(let maximumMegabytes):
-            "附件过大，请选择不超过 \(maximumMegabytes) MB 的文件。"
+            String(format: String(localized: "attachment.tooLarge"), maximumMegabytes)
         }
     }
 }
@@ -49,7 +49,7 @@ enum AgentFileAttachmentProcessor {
             if didAccessSecurityScope { url.stopAccessingSecurityScopedResource() }
         }
 
-        let fileName = url.lastPathComponent.isEmpty ? "附件" : url.lastPathComponent
+        let fileName = url.lastPathComponent.isEmpty ? String(localized: "attachment.nameFallback") : url.lastPathComponent
         let fileExtension = url.pathExtension.lowercased()
         guard supportedExtensions.contains(fileExtension) else {
             throw AgentAttachmentError.unsupportedFile
@@ -97,7 +97,7 @@ struct AgentAttachmentPreviewCard: View {
             }
             .buttonStyle(.plain)
             .offset(x: 5, y: -5)
-            .accessibilityLabel("移除\(displayName)")
+            .accessibilityLabel(Text(String(format: String(localized: "attachment.removeA11y"), displayName)))
         }
         .padding(.top, 5)
         .padding(.trailing, 5)
@@ -147,12 +147,12 @@ struct AgentAttachmentPreviewCard: View {
 
     private var displayName: String {
         attachment.fileName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            ?? (attachment.mediaType.hasPrefix("image/") ? "图片" : "文件")
+            ?? (attachment.mediaType.hasPrefix("image/") ? String(localized: "attachment.imageFallback") : String(localized: "attachment.fileFallback"))
     }
 
     private var fileTypeLabel: String {
         let fileExtension = ((attachment.fileName ?? "") as NSString).pathExtension.uppercased()
-        return fileExtension.isEmpty ? "文件" : fileExtension
+        return fileExtension.isEmpty ? String(localized: "attachment.fileTypeFallback") : fileExtension
     }
 }
 
@@ -248,7 +248,7 @@ struct AgentCameraSheet: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 28)
                     if camera.isPermissionDenied {
-                        Button("前往设置") {
+                        Button("attachment.goSettings") {
                             guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
                             UIApplication.shared.open(url)
                         }
@@ -304,7 +304,7 @@ struct AgentCameraSheet: View {
                     .background(Color.white.opacity(0.12), in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("关闭相机")
+            .accessibilityLabel(Text("attachment.closeCameraA11y"))
 
             Spacer()
 
@@ -319,7 +319,7 @@ struct AgentCameraSheet: View {
             .buttonStyle(.plain)
             .disabled(!camera.isReady || camera.isCapturing)
             .opacity(camera.isCapturing ? 0.55 : 1)
-            .accessibilityLabel("拍照")
+            .accessibilityLabel(Text("attachment.takePhotoA11y"))
 
             Spacer()
 
@@ -334,7 +334,7 @@ struct AgentCameraSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(!camera.isReady || camera.isCapturing)
-            .accessibilityLabel("切换摄像头")
+            .accessibilityLabel(Text("attachment.switchCameraA11y"))
         }
         .padding(.horizontal, 24)
     }
@@ -374,7 +374,7 @@ final class AgentCameraController: NSObject, ObservableObject, AVCapturePhotoCap
         case .denied, .restricted:
             publishPermissionDenied()
         @unknown default:
-            publishError("无法访问相机，请稍后重试。")
+            publishError(String(localized: "attachment.cameraUnavailable"))
         }
     }
 
@@ -414,7 +414,7 @@ final class AgentCameraController: NSObject, ObservableObject, AVCapturePhotoCap
                     self.isReady = true
                 }
             } catch {
-                self.publishError("无法切换摄像头，请稍后重试。")
+                self.publishError(String(localized: "attachment.switchFailed"))
             }
         }
     }
@@ -442,7 +442,7 @@ final class AgentCameraController: NSObject, ObservableObject, AVCapturePhotoCap
                 if !self.session.isRunning { self.session.startRunning() }
                 self.publishReady(true)
             } catch {
-                self.publishError("当前设备无法启动相机。")
+                self.publishError(String(localized: "attachment.cameraStartFailed"))
             }
         }
     }
@@ -481,7 +481,7 @@ final class AgentCameraController: NSObject, ObservableObject, AVCapturePhotoCap
               let image = UIImage(data: data) else {
             DispatchQueue.main.async {
                 self.isCapturing = false
-                self.errorMessage = "照片处理失败，请重新拍摄。"
+                self.errorMessage = String(localized: "attachment.processFailed")
             }
             return
         }
@@ -499,7 +499,7 @@ final class AgentCameraController: NSObject, ObservableObject, AVCapturePhotoCap
         DispatchQueue.main.async {
             self.isReady = false
             self.isPermissionDenied = true
-            self.errorMessage = "未获得相机权限，请在系统设置中允许 Indo 使用相机。"
+            self.errorMessage = String(localized: "attachment.cameraPermission")
         }
     }
 

@@ -27,7 +27,7 @@ final class ShareViewController: UIViewController {
 
     private func loadSharedURL() {
         guard let item = extensionContext?.inputItems.first as? NSExtensionItem else {
-            cancel(with: "未找到可添加的网页链接。")
+            cancel(with: String(localized: "shareext.noLink"))
             return
         }
         if let provider = item.attachments?.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.url.identifier) }) {
@@ -45,14 +45,14 @@ final class ShareViewController: UIViewController {
             }
             return
         }
-        cancel(with: "未找到可添加的网页链接。")
+        cancel(with: String(localized: "shareext.noLink"))
     }
 
     private func finishLoading(rawURL: String?) {
         guard let rawURL,
               let url = URL(string: rawURL),
               isPublicHTTPSURL(url) else {
-            cancel(with: "只能添加有效的 HTTPS 网页链接。")
+            cancel(with: String(localized: "shareext.httpsOnly"))
             return
         }
         handoff(url)

@@ -24,10 +24,10 @@ enum WalletCardType: String, Sendable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .bankcard: "银行卡"
-        case .ticket: "门票"
-        case .id: "证件"
-        case .other: "其他"
+        case .bankcard: String(localized: "wallettype.bankcard")
+        case .ticket: String(localized: "wallettype.ticket")
+        case .id: String(localized: "wallettype.id")
+        case .other: String(localized: "wallettype.other")
         }
     }
     var systemImage: String {
@@ -47,7 +47,7 @@ enum WalletCardScanError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .visionUnavailable: "AI 视觉服务当前不可用，暂时无法识别照片。"
+        case .visionUnavailable: String(localized: "error.visionUnavailable")
         }
     }
 }

@@ -89,7 +89,7 @@ enum MemoAssistError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .tripNotConfigured: "请先在「旅程」中设置目的地与日期，AI 才能据此给出明日建议。"
+        case .tripNotConfigured: String(localized: "error.memoTripNotConfigured")
         }
     }
 }

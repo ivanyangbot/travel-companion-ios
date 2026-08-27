@@ -19,19 +19,19 @@ struct DayEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                DatePicker("日期", selection: $date, displayedComponents: .date)
+                DatePicker("dayeditor.dateLabel", selection: $date, displayedComponents: .date)
                 if isDuplicate {
-                    Text("这一天已在时间轴中。")
+                    Text("dayeditor.duplicate")
                         .foregroundStyle(.red)
                 }
             }
-            .navigationTitle(existingDay == nil ? "添加日期" : "修改日期")
+            .navigationTitle(existingDay == nil ? "dayeditor.addTitle" : "dayeditor.editTitle")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button("common.cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(existingDay == nil ? "添加" : "保存") {
+                    Button(existingDay == nil ? "dayeditor.addButton" : "common.save") {
                         onSave(date)
                         dismiss()
                     }

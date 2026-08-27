@@ -31,7 +31,7 @@ struct WalletCardArtwork: View {
                 chip
                 Spacer()
                 Text(WalletMasker.masked(number)).font(.system(.title3, design: .monospaced).weight(.semibold)).foregroundStyle(.white)
-                Text(label.isEmpty ? "银行卡" : label).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+                Text(label.isEmpty ? String(localized: "walletart.fallback.bankcard") : label).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
             }
             .padding(16)
             HStack { Spacer(); Image(systemName: "creditcard.fill").foregroundStyle(.white.opacity(0.25)).font(.title) }.padding(12)
@@ -58,12 +58,12 @@ struct WalletCardArtwork: View {
             TicketNotchShape().fill(Color(.systemBackground))
             VStack(spacing: 6) {
                 HStack {
-                    Text("票根").font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.9))
+                    Text("walletart.ticketBadge").font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.9))
                     Spacer()
                     Image(systemName: "ticket.fill").foregroundStyle(.white.opacity(0.85))
                 }
                 Spacer()
-                Text(label.isEmpty ? "门票" : label).font(.headline).foregroundStyle(.white).lineLimit(1)
+                Text(label.isEmpty ? String(localized: "walletart.fallback.ticket") : label).font(.headline).foregroundStyle(.white).lineLimit(1)
                 Text(WalletMasker.masked(number)).font(.system(.subheadline, design: .monospaced)).foregroundStyle(.white.opacity(0.9))
             }
             .padding(16)
@@ -84,7 +84,7 @@ struct WalletCardArtwork: View {
                         .overlay(Image(systemName: "person.crop.filled.uniform").foregroundStyle(.secondary))
                         .frame(width: 54, height: 68)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(label.isEmpty ? "证件" : label).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                        Text(label.isEmpty ? String(localized: "walletart.fallback.id") : label).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
                         Text(WalletMasker.masked(number)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                         ForEach(0..<2) { _ in RoundedRectangle(cornerRadius: 1).fill(Color(.tertiarySystemFill)).frame(height: 5) }
                     }
@@ -105,7 +105,7 @@ struct WalletCardArtwork: View {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "rectangle.stack.fill").foregroundStyle(.white.opacity(0.9))
                 Spacer()
-                Text(label.isEmpty ? "卡片" : label).font(.headline).foregroundStyle(.white).lineLimit(1)
+                Text(label.isEmpty ? String(localized: "walletart.fallback.other") : label).font(.headline).foregroundStyle(.white).lineLimit(1)
                 Text(WalletMasker.masked(number)).font(.system(.caption, design: .monospaced)).foregroundStyle(.white.opacity(0.8))
             }
             .padding(16)

@@ -59,9 +59,9 @@ struct TodayView: View {
             } else if syncEngine.trip == nil {
                 switch syncEngine.status {
                 case .failed(let message):
-                    ContentUnavailableView("无法加载共享行程", systemImage: "wifi.exclamationmark", description: Text(message))
+                    ContentUnavailableView("today.errorLoadSharedTrip", systemImage: "wifi.exclamationmark", description: Text(message))
                 case .loading, .syncing:
-                    ProgressView("正在打开共享行程…")
+                    ProgressView("today.openingSharedTrip")
                 default:
                     // 没有生效的行程（地图不显示）时，首页直接复用 Agent 页
                     agentHome
@@ -152,11 +152,11 @@ struct TodayView: View {
         )) {
             if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
         }
-        .alert("无法打开链接", isPresented: Binding(
+        .alert("common.cannotOpenLink", isPresented: Binding(
             get: { linkHandler.alertMessage != nil },
             set: { if !$0 { linkHandler.alertMessage = nil } }
         )) {
-            Button("好", role: .cancel) { linkHandler.alertMessage = nil }
+            Button("common.ok", role: .cancel) { linkHandler.alertMessage = nil }
         } message: {
             Text(linkHandler.alertMessage ?? "")
         }
@@ -356,7 +356,7 @@ struct TodayView: View {
                     radius: 12,
                     y: 12
                 )
-                .accessibilityLabel("查看旅程计划")
+                .accessibilityLabel(Text("today.viewPlanA11y"))
             }
         }
         .padding(.horizontal, 20)
@@ -473,7 +473,7 @@ struct TodayView: View {
 
             HStack(spacing: 6) {
                 if isToday {
-                    Text("今日")
+                    Text("common.today")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
@@ -740,12 +740,12 @@ struct TodayView: View {
 
     /// 选中今日时标题为“今日”，切换到其他天则显示该日日期。
     private var currentNavigationTitle: String {
-        guard let trip = syncEngine.trip, trip.isConfigured else { return "今日" }
+        guard let trip = syncEngine.trip, trip.isConfigured else { return String(localized: "common.today") }
         let sorted = sortedDays(in: trip)
-        guard !sorted.isEmpty else { return "今日" }
+        guard !sorted.isEmpty else { return String(localized: "common.today") }
         let baseIndex = baseDayIndex(in: sorted)
         let currentIndex = clampedDayIndex(sorted: sorted, baseIndex: baseIndex)
-        guard currentIndex != baseIndex else { return "今日" }
+        guard currentIndex != baseIndex else { return String(localized: "common.today") }
         return dayLabel(for: sorted[currentIndex]) ?? sorted[currentIndex].date
     }
 
@@ -789,8 +789,8 @@ struct TodayView: View {
     private func timelineLabel(for day: TripDaySnapshot, isToday: Bool) -> String {
         guard let date = Self.dayFormatter.date(from: day.date) else { return day.date }
         guard let weekday = weekdayLabel(from: date), !weekday.isEmpty else { return day.date }
-        if isToday { return "今日 \(weekday)" }
-        return "\(Self.timelineNumericFormatter.string(from: date)) \(weekday)"
+        if isToday { return String(format: String(localized: "common.timelineToday"), weekday) }
+        return String(format: String(localized: "common.timelineDate"), Self.timelineNumericFormatter.string(from: date), weekday)
     }
 
     private func weekdayLabel(for day: TripDaySnapshot) -> String? {
@@ -839,7 +839,7 @@ struct TodayView: View {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日 EEE"
+        formatter.dateFormat = String(localized: "today.dateFormat.dayTitle")
         return formatter
     }()
 
@@ -848,11 +848,19 @@ struct TodayView: View {
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "MM.dd"
+        formatter.dateFormat = String(localized: "today.dateFormat.timelineNumeric")
         return formatter
     }()
 
-    private static let weekdaySymbols = ["日", "一", "二", "三", "四", "五", "六"]
+    private static let weekdaySymbols = [
+        String(localized: "common.weekday.0"),
+        String(localized: "common.weekday.1"),
+        String(localized: "common.weekday.2"),
+        String(localized: "common.weekday.3"),
+        String(localized: "common.weekday.4"),
+        String(localized: "common.weekday.5"),
+        String(localized: "common.weekday.6")
+    ]
 
     private static var utcCalendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
@@ -1983,7 +1991,7 @@ struct TodayDateTimeline: View {
             radius: 12,
             y: 8
         )
-        .accessibilityLabel("返回今天")
+        .accessibilityLabel(Text("today.backToTodayA11y"))
     }
 
     private func centerDate(
@@ -2250,7 +2258,7 @@ private struct POICard: View {
             radius: 14,
             y: 10
         )
-        .accessibilityLabel("第 \(index + 1) 个地点，\(card.title)，\(timeText)")
+        .accessibilityLabel(Text(String(format: String(localized: "today.poiA11y"), index + 1, card.title, timeText)))
     }
 
     private static func detailSectionHeight(for card: TravelCardSnapshot?) -> CGFloat {
@@ -2298,7 +2306,7 @@ private struct POICard: View {
                 // 展开态展示的是 POI 营业时间，不复用收起态的行程到达/离开时间。
                 detailInfoRow(
                     iconName: "icon-poi-time-outline",
-                    label: "营业时间",
+                    label: String(localized: "today.hoursLabel"),
                     value: businessHours,
                     valueLineLimit: 2,
                     rowHeight: Self.detailTallRowHeight
@@ -2376,7 +2384,7 @@ private struct POICard: View {
             detailIconWell("icon-poi-location-outline")
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("地址")
+                Text("today.addressLabel")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(PrimaryTabPalette.tertiaryText)
                 Text(locationText)
@@ -2417,16 +2425,16 @@ private struct POICard: View {
     private var distanceText: String? {
         guard let distance = distanceInMeters else { return nil }
         return distance >= 1_000
-            ? String(format: "距我 %.1f km", distance / 1_000)
-            : String(format: "距我 %.0f m", distance)
+            ? String(format: String(localized: "today.distanceFromMeKm"), distance / 1_000)
+            : String(format: String(localized: "today.distanceFromMeMeters"), Int(distance.rounded()))
     }
 
     /// 地址行尾部胶囊用的紧凑距离文案（省略“距我”前缀）。
     private var compactDistanceText: String? {
         guard let distance = distanceInMeters else { return nil }
         return distance >= 1_000
-            ? String(format: "%.1f km", distance / 1_000)
-            : String(format: "%.0f m", distance)
+            ? String(format: String(localized: "common.distanceKm"), distance / 1_000)
+            : String(format: String(localized: "common.distanceMeters"), Int(distance.rounded()))
     }
 
     private func phoneDetailRow(_ phoneText: String) -> some View {
@@ -2434,7 +2442,7 @@ private struct POICard: View {
             detailIconWell("icon-poi-phone-outline")
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("电话")
+                Text("today.phoneLabel")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(PrimaryTabPalette.tertiaryText)
                 Text(phoneText)
@@ -2452,7 +2460,7 @@ private struct POICard: View {
                         .frame(width: 32, height: 32)
                         .background(PrimaryTabPalette.accent, in: Circle())
                 }
-                .accessibilityLabel("拨打商家电话")
+                .accessibilityLabel(Text("today.callA11y"))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2527,7 +2535,7 @@ private struct POICard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Spacer(minLength: 0)
 
-                    Text("\(index + 1). \(card.title)")
+                    Text(String(format: String(localized: "today.cardCoverTitle"), index + 1, card.title))
                         .font(.system(size: 22, weight: .semibold))
                         .tracking(0)
                         .foregroundStyle(.white)
@@ -2614,7 +2622,7 @@ private struct POICard: View {
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(normalizedExpansionProgress > 0.5 ? "收起资讯" : "展开资讯")
+        .accessibilityLabel(normalizedExpansionProgress > 0.5 ? Text("today.collapseInfoA11y") : Text("today.expandInfoA11y"))
     }
 
     /// 封面底部元数据胶囊：深色半透明底 + 细描边，保证在任何封面图上可读。
@@ -2691,7 +2699,7 @@ private struct TodayCardDetailSheet: View {
             .navigationTitle(card.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("common.done") { dismiss() } }
             }
         }
     }
@@ -2732,7 +2740,7 @@ private struct TodayCardDetailSheet: View {
         .padding(14)
         .glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
-            Button("在地图打开", systemImage: "location") { linkHandler.openInMaps(for: place) }
+            Button("today.onMapButton", systemImage: "location") { linkHandler.openInMaps(for: place) }
                 .buttonStyle(.glass)
                 .disabled(place.latitude == nil || place.longitude == nil)
                 .padding(8)
@@ -2740,7 +2748,7 @@ private struct TodayCardDetailSheet: View {
     }
 
     private func bookingRow(_ code: String) -> some View {
-        Text("订单号 \(code)")
+        Text(String(format: String(localized: "common.orderNumber"), code))
             .font(.subheadline.monospaced())
             .padding(12)
             .glassEffect(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -2750,11 +2758,11 @@ private struct TodayCardDetailSheet: View {
     private var actions: some View {
         if let value = card.url, let url = ExternalLinkHandler.validatedHTTPSURL(value) {
             HStack(spacing: 10) {
-                Button("打开链接", systemImage: "arrow.up.right.square") { linkHandler.openPublicLink(value) }
+                Button("common.openLink", systemImage: "arrow.up.right.square") { linkHandler.openPublicLink(value) }
                     .buttonStyle(.glass)
                     .frame(minHeight: 44)
-                ShareLink(item: url, subject: Text(card.title), message: Text("来自同行的旅行卡片")) {
-                    Label("分享", systemImage: "square.and.arrow.up")
+                ShareLink(item: url, subject: Text(card.title), message: Text("common.shareCardMessage")) {
+                    Label("common.share", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.glass)
                 .frame(minHeight: 44)
@@ -2765,7 +2773,7 @@ private struct TodayCardDetailSheet: View {
     private var timeText: String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "MM月d日 HH:mm"
+        formatter.dateFormat = String(localized: "today.dateFormat.monthDayTime")
         if let endAt = card.endAt { return "\(formatter.string(from: card.startAt)) — \(formatter.string(from: endAt))" }
         return formatter.string(from: card.startAt)
     }

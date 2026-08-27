@@ -21,10 +21,10 @@ struct WalletSection: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("本机卡包")
+                    Text("wallet.title")
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("仅保存在这台设备")
+                    Text("wallet.subtitle")
                         .font(.caption)
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
@@ -40,7 +40,7 @@ struct WalletSection: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("添加卡片")
+                .accessibilityLabel(Text("wallet.addA11y"))
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -48,9 +48,9 @@ struct WalletSection: View {
 
             if items.isEmpty {
                 ContentUnavailableView(
-                    "还没有卡包",
+                    "wallet.emptyTitle",
                     systemImage: "wallet.pass",
-                    description: Text("保存护照号、会员号等旅行常用号码；它们不会上传或同步。")
+                    description: Text("wallet.emptyDesc")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.bottom, 112)
@@ -77,28 +77,28 @@ struct WalletSection: View {
                 loadSecrets()
             }
         }
-        .alert("删除这张卡片？", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } })) {
-            Button("删除", role: .destructive) { deletePendingItem() }
-            Button("取消", role: .cancel) { pendingDeletion = nil }
+        .alert("wallet.deleteTitle", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } })) {
+            Button("common.delete", role: .destructive) { deletePendingItem() }
+            Button("common.cancel", role: .cancel) { pendingDeletion = nil }
         } message: {
-            Text("删除后只能重新手动添加，无法恢复。")
+            Text("wallet.deleteMessage")
         }
-        .alert("复制敏感号码？", isPresented: Binding(get: { pendingCopy != nil && !hasAcknowledgedPasteboardWarning }, set: { if !$0, !hasAcknowledgedPasteboardWarning { pendingCopy = nil } })) {
-            Button("复制") {
+        .alert("wallet.copySensitiveTitle", isPresented: Binding(get: { pendingCopy != nil && !hasAcknowledgedPasteboardWarning }, set: { if !$0, !hasAcknowledgedPasteboardWarning { pendingCopy = nil } })) {
+            Button("wallet.copyButton") {
                 hasAcknowledgedPasteboardWarning = true
                 copyPendingValue()
             }
-            Button("取消", role: .cancel) { pendingCopy = nil }
+            Button("common.cancel", role: .cancel) { pendingCopy = nil }
         } message: {
-            Text("剪贴板可能被其他 App 读取。请只粘贴到可信应用。")
+            Text("wallet.copySensitiveMessage")
         }
-        .alert("已复制", isPresented: $copied) {
-            Button("好", role: .cancel) { copied = false }
+        .alert("wallet.copiedTitle", isPresented: $copied) {
+            Button("common.ok", role: .cancel) { copied = false }
         } message: {
-            Text("号码已复制到剪贴板。")
+            Text("wallet.copiedMessage")
         }
-        .alert("本机卡包", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("好", role: .cancel) { errorMessage = nil }
+        .alert("wallet.errorTitle", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("common.ok", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
         }
@@ -124,7 +124,7 @@ struct WalletSection: View {
         } else if unreadableItemIDs.contains(item.id) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.label).font(.headline)
-                Label("无法在此设备上读取", systemImage: "lock.trianglebadge.exclamationmark")
+                Label("wallet.unreadable", systemImage: "lock.trianglebadge.exclamationmark")
                     .font(.subheadline)
                     .foregroundStyle(.red)
             }
@@ -144,12 +144,12 @@ struct WalletSection: View {
 
     private var recoveryNotice: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("部分卡包数据无法解密", systemImage: "lock.trianglebadge.exclamationmark")
+            Label("wallet.decryptIssueTitle", systemImage: "lock.trianglebadge.exclamationmark")
                 .foregroundStyle(.red)
-            Text("这通常发生在设备迁移或钥匙串被清除后。为保护隐私，数据不会上传或恢复；你可以安全地清除此设备上无法读取的项目。")
+            Text("wallet.decryptIssueDesc")
                 .font(.footnote)
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
-            Button("清除无法读取的项目", role: .destructive, action: clearUnreadableItems)
+            Button("wallet.clearUnreadable", role: .destructive, action: clearUnreadableItems)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -196,7 +196,7 @@ struct WalletSection: View {
             decryptedSecrets[pendingDeletion.id] = nil
             unreadableItemIDs.remove(pendingDeletion.id)
         } catch {
-            errorMessage = "无法删除卡片：\(error.localizedDescription)"
+            errorMessage = String(format: String(localized: "wallet.deleteFailed"), error.localizedDescription)
         }
         self.pendingDeletion = nil
     }
@@ -209,7 +209,7 @@ struct WalletSection: View {
             try modelContext.save()
             unreadableItemIDs = []
         } catch {
-            errorMessage = "无法清除项目：\(error.localizedDescription)"
+            errorMessage = String(format: String(localized: "wallet.clearFailed"), error.localizedDescription)
         }
     }
 }
@@ -233,14 +233,14 @@ private struct WalletItemRow: View {
                         .foregroundStyle(.white)
                     Spacer()
                     Menu {
-                        Button("编辑", systemImage: "pencil", action: onEdit)
-                        Button("删除", systemImage: "trash", role: .destructive, action: onDelete)
+                        Button("common.edit", systemImage: "pencil", action: onEdit)
+                        Button("common.delete", systemImage: "trash", role: .destructive, action: onDelete)
                     } label: {
                         Image(systemName: "ellipsis")
                             .foregroundStyle(.white.opacity(0.82))
                             .frame(minWidth: 44, minHeight: 44)
                     }
-                    .accessibilityLabel("\(item.label) 的更多操作")
+                    .accessibilityLabel(Text(String(format: String(localized: "common.moreActions"), item.label)))
                 }
                 Text(isRevealed ? secret.number : WalletMasker.masked(secret.number))
                     .font(.body.monospaced())
@@ -252,7 +252,7 @@ private struct WalletItemRow: View {
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
                 HStack(spacing: 12) {
-                    Button(isRevealed ? "隐藏" : "显示", systemImage: isRevealed ? "eye.slash" : "eye") {
+                    Button(isRevealed ? "wallet.hide" : "wallet.show", systemImage: isRevealed ? "eye.slash" : "eye") {
                         toggleReveal()
                     }
                     .font(.subheadline.weight(.semibold))
@@ -261,7 +261,7 @@ private struct WalletItemRow: View {
                     .frame(minHeight: 36)
                     .background(PrimaryTabPalette.surface, in: Capsule())
                     .buttonStyle(.plain)
-                    Button("复制", systemImage: "doc.on.doc", action: onCopy)
+                    Button("wallet.copyButton", systemImage: "doc.on.doc", action: onCopy)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.black)
                         .padding(.horizontal, 12)

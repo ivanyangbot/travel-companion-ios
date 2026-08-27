@@ -36,8 +36,8 @@ struct CardLegEstimateView: View {
         .task(id: legKey) {
             await load()
         }
-        .alert("无法打开地图", isPresented: Binding(get: { mapLinkHandler.alertMessage != nil }, set: { if !$0 { mapLinkHandler.alertMessage = nil } })) {
-            Button("好", role: .cancel) { mapLinkHandler.alertMessage = nil }
+        .alert("routeSheet.cannotOpenMap", isPresented: Binding(get: { mapLinkHandler.alertMessage != nil }, set: { if !$0 { mapLinkHandler.alertMessage = nil } })) {
+            Button("common.ok", role: .cancel) { mapLinkHandler.alertMessage = nil }
         } message: {
             Text(mapLinkHandler.alertMessage ?? "")
         }
@@ -56,7 +56,7 @@ struct CardLegEstimateView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text(fetchFailed ? "无法估算" : "预计时间")
+                Text(fetchFailed ? String(localized: "leg.estimateFailed") : String(localized: "leg.estimatePending"))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -72,7 +72,7 @@ struct CardLegEstimateView: View {
             } label: {
                 Image(systemName: mode.systemImage).frame(minWidth: 28, minHeight: 28)
             }
-            .accessibilityLabel("出行方式：\(mode.title)")
+            .accessibilityLabel(Text(String(format: String(localized: "leg.modeA11y"), mode.title)))
             Button {
                 mapLinkHandler.openRoute(
                     origin: originPoint,
@@ -85,7 +85,7 @@ struct CardLegEstimateView: View {
                 Image(systemName: "location.fill")
                     .frame(minWidth: 28, minHeight: 28)
             }
-            .accessibilityLabel("在 Apple 地图中开始导航")
+            .accessibilityLabel(Text("leg.navigateA11y"))
             Button {
                 Task { await refresh() }
             } label: {
@@ -94,7 +94,7 @@ struct CardLegEstimateView: View {
                     .frame(minWidth: 28, minHeight: 28)
             }
             .disabled(isFetching)
-            .accessibilityLabel("刷新预计时间")
+            .accessibilityLabel(Text("leg.refreshA11y"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -111,14 +111,14 @@ struct CardLegEstimateView: View {
                     if isFetching {
                         ProgressView()
                             .controlSize(.small)
-                        Text("正在估算")
+                        Text("leg.estimateRunning")
                     } else if let estimate {
                         Text(
                             "\(Self.itineraryListDistanceText(estimate.estimate.distanceMeters)) • "
                                 + Self.itineraryListDurationText(estimate.estimate.durationSeconds)
                         )
                     } else {
-                        Text(fetchFailed ? "无法估算" : "预计时间")
+                        Text(fetchFailed ? String(localized: "leg.estimateFailed") : String(localized: "leg.estimatePending"))
                     }
                 }
                 .font(.system(size: 16, weight: .medium))
@@ -139,7 +139,7 @@ struct CardLegEstimateView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Section("出行方式") {
+            Section("leg.modeSection") {
                 ForEach(RouteMode.allCases) { option in
                     Button {
                         changeMode(option)
@@ -152,12 +152,12 @@ struct CardLegEstimateView: View {
             Button {
                 Task { await refresh() }
             } label: {
-                Label("刷新预计时间", systemImage: "arrow.clockwise")
+                Label("leg.refreshMenu", systemImage: "arrow.clockwise")
             }
             .disabled(isFetching)
         }
         .accessibilityLabel(itineraryListAccessibilityLabel)
-        .accessibilityHint("打开 Apple 地图路线；长按可切换出行方式或刷新")
+        .accessibilityHint(Text("leg.hint"))
     }
 
     @ViewBuilder
@@ -185,12 +185,12 @@ struct CardLegEstimateView: View {
 
     private var itineraryListAccessibilityLabel: String {
         if isFetching {
-            return "\(mode.title)，正在估算路线"
+            return String(format: String(localized: "leg.estimatingA11y"), mode.title)
         }
         if let estimate {
-            return "\(mode.title)，距离\(Self.distanceText(estimate.estimate.distanceMeters))，预计\(Self.durationText(estimate.estimate.durationSeconds))"
+            return String(format: String(localized: "leg.resultA11y"), mode.title, Self.distanceText(estimate.estimate.distanceMeters), Self.durationText(estimate.estimate.durationSeconds))
         }
-        return "\(mode.title)，\(fetchFailed ? "无法估算路线" : "预计时间")"
+        return "\(mode.title)，\(fetchFailed ? String(localized: "leg.cannotEstimateA11y") : String(localized: "leg.estimatePending"))"
     }
 
     private func openRoute() {
@@ -260,7 +260,7 @@ struct CardLegEstimateView: View {
 
     private static func durationText(_ seconds: Int) -> String {
         let minutes = max(1, Int(ceil(Double(seconds) / 60)))
-        return minutes >= 60 ? "\(minutes / 60) 小时 \(minutes % 60) 分" : "约 \(minutes) 分"
+        return minutes >= 60 ? String(format: String(localized: "route.durationHM"), minutes / 60, minutes % 60) : String(format: String(localized: "route.approxMin"), minutes)
     }
 
     static func itineraryListDistanceText(_ meters: Int) -> String {

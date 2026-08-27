@@ -17,10 +17,10 @@ struct MemoSection: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("物品清单")
+                    Text("memo.title")
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("行李、待办与明日提醒")
+                    Text("memo.subtitle")
                         .font(.caption)
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
@@ -37,7 +37,7 @@ struct MemoSection: View {
                 }
                 .buttonStyle(.plain)
                     .disabled(syncEngine.trip?.isConfigured != true)
-                    .accessibilityLabel("根据行程生成明日闹钟、提醒和物品")
+                    .accessibilityLabel(Text("memo.generateA11y"))
                 Button { creatingList = true } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 18, weight: .semibold))
@@ -49,7 +49,7 @@ struct MemoSection: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("添加清单")
+                .accessibilityLabel(Text("memo.addListA11y"))
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -57,9 +57,9 @@ struct MemoSection: View {
 
             if lists.isEmpty {
                 ContentUnavailableView(
-                    "还没有清单",
+                    "memo.emptyTitle",
                     systemImage: "checklist",
-                    description: Text("添加行李、待办等物品清单；或点「智能生成」让 AI 根据明日行程一键给出建议。")
+                    description: Text("memo.emptyDesc")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.bottom, 112)
@@ -87,15 +87,15 @@ struct MemoSection: View {
         .sheet(isPresented: $showsAssist) {
             MemoAssistSheet(syncEngine: syncEngine)
         }
-        .alert("删除清单？", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }), presenting: pendingDeletion) { list in
-            Button("删除", role: .destructive) {
+        .alert("memo.deleteTitle", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }), presenting: pendingDeletion) { list in
+            Button("common.delete", role: .destructive) {
                 modelContext.delete(list)
                 try? modelContext.save()
                 pendingDeletion = nil
             }
-            Button("取消", role: .cancel) { pendingDeletion = nil }
+            Button("common.cancel", role: .cancel) { pendingDeletion = nil }
         } message: { _ in
-            Text("清单及其所有物品会从本机删除，不可恢复。")
+            Text("memo.deleteMessage")
         }
         .task { MemoListSeed.ensureDefaultList(context: modelContext) }
     }
@@ -110,7 +110,7 @@ struct MemoSection: View {
                     .foregroundStyle(.white)
                 Spacer()
                 if !items.isEmpty {
-                    Text("\(checked)/\(items.count)")
+                    Text(String(format: String(localized: "memo.progressFormat"), checked, items.count))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                         .padding(.horizontal, 8)
@@ -118,17 +118,17 @@ struct MemoSection: View {
                         .background(PrimaryTabPalette.surface, in: Capsule())
                 }
                 Menu {
-                    Button("编辑", systemImage: "pencil") { editingList = list }
-                    Button("删除", systemImage: "trash", role: .destructive) { pendingDeletion = list }
+                    Button("common.edit", systemImage: "pencil") { editingList = list }
+                    Button("common.delete", systemImage: "trash", role: .destructive) { pendingDeletion = list }
                 } label: {
                     Image(systemName: "ellipsis")
                         .foregroundStyle(.white.opacity(0.82))
                         .frame(minWidth: 44, minHeight: 44)
                 }
-                .accessibilityLabel("\(list.title) 的更多操作")
+                .accessibilityLabel(Text(String(format: String(localized: "common.moreActions"), list.title)))
             }
             if items.isEmpty {
-                Text("还没有物品，点「编辑」添加。")
+                Text("memo.itemsEmpty")
                     .font(.subheadline)
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             } else {

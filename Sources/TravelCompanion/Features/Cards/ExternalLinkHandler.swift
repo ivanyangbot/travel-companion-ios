@@ -49,7 +49,7 @@ final class ExternalLinkHandler: ObservableObject {
 
     func openPublicLink(_ value: String) {
         guard let url = Self.validatedHTTPSURL(value) else {
-            alertMessage = "只能打开有效的 HTTPS 网页链接。"
+            alertMessage = String(localized: "link.httpsOnly")
             return
         }
         UIApplication.shared.open(url, options: [:]) { [weak self] opened in
@@ -59,7 +59,7 @@ final class ExternalLinkHandler: ObservableObject {
 
     func openInMaps(for place: PlaceSnapshot) {
         guard let item = AppleMapService.mapItem(for: place) else {
-            alertMessage = "该地点没有坐标，暂时无法在 Apple 地图中打开。"
+            alertMessage = String(localized: "link.noCoords")
             return
         }
         item.openInMaps()

@@ -8,15 +8,15 @@ struct JourneyView: View {
 
         var title: String {
             switch self {
-            case .today: "今日"
-            case .itinerary: "旅程"
+            case .today: String(localized: "journey.todaySection")
+            case .itinerary: String(localized: "journey.tripSection")
             }
         }
 
         var alternateTitle: String {
             switch self {
-            case .today: "查看旅程"
-            case .itinerary: "查看今日"
+            case .today: String(localized: "journey.viewTrip")
+            case .itinerary: String(localized: "journey.viewToday")
             }
         }
 

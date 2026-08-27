@@ -26,11 +26,11 @@ final class ReminderStore: ObservableObject {
                 authorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
                 return granted
             } catch {
-                errorMessage = "无法获取提醒事项授权：\(error.localizedDescription)"
+                errorMessage = String(format: String(localized: "reminder.authFailed"), error.localizedDescription)
                 return false
             }
         default:
-            errorMessage = "请在系统设置中开启「同行」的提醒事项权限。"
+            errorMessage = String(localized: "reminder.noPermission")
             return false
         }
     }
@@ -50,7 +50,7 @@ final class ReminderStore: ObservableObject {
             try store.save(reminder, commit: true)
             return true
         } catch {
-            errorMessage = "无法创建提醒事项：\(error.localizedDescription)"
+            errorMessage = String(format: String(localized: "reminder.createFailed"), error.localizedDescription)
             return false
         }
     }

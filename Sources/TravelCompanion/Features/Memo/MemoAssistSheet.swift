@@ -26,7 +26,7 @@ struct MemoAssistSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     intro
                     if isGenerating {
-                        ProgressView("正在生成明日建议…")
+                        ProgressView("memoassist.generating")
                             .frame(maxWidth: .infinity).padding(.vertical, 24)
                     } else if let result {
                         alarmsSection(result.alarms)
@@ -44,19 +44,19 @@ struct MemoAssistSheet: View {
                 }
                 .padding()
             }
-            .navigationTitle("明日智能建议")
+            .navigationTitle("memoassist.title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("common.close") { dismiss() } }
             }
             .overlay {
                 if isAddingAll {
-                    ProgressView("正在一键写入…").padding(20)
+                    ProgressView("memoassist.writing").padding(20)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
             }
-            .alert("已写入", isPresented: Binding(get: { successMessage != nil }, set: { if !$0 { successMessage = nil } })) {
-                Button("好", role: .cancel) { successMessage = nil }
+            .alert("memoassist.writtenTitle", isPresented: Binding(get: { successMessage != nil }, set: { if !$0 { successMessage = nil } })) {
+                Button("common.ok", role: .cancel) { successMessage = nil }
             } message: { Text(successMessage ?? "") }
             .task { await generate() }
         }
@@ -64,9 +64,9 @@ struct MemoAssistSheet: View {
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("依据明日行程，AI 已给出以下建议", systemImage: "sparkles")
+            Label("memoassist.intro", systemImage: "sparkles")
                 .font(.subheadline.weight(.semibold))
-            Text("点单条「添加」可分别写入；也可一键全部添加。闹钟走系统 AlarmKit，提醒写入提醒事项 App，物品进入本机清单。")
+            Text("memoassist.caption")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -76,7 +76,7 @@ struct MemoAssistSheet: View {
     private func alarmsSection(_ alarms: [MemoAssistResult.Alarm]) -> some View {
         if alarms.isEmpty { EmptyView() } else {
             VStack(alignment: .leading, spacing: 8) {
-                Text("闹钟建议").font(.headline)
+                Text("memoassist.alarmSection").font(.headline)
                 ForEach(alarms) { alarm in
                     suggestionCard {
                         HStack(alignment: .firstTextBaseline) {
@@ -88,7 +88,7 @@ struct MemoAssistSheet: View {
                             }
                             Spacer(minLength: 8)
                             Text(alarm.time).font(.title3.monospacedDigit().weight(.semibold)).foregroundStyle(.indigo)
-                            addButton(isAdded: addedAlarmIDs.contains(alarm.id), title: "闹钟") {
+                            addButton(isAdded: addedAlarmIDs.contains(alarm.id), title: String(localized: "memoassist.alarmAdd")) {
                                 await addAlarm(alarm)
                             }
                         }
@@ -102,7 +102,7 @@ struct MemoAssistSheet: View {
     private func remindersSection(_ reminders: [MemoAssistResult.Reminder]) -> some View {
         if reminders.isEmpty { EmptyView() } else {
             VStack(alignment: .leading, spacing: 8) {
-                Text("提醒建议").font(.headline)
+                Text("memoassist.reminderSection").font(.headline)
                 ForEach(reminders) { reminder in
                     suggestionCard {
                         HStack(alignment: .top) {
@@ -117,7 +117,7 @@ struct MemoAssistSheet: View {
                                 }
                             }
                             Spacer(minLength: 8)
-                            addButton(isAdded: addedReminderIDs.contains(reminder.id), title: "提醒") {
+                            addButton(isAdded: addedReminderIDs.contains(reminder.id), title: String(localized: "memoassist.reminderAdd")) {
                                 await addReminder(reminder)
                             }
                         }
@@ -131,7 +131,7 @@ struct MemoAssistSheet: View {
     private func itemsSection(_ items: [MemoAssistResult.Item]) -> some View {
         if items.isEmpty { EmptyView() } else {
             VStack(alignment: .leading, spacing: 8) {
-                Text("物品建议").font(.headline)
+                Text("memoassist.itemSection").font(.headline)
                 ForEach(items) { item in
                     suggestionCard {
                         HStack {
@@ -142,7 +142,7 @@ struct MemoAssistSheet: View {
                                 }
                             }
                             Spacer(minLength: 8)
-                            addButton(isAdded: addedItemIDs.contains(item.id), title: "物品") {
+                            addButton(isAdded: addedItemIDs.contains(item.id), title: String(localized: "memoassist.itemAdd")) {
                                 addItem(item)
                             }
                         }
@@ -160,7 +160,7 @@ struct MemoAssistSheet: View {
             Button {
                 Task { await addAll(result) }
             } label: {
-                Label("全部添加（\(done)/\(total)）", systemImage: "wand.and.stars")
+                Label(String(format: String(localized: "memoassist.addAll"), done, total), systemImage: "wand.and.stars")
                     .frame(maxWidth: .infinity).padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
@@ -179,7 +179,7 @@ struct MemoAssistSheet: View {
     @ViewBuilder
     private func addButton(isAdded: Bool, title: String, action: @escaping () async -> Void) -> some View {
         if isAdded {
-            Label("已添加", systemImage: "checkmark")
+            Label("memoassist.addedLabel", systemImage: "checkmark")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.green)
                 .padding(.horizontal, 10)
@@ -189,11 +189,11 @@ struct MemoAssistSheet: View {
             Button {
                 Task { await action() }
             } label: {
-                Label("添加", systemImage: "plus")
+                Label("memoassist.addButton", systemImage: "plus")
                     .font(.caption.weight(.semibold))
             }
             .buttonStyle(.glass)
-            .accessibilityLabel("添加\(title)")
+            .accessibilityLabel(Text(String(format: String(localized: "memoassist.addA11y"), title)))
         }
     }
 
@@ -215,7 +215,7 @@ struct MemoAssistSheet: View {
 
     private func addAlarm(_ alarm: MemoAssistResult.Alarm) async {
         guard let fireDate = Self.combineTomorrow(time: alarm.time) else {
-            errorMessage = "闹钟时间 \(alarm.time) 格式不正确，请手动设置。"
+            errorMessage = String(format: String(localized: "memoassist.alarmBadFormat"), alarm.time)
             return
         }
         let ok = await alarmScheduler.scheduleAlarm(title: alarm.title, fireDate: fireDate)
@@ -246,7 +246,7 @@ struct MemoAssistSheet: View {
             try modelContext.save()
             addedItemIDs.insert(item.id)
         } catch {
-            errorMessage = "无法保存物品：\(error.localizedDescription)"
+            errorMessage = String(format: String(localized: "memoassist.itemSaveFailed"), error.localizedDescription)
         }
     }
 
@@ -263,13 +263,13 @@ struct MemoAssistSheet: View {
         }
         isAddingAll = false
         let total = addedAlarmIDs.count + addedReminderIDs.count + addedItemIDs.count
-        successMessage = "已写入 \(total) 项建议。闹钟可在 AlarmKit 闹钟页查看，提醒在系统提醒事项 App 查看。"
+        successMessage = String(format: String(localized: "memoassist.writtenSummary"), total)
     }
 
     /// 物品建议默认并入最近编辑过的清单；若没有任何清单则新建一条「AI 建议」。
     private func targetList() -> LocalMemoList {
         if let first = lists.first { return first }
-        let newList = LocalMemoList(title: "AI 建议物品", symbol: "sparkles")
+        let newList = LocalMemoList(title: String(localized: "memoassist.aiListTitle"), symbol: "sparkles")
         modelContext.insert(newList)
         try? modelContext.save()
         return newList

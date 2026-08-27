@@ -43,15 +43,15 @@ struct WalletEditorView: View {
                     scanMenu
                 }
 
-                Section("卡片信息") {
-                    TextField("标签，例如：护照号", text: $label)
+                Section("walleteditor.infoSection") {
+                    TextField("walleteditor.labelPlaceholder", text: $label)
                         .textInputAutocapitalization(.sentences)
-                    TextField("号码", text: $number)
+                    TextField("walleteditor.numberPlaceholder", text: $number)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    TextField("备注（可选）", text: $note, axis: .vertical)
+                    TextField("walleteditor.notePlaceholder", text: $note, axis: .vertical)
                         .lineLimit(2 ... 5)
-                    Picker("类型", selection: $cardType) {
+                    Picker("walleteditor.typeLabel", selection: $cardType) {
                         ForEach(WalletCardType.allCases) { type in
                             Label(type.title, systemImage: type.systemImage).tag(type)
                         }
@@ -59,26 +59,26 @@ struct WalletEditorView: View {
                 }
 
                 Section {
-                    Label("号码、备注和图形会在写入前加密，只保存在当前设备。", systemImage: "lock.fill")
+                    Label("walleteditor.encryptNote", systemImage: "lock.fill")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    Label("照片仅发送给你配置的 AI 服务做一次识别，不在本机或服务器留存。", systemImage: "eye.slash")
+                    Label("walleteditor.photoNote", systemImage: "eye.slash")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(item == nil ? "添加卡片" : "编辑卡片")
+            .navigationTitle(item == nil ? "walleteditor.addTitle" : "walleteditor.editTitle")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("保存", action: save).disabled(!canSave) }
+                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("common.save", action: save).disabled(!canSave) }
             }
             .overlay {
                 if isScanning {
-                    ProgressView("正在识别…").padding(20).glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    ProgressView("walleteditor.recognizing").padding(20).glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
             }
-            .alert("无法保存", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-                Button("好", role: .cancel) { errorMessage = nil }
+            .alert("walleteditor.cannotSave", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("common.ok", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
             .sheet(isPresented: $showsCamera) {
                 CameraPicker { image in scan(uiImage: image) }
@@ -90,7 +90,7 @@ struct WalletEditorView: View {
 
     @ViewBuilder
     private var artworkPreview: some View {
-        WalletCardArtwork(cardType: cardType, label: label.isEmpty ? "预览" : label, number: number.isEmpty ? "0000" : number)
+        WalletCardArtwork(cardType: cardType, label: label.isEmpty ? String(localized: "walleteditor.previewLabel") : label, number: number.isEmpty ? String(localized: "walleteditor.previewNumber") : number)
             .scaleEffect(0.62)
             .frame(height: 124)
             .frame(maxWidth: .infinity)
@@ -101,11 +101,11 @@ struct WalletEditorView: View {
     private var scanMenu: some View {
         Menu {
             if CameraPicker.isAvailable {
-                Button("拍照", systemImage: "camera") { showsCamera = true }
+                Button("walleteditor.takePhoto", systemImage: "camera") { showsCamera = true }
             }
-            Button("从相册选择", systemImage: "photo.on.rectangle") { showsPhotoPicker = true }
+            Button("walleteditor.fromLibrary", systemImage: "photo.on.rectangle") { showsPhotoPicker = true }
         } label: {
-            Label("拍照录入", systemImage: "doc.viewfinder")
+            Label("walleteditor.photoMenu", systemImage: "doc.viewfinder")
                 .frame(maxWidth: .infinity)
         }
         .disabled(isScanning || syncEngine.apiBaseURLText.isEmpty)
@@ -128,7 +128,7 @@ struct WalletEditorView: View {
 
     private func scan(uiImage: UIImage) {
         guard let prepared = Self.prepare(image: uiImage) else {
-            errorMessage = "无法处理该照片，请换一张。"
+            errorMessage = String(localized: "walleteditor.photoError")
             return
         }
         isScanning = true
@@ -146,7 +146,7 @@ struct WalletEditorView: View {
             } catch {
                 await MainActor.run {
                     isScanning = false
-                    errorMessage = "识别失败：\(error.localizedDescription)。可手动填写后保存。"
+                    errorMessage = String(format: String(localized: "walleteditor.recognizeFailed"), error.localizedDescription)
                 }
             }
         }
@@ -157,11 +157,11 @@ struct WalletEditorView: View {
         let trimmedNumber = number.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLabel.isEmpty else {
-            errorMessage = "请填写标签。"
+            errorMessage = String(localized: "walleteditor.errorLabel")
             return
         }
         guard !trimmedNumber.isEmpty else {
-            errorMessage = "请填写要保存的号码。"
+            errorMessage = String(localized: "walleteditor.errorNumber")
             return
         }
 
@@ -185,7 +185,7 @@ struct WalletEditorView: View {
             onSaved()
             dismiss()
         } catch {
-            errorMessage = "本机加密存储失败：\(error.localizedDescription)"
+            errorMessage = String(format: String(localized: "walleteditor.encryptFailed"), error.localizedDescription)
         }
     }
 

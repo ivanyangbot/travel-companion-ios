@@ -266,8 +266,8 @@ private enum JournalSyncError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingLocalAttachment: "本地手书附件缺失，已保留原记录，请检查后重试。"
-        case .pendingForAnotherTrip: "这些本地手书已开始同步到另一段旅程，请切回原旅程继续。"
+        case .missingLocalAttachment: String(localized: "journal.missingAttachment")
+        case .pendingForAnotherTrip: String(localized: "journal.conflictTrip")
         }
     }
 }
@@ -308,14 +308,14 @@ struct NotesView: View {
 
                     Group {
                         if isLoading && snapshot.entries.isEmpty {
-                            ProgressView("正在加载手书…")
+                            ProgressView("journal.loading")
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .padding(.bottom, 112)
                         } else if visibleEntries.isEmpty {
                             ContentUnavailableView(
-                                "记录这一刻",
+                                "journal.emptyTitle",
                                 systemImage: "book.closed",
-                                description: Text("拍下旅途片段，写成属于你的手书。")
+                                description: Text("journal.emptyDesc")
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .padding(.bottom, 112)
@@ -365,13 +365,13 @@ struct NotesView: View {
                 }
             }
             .alert(
-                "操作未完成",
+                "journal.incompleteTitle",
                 isPresented: Binding(
                     get: { errorMessage != nil },
                     set: { if !$0 { errorMessage = nil } }
                 )
             ) {
-                Button("好", role: .cancel) {}
+                Button("common.ok", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
             }
@@ -380,19 +380,19 @@ struct NotesView: View {
 
     private var journalHeader: some View {
         ZStack {
-            Text("手书")
+            Text("journal.headerTitle")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
 
             HStack {
                 Menu {
-                    Button("全部手书") { selectedGroupID = nil }
+                    Button("journal.allEntries") { selectedGroupID = nil }
                     Divider()
                     ForEach(snapshot.groups) { group in
                         Button(group.name) { selectedGroupID = group.id }
                     }
                     Divider()
-                    Button("管理分组", systemImage: "folder.badge.plus") {
+                    Button("journal.manageGroups", systemImage: "folder.badge.plus") {
                         showsGroupEditor = true
                     }
                 } label: {
@@ -401,7 +401,7 @@ struct NotesView: View {
                         .frame(width: 40, height: 40)
                 }
                 .primaryTabHeaderButtonStyle()
-                .accessibilityLabel("选择或管理手书分组")
+                .accessibilityLabel(Text("journal.groupMenuA11y"))
 
                 Spacer(minLength: 0)
 
@@ -413,7 +413,7 @@ struct NotesView: View {
                         .frame(width: 40, height: 40)
                 }
                 .primaryTabHeaderButtonStyle()
-                .accessibilityLabel("新建手书")
+                .accessibilityLabel(Text("journal.newA11y"))
             }
         }
         .frame(height: 48)
@@ -433,7 +433,7 @@ struct NotesView: View {
 
             Spacer(minLength: 8)
 
-            Text("\(visibleEntries.count) 篇记录")
+            Text(String(format: String(localized: "journal.countFormat"), visibleEntries.count))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
         }
@@ -442,7 +442,7 @@ struct NotesView: View {
         .padding(.bottom, 12)
     }
 
-    private var selectedGroupTitle: String { snapshot.groups.first(where: { $0.id == selectedGroupID })?.name ?? "全部" }
+    private var selectedGroupTitle: String { snapshot.groups.first(where: { $0.id == selectedGroupID })?.name ?? String(localized: "journal.allGroups") }
 
     @ViewBuilder
     private var journalSyncBanner: some View {
@@ -460,7 +460,7 @@ struct NotesView: View {
                     if case .syncing(let progress, let completed, let total) = journalSync.state {
                         ProgressView(value: progress)
                             .tint(PrimaryTabPalette.accent)
-                        Text("\(completed)/\(total) 项 · \(Int(progress * 100))%")
+                        Text(String(format: String(localized: "journal.syncProgress"), completed, total, Int(progress * 100)))
                             .font(.caption2)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     } else {
@@ -474,7 +474,7 @@ struct NotesView: View {
                 Spacer(minLength: 4)
 
                 if shouldShowManualSyncButton {
-                    Button("立即同步") { journalSync.syncNow() }
+                    Button("journal.syncNow") { journalSync.syncNow() }
                         .font(.system(size: 13, weight: .semibold))
                         .buttonStyle(.bordered)
                         .tint(PrimaryTabPalette.accent)
@@ -515,10 +515,10 @@ struct NotesView: View {
 
     private var syncBannerTitle: String {
         switch journalSync.state {
-        case .syncing: "正在同步本地手书"
-        case .failed: "手书同步已暂停"
+        case .syncing: String(localized: "journal.syncingTitle")
+        case .failed: String(localized: "journal.pausedTitle")
         case .idle, .waitingForWiFi:
-            journalSync.networkAccess == .offline ? "等待网络连接" : "等待 Wi-Fi 自动同步"
+            journalSync.networkAccess == .offline ? String(localized: "journal.waitNetworkTitle") : String(localized: "journal.waitWifiTitle")
         }
     }
 
@@ -527,9 +527,9 @@ struct NotesView: View {
         case .failed(let message): message
         case .idle, .waitingForWiFi:
             if journalSync.networkAccess == .offline {
-                "本地记录已安全保留，联网后可继续同步。"
+                String(localized: "journal.syncSafeNote")
             } else {
-                "有 \(journalSync.pendingEntryCount) 篇本地记录待同步；当前网络可手动同步。"
+                String(format: String(localized: "journal.pendingNote"), journalSync.pendingEntryCount)
             }
         case .syncing: ""
         }
@@ -551,7 +551,7 @@ struct NotesView: View {
                         .frame(maxWidth: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     if entry.images.count > 1 {
-                        Text("\(entry.images.count) 个附件")
+                        Text(String(format: String(localized: "journal.attachmentCount"), entry.images.count))
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
@@ -587,8 +587,8 @@ struct NotesView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("编辑", systemImage: "pencil") { editor = entry }
-            Button("删除", systemImage: "trash", role: .destructive) {
+            Button("common.edit", systemImage: "pencil") { editor = entry }
+            Button("common.delete", systemImage: "trash", role: .destructive) {
                 deleteEntry(entry)
             }
         }
@@ -959,15 +959,15 @@ private struct JournalEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("这一页") {
-                    TextField("标题", text: $title)
-                    Picker("归档分组", selection: $groupID) {
-                        Text("未分组").tag(Int?.none)
+                Section("journal.thisPageSection") {
+                    TextField("journal.titlePlaceholder", text: $title)
+                    Picker("journal.groupLabel", selection: $groupID) {
+                        Text("journal.ungrouped").tag(Int?.none)
                         ForEach(groups) { Text($0.name).tag(Optional($0.id)) }
                     }
                     TextEditor(text: $content).frame(minHeight: 150)
                 }
-                Section("附件") {
+                Section("journal.attachmentsSection") {
                     if !attachments.isEmpty {
                         ScrollView(.horizontal) {
                             HStack {
@@ -994,28 +994,28 @@ private struct JournalEditor: View {
                             preferredItemEncoding: .current,
                             photoLibrary: .shared()
                         ) {
-                            Label("从相册添加", systemImage: "photo.on.rectangle")
+                            Label("journal.fromLibrary", systemImage: "photo.on.rectangle")
                         }
-                        Button("从文件添加", systemImage: "doc.badge.plus") {
+                        Button("journal.fromFiles", systemImage: "doc.badge.plus") {
                             showsFileImporter = true
                         }
                         if CameraPicker.isAvailable {
-                            Button("拍照", systemImage: "camera") { showsCamera = true }
+                            Button("journal.takePhoto", systemImage: "camera") { showsCamera = true }
                         }
                     }
-                    Text("支持 Live Photo、HDR/HEIF、视频及其他文件；单个文件最大 5GB。")
+                    Text("journal.mediaCaption")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if isImporting {
-                        ProgressView("正在准备原始文件…")
+                        ProgressView("journal.preparingFile")
                     }
                 }
             }
-            .navigationTitle(entry == nil ? "新建手书" : "编辑手书")
+            .navigationTitle(entry == nil ? "journal.newTitle" : "journal.editTitle")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isSaving ? "保存中…" : "保存") {
+                    Button(isSaving ? "journal.saving" : "common.save") {
                         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         isSaving = true
                         Task {
@@ -1055,13 +1055,13 @@ private struct JournalEditor: View {
                 }
             }
             .alert(
-                "无法添加附件",
+                "journal.cannotAttachTitle",
                 isPresented: Binding(
                     get: { mediaError != nil },
                     set: { if !$0 { mediaError = nil } }
                 )
             ) {
-                Button("好", role: .cancel) {}
+                Button("common.ok", role: .cancel) {}
             } message: {
                 Text(mediaError ?? "")
             }
@@ -1085,7 +1085,7 @@ private struct JournalEditor: View {
                             .foregroundStyle(.secondary)
                     }
             }
-            Text(attachment.kind == "livePhoto" ? "LIVE" : attachment.primary.fileName)
+            Text(attachment.kind == "livePhoto" ? String(localized: "journal.liveBadge") : attachment.primary.fileName)
                 .font(.caption2.bold())
                 .lineLimit(1)
                 .padding(.horizontal, 6)
@@ -1130,5 +1130,17 @@ private struct JournalEditor: View {
 private struct JournalGroupsEditor: View {
     let groups: [JournalGroup]; let onCreate: (JournalGroupRequest) async -> Void; let onDelete: (JournalGroup) async -> Void
     @Environment(\.dismiss) private var dismiss; @State private var name = ""; @State private var color = "indigo"
-    var body: some View { NavigationStack { List { Section("新建分组") { TextField("如：东京 Day 1", text: $name); Picker("颜色", selection: $color) { ForEach(["indigo", "pink", "orange", "teal"], id: \.self) { Text($0).tag($0) } }; Button("创建分组") { let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines); guard !trimmed.isEmpty else { return }; Task { await onCreate(JournalGroupRequest(name: trimmed, color: color, position: groups.count)); name = "" } } }; Section("已有分组") { ForEach(groups) { group in HStack { Image(systemName: "folder.fill").foregroundStyle(.indigo); Text(group.name); Spacer(); Button(role: .destructive) { Task { await onDelete(group) } } label: { Image(systemName: "trash") } } } } }.navigationTitle("手书分组").toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } } } }
+
+    /// 颜色选项的本地化展示名（存储值仍为英文色名，仅展示层转换）。
+    private func colorName(_ color: String) -> String {
+        switch color {
+        case "indigo": String(localized: "journal.colorIndigo")
+        case "pink": String(localized: "journal.colorPink")
+        case "orange": String(localized: "journal.colorOrange")
+        case "teal": String(localized: "journal.colorTeal")
+        default: color
+        }
+    }
+
+    var body: some View { NavigationStack { List { Section("journal.newGroupSection") { TextField("journal.groupPlaceholder", text: $name); Picker("journal.colorLabel", selection: $color) { ForEach(["indigo", "pink", "orange", "teal"], id: \.self) { option in Text(colorName(option)).tag(option) } }; Button("journal.createGroup") { let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines); guard !trimmed.isEmpty else { return }; Task { await onCreate(JournalGroupRequest(name: trimmed, color: color, position: groups.count)); name = "" } } }; Section("journal.existingGroupsSection") { ForEach(groups) { group in HStack { Image(systemName: "folder.fill").foregroundStyle(.indigo); Text(group.name); Spacer(); Button(role: .destructive) { Task { await onDelete(group) } } label: { Image(systemName: "trash") } } } } }.navigationTitle("journal.groupsTitle").toolbar { ToolbarItem(placement: .confirmationAction) { Button("common.done") { dismiss() } } } } }
 }

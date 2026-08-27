@@ -66,8 +66,8 @@ struct CardEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("类型") {
-                    Picker("卡片类型", selection: $kind) {
+                Section("cardeditor.kindSection") {
+                    Picker("cardeditor.kindLabel", selection: $kind) {
                         ForEach(TravelCardSnapshot.Kind.allCases) { kind in
                             Label(kind.title, systemImage: kind.systemImage).tag(kind)
                         }
@@ -75,7 +75,7 @@ struct CardEditorView: View {
                     .pickerStyle(.segmented)
                 }
                 if let coverImage, CardImageURL.resolve(coverImage) != nil {
-                    Section("封面图") {
+                    Section("cardeditor.coverSection") {
                         AsyncImage(url: CardImageURL.resolve(coverImage)) { phase in
                             switch phase {
                             case .empty:
@@ -84,7 +84,7 @@ struct CardEditorView: View {
                                 image.resizable().scaledToFill().frame(maxWidth: .infinity).frame(height: 160)
                                     .clipped()
                             case .failure:
-                                Label("封面图加载失败", systemImage: "photo.badge.exclamationmark")
+                                Label("cardeditor.coverFailed", systemImage: "photo.badge.exclamationmark")
                                     .foregroundStyle(.secondary)
                             @unknown default:
                                 EmptyView()
@@ -92,80 +92,80 @@ struct CardEditorView: View {
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         if existingCard != nil {
-                            Button("移除封面图", role: .destructive) { self.coverImage = nil }
+                            Button("cardeditor.removeCover", role: .destructive) { self.coverImage = nil }
                         }
                     }
                 }
-                Section("基本信息") {
-                    TextField(kind == .flight ? "航班或路线名称" : kind == .hotel ? "酒店名称" : "活动名称", text: $title)
-                    DatePicker("开始时间", selection: $startAt)
-                    Toggle("设置结束时间", isOn: $hasEndAt)
+                Section("cardeditor.basicSection") {
+                    TextField(kind == .flight ? String(localized: "cardeditor.nameFlight") : kind == .hotel ? String(localized: "cardeditor.nameHotel") : String(localized: "cardeditor.nameActivity"), text: $title)
+                    DatePicker("cardeditor.startTime", selection: $startAt)
+                    Toggle("cardeditor.setEndTime", isOn: $hasEndAt)
                     if hasEndAt {
-                        DatePicker("结束时间", selection: $endAt, in: startAt...)
+                        DatePicker("cardeditor.endTime", selection: $endAt, in: startAt...)
                     }
                     if kind == .flight {
-                        TextField("出发机场（如 HND）", text: $fromAirport)
+                        TextField("cardeditor.fromAirport", text: $fromAirport)
                             .textInputAutocapitalization(.characters)
-                        TextField("到达机场（如 KIX）", text: $toAirport)
+                        TextField("cardeditor.toAirport", text: $toAirport)
                             .textInputAutocapitalization(.characters)
                     }
-                    TextField("预估价（\(currency ?? "本币")）", text: $priceText)
+                    TextField(String(format: String(localized: "cardeditor.estimatePlaceholder"), currency ?? String(localized: "cardeditor.currencyFallback")), text: $priceText)
                         .keyboardType(.decimalPad)
-                    TextField("实际价（可选，填写后只显示实际价）", text: $actualPriceText)
+                    TextField("cardeditor.actualPlaceholder", text: $actualPriceText)
                         .keyboardType(.decimalPad)
-                    TextField("介绍（可选）", text: $description, axis: .vertical)
+                    TextField("cardeditor.introPlaceholder", text: $description, axis: .vertical)
                         .lineLimit(2...5)
                 }
-                Section("参观信息") {
-                    TextField("门票价格（\(currency ?? "本币")，可选）", text: $ticketPriceText)
+                Section("cardeditor.visitSection") {
+                    TextField(String(format: String(localized: "cardeditor.ticketPlaceholder"), currency ?? String(localized: "cardeditor.currencyFallback")), text: $ticketPriceText)
                         .keyboardType(.decimalPad)
-                    TextField("停留时长（分钟，可选）", text: $stayDurationText)
+                    TextField("cardeditor.stayPlaceholder", text: $stayDurationText)
                         .keyboardType(.numberPad)
                     if !tips.isEmpty {
                         ForEach(tips.indices, id: \.self) { index in
                             HStack {
-                                TextField("Tip \(index + 1)", text: $tips[index], axis: .vertical)
+                                TextField(String(format: String(localized: "cardeditor.tipPlaceholder"), index + 1), text: $tips[index], axis: .vertical)
                                 Button(role: .destructive) { tips.remove(at: index) } label: {
                                     Image(systemName: "minus.circle")
                                 }
                                 .buttonStyle(.borderless)
-                                .accessibilityLabel("删除 Tip \(index + 1)")
+                                .accessibilityLabel(Text(String(format: String(localized: "cardeditor.deleteTipA11y"), index + 1)))
                             }
                         }
                     }
-                    Button("添加 Tip", systemImage: "plus") { tips.append("") }
+                    Button("cardeditor.addTip", systemImage: "plus") { tips.append("") }
                         .disabled(tips.count >= 10)
                 }
-                Section("地点") {
-                    Picker("地点", selection: $placeMode) {
-                        Text("不添加地点").tag(PlaceMode.none)
-                        if existingCard?.place != nil { Text("保留现有地点").tag(PlaceMode.existing) }
-                        Text("填写新地点").tag(PlaceMode.new)
+                Section("cardeditor.placeSection") {
+                    Picker("cardeditor.placeLabel", selection: $placeMode) {
+                        Text("cardeditor.noPlace").tag(PlaceMode.none)
+                        if existingCard?.place != nil { Text("cardeditor.keepPlace").tag(PlaceMode.existing) }
+                        Text("cardeditor.newPlace").tag(PlaceMode.new)
                     }
                     if placeMode == .new {
                         if let selectedPlace {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(selectedPlace.name).font(.subheadline.weight(.medium))
                                 if let address = selectedPlace.address { Text(address).font(.caption).foregroundStyle(.secondary) }
-                                Label("已保存地图坐标", systemImage: "location.fill").font(.caption).foregroundStyle(.secondary)
+                                Label("cardeditor.savedCoords", systemImage: "location.fill").font(.caption).foregroundStyle(.secondary)
                             }
-                            Button("更换搜索地点", systemImage: "magnifyingglass") { showsPlaceSearch = true }
+                            Button("cardeditor.changePlace", systemImage: "magnifyingglass") { showsPlaceSearch = true }
                         } else {
-                            Button("搜索地点并保存坐标", systemImage: "magnifyingglass") { showsPlaceSearch = true }
-                            Text("或者手动填写地点（手动地点无法估算路线）。")
+                            Button("cardeditor.searchPlace", systemImage: "magnifyingglass") { showsPlaceSearch = true }
+                            Text("cardeditor.manualPlaceHint")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        TextField("地点名称", text: $placeName)
-                        TextField("地址（可选）", text: $placeAddress)
+                        TextField("cardeditor.placeName", text: $placeName)
+                        TextField("cardeditor.addressPlaceholder", text: $placeAddress)
                     }
                 }
-                Section("预订与联动") {
-                    TextField("订单号（可选）", text: $bookingCode)
+                Section("cardeditor.bookingSection") {
+                    TextField("cardeditor.orderPlaceholder", text: $bookingCode)
                         .textInputAutocapitalization(.characters)
-                    TextField("HTTPS 公开链接（可选）", text: $link)
+                    TextField("cardeditor.linkPlaceholder", text: $link)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
-                    Text("可粘贴飞猪、小红书等公开网页链接；App 不读取这些平台的私有数据。")
+                    Text("cardeditor.linkHint")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if existingCard == nil, Self.xiaohongshuURL(link) != nil {
@@ -174,14 +174,14 @@ struct CardEditorView: View {
                         } label: {
                             HStack {
                                 Image(systemName: "sparkles")
-                                Text(isImporting ? "正在读取小红书…" : "AI 读取小红书生成卡片")
+                                Text(isImporting ? String(localized: "cardeditor.readingXhs") : String(localized: "cardeditor.aiXhsButton"))
                             }
                         }
                         .disabled(isImporting)
                     }
                 }
-                Section("备注") {
-                    TextField("备注（可选）", text: $notes, axis: .vertical)
+                Section("cardeditor.notesSection") {
+                    TextField("cardeditor.notesPlaceholder", text: $notes, axis: .vertical)
                         .lineLimit(3...8)
                 }
                 if let importError {
@@ -193,11 +193,11 @@ struct CardEditorView: View {
                     Section { Text(validationMessage).foregroundStyle(.red) }
                 }
             }
-            .navigationTitle(existingCard == nil ? "添加\(kind.title)卡片" : "编辑卡片")
+            .navigationTitle(existingCard == nil ? String(format: String(localized: "cardeditor.addTitle"), kind.title) : String(localized: "cardeditor.editTitle"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("保存", action: save) }
+                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("common.save", action: save) }
             }
             .sheet(isPresented: $showsPlaceSearch) {
                 PlaceSearchView { result in
@@ -208,7 +208,7 @@ struct CardEditorView: View {
             }
             .overlay {
                 if isImporting {
-                    ProgressView("正在读取小红书…")
+                    ProgressView("cardeditor.readingXhs")
                         .padding(20)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
@@ -223,26 +223,26 @@ struct CardEditorView: View {
         let cleanedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedURL = link.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedTitle.isEmpty else {
-            validationMessage = "请填写卡片名称。"
+            validationMessage = String(localized: "cardeditor.errorName")
             return
         }
         guard cleanedURL.isEmpty || ExternalLinkHandler.validatedHTTPSURL(cleanedURL) != nil else {
             // Keep all fields untouched so the user can correct only the invalid URL.
-            validationMessage = "链接必须是有效的 HTTPS 地址。"
+            validationMessage = String(localized: "cardeditor.errorLink")
             return
         }
         guard placeMode != .new || !placeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            validationMessage = "请填写地点名称，或选择不添加地点。"
+            validationMessage = String(localized: "cardeditor.errorPlace")
             return
         }
         let stayDuration = Self.stayDurationMinutes(from: stayDurationText)
         guard !Self.hasInvalidStayDuration(stayDurationText) else {
-            validationMessage = "停留时长请填写 1–100000 的正整数分钟。"
+            validationMessage = String(localized: "cardeditor.errorStay")
             return
         }
         let cleanedTips = tips.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard cleanedTips.allSatisfy({ $0.count <= 500 }) else {
-            validationMessage = "每条 Tip 最多 500 个字符。"
+            validationMessage = String(localized: "cardeditor.errorTip")
             return
         }
         let isEditing = existingCard != nil

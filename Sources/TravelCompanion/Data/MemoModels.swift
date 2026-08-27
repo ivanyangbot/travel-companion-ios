@@ -51,8 +51,8 @@ enum MemoListSeed {
     static func ensureDefaultList(context: ModelContext) {
         let descriptor = FetchDescriptor<LocalMemoList>()
         if let existing = try? context.fetch(descriptor), !existing.isEmpty { return }
-        let list = LocalMemoList(title: "行李清单", symbol: "suitcase")
-        let presets = ["护照", "身份证", "现金/银行卡", "充电宝", "转换插头", "常备药品"]
+        let list = LocalMemoList(title: String(localized: "preset.listTitle"), symbol: "suitcase")
+        let presets = [String(localized: "preset.item.passport"), String(localized: "preset.item.idCard"), String(localized: "preset.item.cashCards"), String(localized: "preset.item.powerBank"), String(localized: "preset.item.adapter"), String(localized: "preset.item.medicine")]
         for (index, name) in presets.enumerated() {
             list.items.append(LocalMemoItem(name: name, position: index))
         }

@@ -4,14 +4,14 @@ import MapKit
 /// All interactive map work stays on-device through Apple's MapKit services.
 /// No POI keyword or route query is sent to the travel backend.
 enum AppleMapService {
-    static let unverifiedPlaceNote = "地点未通过地图验证，请手动确认。"
+    static let unverifiedPlaceNote = String(localized: "mapservice.unverified")
 
     enum ServiceError: LocalizedError {
         case noRoute
 
         var errorDescription: String? {
             switch self {
-            case .noRoute: "地图未找到该出行方式的路线，请尝试更换出行方式或终点。"
+            case .noRoute: String(localized: "mapservice.noRoute")
             }
         }
     }
@@ -30,7 +30,7 @@ enum AppleMapService {
             let coordinate = placemark.coordinate
             return PlaceSearchResult(
                 id: stableIdentifier(for: item),
-                name: item.name ?? placemark.name ?? "未命名地点",
+                name: item.name ?? placemark.name ?? String(localized: "common.unnamedPlace"),
                 address: formattedAddress(for: placemark),
                 latitude: coordinate.latitude,
                 longitude: coordinate.longitude,
@@ -99,7 +99,7 @@ enum AppleMapService {
                     durationSeconds: Int(route.expectedTravelTime.rounded()),
                     mode: mode,
                     updatedAt: .now,
-                    source: "Apple 地图"
+                    source: String(localized: "route.sourceAppleMaps")
                 )
             }
         } catch {

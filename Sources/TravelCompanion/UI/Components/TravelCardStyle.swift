@@ -244,7 +244,7 @@ struct AgentIntroGlobeView: View {
         .frame(width: diameter, height: diameter)
         .globeEquatorDrag(spin: activeSpin, diameter: diameter)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("旋转的 ASCII 地球，可左右拖动")
+        .accessibilityLabel(Text("a11y.globe"))
     }
 }
 
@@ -436,7 +436,7 @@ struct AgentHeroGlobeView: View {
             transitionStartedAt = .now
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(thinkingState?.label ?? "旋转的 ASCII 地球，可左右拖动")
+        .accessibilityLabel(Text(thinkingState?.label ?? String(localized: "a11y.globe")))
     }
 
     /// 溶解进度（smoothstep 缓动，起止速度为 0）；无过渡或用户开启

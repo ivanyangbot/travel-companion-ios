@@ -43,7 +43,7 @@ struct TripSharingSheet: View {
                         errorCard(errorMessage)
                     }
 
-                    Text("共享成员可以共同编辑行程、支出和手书内容。")
+                    Text("sharing.footer")
                         .font(.caption)
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -81,10 +81,10 @@ struct TripSharingSheet: View {
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("共享旅程")
+                Text("sharing.title")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
-                Text("管理同行成员与邀请")
+                Text("sharing.subtitle")
                     .font(.caption)
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
@@ -108,7 +108,7 @@ struct TripSharingSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(isLoading)
-            .accessibilityLabel("刷新共享成员")
+            .accessibilityLabel(Text("sharing.refreshA11y"))
 
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
@@ -119,7 +119,7 @@ struct TripSharingSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(isCreatingInvite)
-            .accessibilityLabel("关闭")
+            .accessibilityLabel(Text("common.close"))
         }
         .padding(.horizontal, 20)
         .padding(.top, 20)
@@ -143,9 +143,9 @@ struct TripSharingSheet: View {
                 .frame(width: 44, height: 44)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("邀请同行人")
+                    Text("sharing.inviteTitle")
                         .font(.body.weight(.bold))
-                    Text("创建链接，通过系统分享给同行人")
+                    Text("sharing.inviteSubtitle")
                         .font(.caption)
                         .opacity(0.78)
                 }
@@ -167,7 +167,7 @@ struct TripSharingSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(isCreatingInvite)
-        .accessibilityHint("创建旅程邀请链接并打开系统分享")
+        .accessibilityHint(Text("sharing.inviteHint"))
     }
 
     private var memberSectionHeader: some View {
@@ -175,7 +175,7 @@ struct TripSharingSheet: View {
             Rectangle()
                 .fill(.white.opacity(0.12))
                 .frame(height: 1)
-            Text("同行成员 · \(members.count)")
+            Text(String(format: String(localized: "sharing.membersHeader"), members.count))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
                 .fixedSize()
@@ -190,7 +190,7 @@ struct TripSharingSheet: View {
         HStack(spacing: 12) {
             ProgressView()
                 .tint(PrimaryTabPalette.accent)
-            Text("正在读取共享成员…")
+            Text("sharing.loading")
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
         }
         .frame(maxWidth: .infinity, minHeight: 76)
@@ -202,10 +202,10 @@ struct TripSharingSheet: View {
             Image(systemName: "person.2.slash")
                 .font(.title2)
                 .foregroundStyle(PrimaryTabPalette.accent)
-            Text("暂时无法显示成员")
+            Text("sharing.errorTitle")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.white)
-            Text(errorMessage ?? "请稍后刷新重试。")
+            Text(errorMessage ?? String(localized: "sharing.errorFallback"))
                 .font(.caption)
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
                 .multilineTextAlignment(.center)
@@ -246,7 +246,7 @@ struct TripSharingSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(member.isOwner ? "创建者" : "共同编辑")
+            Text(member.isOwner ? "sharing.ownerBadge" : "sharing.editorBadge")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(member.isOwner ? PrimaryTabPalette.accent : PrimaryTabPalette.secondaryText)
         }
@@ -294,7 +294,7 @@ struct TripSharingSheet: View {
             if let url {
                 activityURL = url
             } else {
-                errorMessage = "当前旅程暂时无法创建邀请链接。"
+                errorMessage = String(localized: "sharing.inviteUnavailable")
             }
         }
     }
