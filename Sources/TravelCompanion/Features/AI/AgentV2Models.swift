@@ -30,7 +30,7 @@ struct AgentV2TurnRequest: Codable, Sendable {
         var companions: String?
         var budget: String?
         var interests: [String]
-        var allowUnverifiedRecommendations: Bool? = nil
+        var allowUnverifiedRecommendations: Bool? = true
 
         var retainsUnverifiedRecommendations: Bool {
             allowUnverifiedRecommendations ?? true

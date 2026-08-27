@@ -762,6 +762,7 @@ struct ItineraryView: View {
                     .frame(width: 29, height: 29)
                     .frame(width: ItineraryCardSwipeInteraction.actionWidth)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(
@@ -802,6 +803,7 @@ struct ItineraryView: View {
                     .frame(width: 29, height: 29)
                     .frame(width: ItineraryCardSwipeInteraction.actionWidth)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(
@@ -847,6 +849,7 @@ struct ItineraryView: View {
                     .frame(width: 29, height: 29)
                     .frame(width: ItineraryCardSwipeInteraction.actionWidth)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(
@@ -2316,9 +2319,12 @@ private struct ItineraryHorizontalPanGesture: UIGestureRecognizerRepresentable {
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard configuration.isEnabled,
                   let panGesture = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+            let view = panGesture.view
             return ItineraryCardSwipeInteraction.shouldBeginSwipe(
-                velocity: panGesture.velocity(in: panGesture.view),
-                actionsAlreadyRevealed: configuration.actionsAlreadyRevealed
+                velocity: panGesture.velocity(in: view),
+                actionsAlreadyRevealed: configuration.actionsAlreadyRevealed,
+                touchLocationX: view.map { panGesture.location(in: $0).x },
+                viewWidth: view?.bounds.width
             )
         }
 
@@ -2675,10 +2681,25 @@ enum ItineraryCardSwipeInteraction {
     static func shouldBeginSwipe(
         velocity: CGPoint,
         actionsAlreadyRevealed: Bool,
+        touchLocationX: CGFloat? = nil,
+        viewWidth: CGFloat? = nil,
         dominanceRatio: CGFloat = 1.25
     ) -> Bool {
         guard abs(velocity.x) > abs(velocity.y) * dominanceRatio else { return false }
-        return actionsAlreadyRevealed || velocity.x < 0
+        guard actionsAlreadyRevealed || velocity.x < 0 else { return false }
+        // 操作按钮已展开时，起点落在按钮色块区域（尾部 actionsWidth）内的
+        // 触摸一律让给按钮：否则点按时轻微的横向漂移就会带起平移手势，
+        // allowsHitTesting 立即关闭按钮热区，点击被吞（对齐原生
+        // swipeActions——从按钮上出发的拖动不用于收起抽屉，收起仍从
+        // 卡片本体滑动）。
+        if actionsAlreadyRevealed,
+           let touchLocationX,
+           let viewWidth,
+           viewWidth > actionsWidth,
+           touchLocationX >= viewWidth - actionsWidth {
+            return false
+        }
+        return true
     }
 
     static func clampedOffset(baseOffset: CGFloat, translation: CGFloat) -> CGFloat {

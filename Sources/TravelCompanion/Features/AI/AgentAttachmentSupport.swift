@@ -167,75 +167,54 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
+/// 半屏照片选择：内嵌官方 PHPickerViewController（SwiftUI 的
+/// .photosPickerStyle(.inline) 在相册 Face ID 解锁后会把内部导航撑出容器，
+/// 导致布局破坏、选择失效；直接内嵌 PHPicker 则解锁后仅在自身视图内刷新）。
 struct AgentPhotoPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var selection: [PhotosPickerItem] = []
 
     let maximumSelectionCount: Int
-    let totalAttachmentLimit: Int
-    let onPick: ([PhotosPickerItem]) -> Void
+    let onPick: ([PHPickerResult]) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(Color.white.opacity(0.1), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("取消选择照片")
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("选择照片")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                    Text("本轮最多 \(totalAttachmentLimit) 个附件，当前还可选 \(maximumSelectionCount) 张")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.58))
-                }
-
-                Spacer(minLength: 8)
-
-                Button {
-                    let picked = selection
-                    dismiss()
-                    onPick(picked)
-                } label: {
-                    Text(selection.isEmpty ? "添加" : "添加 \(selection.count) 张")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(selection.isEmpty ? Color.white.opacity(0.42) : .white)
-                        .padding(.horizontal, 15)
-                        .frame(height: 40)
-                        .background(
-                            selection.isEmpty ? Color.white.opacity(0.08) : PrimaryTabPalette.accent,
-                            in: Capsule()
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(selection.isEmpty)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
-
-            PhotosPicker(
-                selection: $selection,
-                maxSelectionCount: maximumSelectionCount,
-                selectionBehavior: .ordered,
-                matching: .images
-            ) {
-                Label("从照片图库选择", systemImage: "photo.on.rectangle.angled")
-            }
-            .photosPickerStyle(.inline)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        AgentPhotoLibraryPicker(selectionLimit: maximumSelectionCount) { results in
+            dismiss()
+            onPick(results)
         }
-        .background(Color.black.ignoresSafeArea())
+        .ignoresSafeArea(edges: .bottom)
         .preferredColorScheme(.dark)
+    }
+}
+
+struct AgentPhotoLibraryPicker: UIViewControllerRepresentable {
+    let selectionLimit: Int
+    let onPick: ([PHPickerResult]) -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = max(1, selectionLimit)
+        configuration.selection = .ordered
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = context.coordinator
+        picker.overrideUserInterfaceStyle = .dark
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {
+        uiViewController.overrideUserInterfaceStyle = .dark
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let onPick: ([PHPickerResult]) -> Void
+
+        init(onPick: @escaping ([PHPickerResult]) -> Void) { self.onPick = onPick }
+
+        func photoPicker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            onPick(results)
+        }
     }
 }
 

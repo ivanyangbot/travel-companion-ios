@@ -475,17 +475,16 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testUnverifiedRecommendationSwitchDefaultsOnAndPersistsUserChoice() throws {
+    func testUnverifiedRecommendationsAlwaysEnabled() throws {
         let defaults = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
         let store = AgentV2SessionStore(defaults: defaults)
 
         XCTAssertTrue(store.session.preferences.retainsUnverifiedRecommendations)
-        store.setAllowUnverifiedRecommendations(false)
-        XCTAssertFalse(store.session.preferences.retainsUnverifiedRecommendations)
+        XCTAssertEqual(store.session.preferences.allowUnverifiedRecommendations, true)
 
         let restored = AgentV2SessionStore(defaults: defaults)
-        XCTAssertFalse(restored.session.preferences.retainsUnverifiedRecommendations)
+        XCTAssertTrue(restored.session.preferences.retainsUnverifiedRecommendations)
     }
 
     @MainActor

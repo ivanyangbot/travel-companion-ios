@@ -340,10 +340,10 @@ struct AgentHomeView: View {
             }
             .sheet(isPresented: $isShowingPhotoPicker) {
                 AgentPhotoPickerSheet(
-                    maximumSelectionCount: max(1, remainingAttachmentSlots),
-                    totalAttachmentLimit: Self.maximumAttachmentCount
-                ) { items in
-                    load(items)
+                    maximumSelectionCount: max(1, remainingAttachmentSlots)
+                ) { results in
+                    isShowingPhotoPicker = false
+                    loadPHPickerResults(results)
                 }
                 .presentationDetents([.fraction(0.58)])
                 .presentationDragIndicator(.visible)
@@ -1240,6 +1240,8 @@ struct AgentHomeView: View {
         // 聊天框所在区域的渐变遮罩：盖住从输入控件（加号、文本框、发送键）
         // 之间缝隙透出的滚动内容，向下延伸覆盖到屏幕底；顶缘留少量透明
         // 过渡避免生硬的横切线。欢迎页玻璃方块需透出 ASCII 底纹，不加遮罩。
+        // 附件条出现时渐变向上延伸一段（渐变上延），让图片缩略图背后同样
+        // 有遮罩过渡，而不是直接压在滚动内容上。
         .background {
             Group {
                 if !isWelcomeState || isComposerExpanded || isComposerFocused {
@@ -1255,11 +1257,14 @@ struct AgentHomeView: View {
                         startPoint: .top,
                         endPoint: .bottom
                     )
+                    // 附件条（约 8pt 内边距 + 76pt 预览卡 + 间距）出现时向上延伸。
+                    .padding(.top, store.session.attachments.isEmpty ? 0 : -112)
                     .ignoresSafeArea(edges: .bottom)
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: isWelcomeState)
             .animation(.easeInOut(duration: 0.2), value: isComposerFocused)
+            .animation(.easeInOut(duration: 0.25), value: store.session.attachments.isEmpty)
         }
         .onChange(of: isComposerFocused) { _, focused in
             // 键盘收起且没有草稿文本时收回为双方块入口；有内容或已在对话页
@@ -1801,15 +1806,16 @@ struct AgentHomeView: View {
         return true
     }
 
-    private func load(_ items: [PhotosPickerItem]) {
-        let accepted = Array(items.prefix(remainingAttachmentSlots))
+    private func loadPHPickerResults(_ results: [PHPickerResult]) {
+        let accepted = Array(results.prefix(remainingAttachmentSlots))
         guard !accepted.isEmpty else { return }
         isProcessingAttachment = true
         Task {
             defer { isProcessingAttachment = false }
-            for (index, item) in accepted.enumerated() {
+            for (index, result) in accepted.enumerated() {
                 do {
-                    guard let data = try await item.loadTransferable(type: Data.self) else {
+                    let image = try await loadPickedImage(result.itemProvider)
+                    guard let data = image.jpegData(compressionQuality: 0.92) else {
                         throw AgentAttachmentError.unreadable
                     }
                     try await addImageAttachment(data, fileName: "照片-\(index + 1).jpg")
@@ -1818,6 +1824,18 @@ struct AgentHomeView: View {
                 }
             }
             restoreComposerAfterPicking()
+        }
+    }
+
+    private func loadPickedImage(_ provider: NSItemProvider) async throws -> UIImage {
+        try await withCheckedThrowingContinuation { continuation in
+            provider.loadObject(ofClass: UIImage.self) { object, error in
+                if let image = object as? UIImage {
+                    continuation.resume(returning: image)
+                } else {
+                    continuation.resume(throwing: error ?? AgentAttachmentError.unreadable)
+                }
+            }
         }
     }
 
@@ -3058,14 +3076,6 @@ private struct AgentContextSheet: View {
                 }
 
                 Section {
-                    Toggle("保留未验证的模型推荐", isOn: allowUnverifiedRecommendationsBinding)
-                } header: {
-                    Text("地图点位")
-                } footer: {
-                    Text("开启后，Apple Maps 未命中的模型推荐仍会作为“地点待确认”候选，由你决定是否添加；不会伪造坐标。你原文明确写出的地点始终保留。")
-                }
-
-                Section {
                     FlowLayout(spacing: 8) {
                         ForEach(interests, id: \.self) { interest in
                             Button { toggleInterest(interest) } label: {
@@ -3085,9 +3095,7 @@ private struct AgentContextSheet: View {
                     .padding(.vertical, 4)
                 } header: {
                     Text("偏好")
-                } footer: {
-                    Text("条件会保存在本机，并作为每轮对话的规划前提。")
-                }
+                } 
             }
             .scrollContentBackground(.hidden)
             .background(PrimaryTabPalette.background)
@@ -3105,13 +3113,6 @@ private struct AgentContextSheet: View {
         Binding(
             get: { store.session.preferences[keyPath: keyPath] ?? "" },
             set: { value in store.updatePreference(keyPath, value: value.isEmpty ? nil : value) }
-        )
-    }
-
-    private var allowUnverifiedRecommendationsBinding: Binding<Bool> {
-        Binding(
-            get: { store.session.preferences.retainsUnverifiedRecommendations },
-            set: { store.setAllowUnverifiedRecommendations($0) }
         )
     }
 

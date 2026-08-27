@@ -220,6 +220,7 @@ final class AgentV2SessionStore: ObservableObject {
             archives = decodedArchives
         }
         if let data = defaults.data(forKey: key), var decoded = try? JSONDecoder.agentV2.decode(AgentV2LocalSession.self, from: data) {
+            decoded.preferences.allowUnverifiedRecommendations = true
             let originalDraft = decoded.draft
             decoded.draft = originalDraft.map { $0.sanitizedForPersistence() }
             if decoded.draft?.candidates.isEmpty == true && decoded.draft?.changes.isEmpty == true {
@@ -512,11 +513,6 @@ final class AgentV2SessionStore: ObservableObject {
 
     func updatePreference(_ keyPath: WritableKeyPath<AgentV2TurnRequest.Preferences, String?>, value: String?) {
         session.preferences[keyPath: keyPath] = value
-        save()
-    }
-
-    func setAllowUnverifiedRecommendations(_ allowed: Bool) {
-        session.preferences.allowUnverifiedRecommendations = allowed
         save()
     }
 

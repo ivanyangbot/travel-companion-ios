@@ -1254,14 +1254,6 @@ private struct AgentContextSheet: View {
                 }
 
                 Section {
-                    Toggle("保留未验证的模型推荐", isOn: allowUnverifiedRecommendationsBinding)
-                } header: {
-                    Text("地图点位")
-                } footer: {
-                    Text("开启后，Apple Maps 未命中的模型推荐仍会作为“地点待确认”候选，由你决定是否添加；不会伪造坐标。你原文明确写出的地点始终保留。")
-                }
-
-                Section {
                     FlowLayout(spacing: 8) {
                         ForEach(interests, id: \.self) { interest in
                             Button { toggleInterest(interest) } label: {
@@ -1281,8 +1273,6 @@ private struct AgentContextSheet: View {
                     .padding(.vertical, 4)
                 } header: {
                     Text("偏好")
-                } footer: {
-                    Text("条件会保存在本机，并作为每轮对话的规划前提。")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -1301,13 +1291,6 @@ private struct AgentContextSheet: View {
         Binding(
             get: { store.session.preferences[keyPath: keyPath] ?? "" },
             set: { value in store.updatePreference(keyPath, value: value.isEmpty ? nil : value) }
-        )
-    }
-
-    private var allowUnverifiedRecommendationsBinding: Binding<Bool> {
-        Binding(
-            get: { store.session.preferences.retainsUnverifiedRecommendations },
-            set: { store.setAllowUnverifiedRecommendations($0) }
         )
     }
 

@@ -257,6 +257,30 @@ final class TravelCardsTests: XCTestCase {
                 actionsAlreadyRevealed: true
             )
         )
+        XCTAssertFalse(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                velocity: CGPoint(x: 420, y: 80),
+                actionsAlreadyRevealed: true,
+                touchLocationX: 396,
+                viewWidth: 391
+            )
+        )
+        XCTAssertTrue(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                velocity: CGPoint(x: 420, y: 80),
+                actionsAlreadyRevealed: true,
+                touchLocationX: 120,
+                viewWidth: 391
+            )
+        )
+        XCTAssertTrue(
+            ItineraryCardSwipeInteraction.shouldBeginSwipe(
+                velocity: CGPoint(x: -420, y: 80),
+                actionsAlreadyRevealed: false,
+                touchLocationX: 396,
+                viewWidth: 391
+            )
+        )
 
         XCTAssertEqual(
             ItineraryCardSwipeInteraction.clampedOffset(baseOffset: 0, translation: -300),
