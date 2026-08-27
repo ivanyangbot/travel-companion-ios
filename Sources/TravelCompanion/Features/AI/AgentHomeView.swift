@@ -436,8 +436,9 @@ struct AgentHomeView: View {
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
-        // 初始页（ASCII 地球欢迎态）固定不可滑动；进入对话后恢复滚动。
-        .scrollDisabled(isWelcomeState && presentation == .home)
+        // 欢迎态由固定高度的英雄区、行程卡与三条建议组成；无论入口来自
+        // 首页还是工作台都不允许滚动，进入对话后才恢复滚动。
+        .scrollDisabled(isWelcomeState)
         // 下滑/回顶驱动地球在「顶部常驻」与「状态行泊位」之间切换；
         // 顶部下拉（overscroll，偏移为负）则随距离恢复首页观感。
         .onScrollGeometryChange(
@@ -472,6 +473,12 @@ struct AgentHomeView: View {
         lotteryStepIndex != nil || isComposerExpanded || !isWelcomeState
     }
 
+    /// 工作台欢迎态需要同时容纳标题、行程摘要和三条建议，因此使用较紧凑的
+    /// 地球与间距；首页入口仍保留原先的沉浸式大地球布局。
+    private var usesCompactWorkbenchWelcomeLayout: Bool {
+        presentation == .workbench
+    }
+
     /// 输入区是否贴底（同时不再为悬浮 tab 栏预留空间）：展开输入条或已进入
     /// 对话时贴底。抽签流程虽然也隐藏 tab 栏，但双方块（选项）保持在原位
     /// 不下移，避免点按「拈签定缘」后按钮突然掉下去。
@@ -485,10 +492,10 @@ struct AgentHomeView: View {
     }
 
     private var welcomeView: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 14 : 24) {
         // 地球与同心光晕占内容区短边的 70%。
         GeometryReader { proxy in
-        let globe = min(proxy.size.width, proxy.size.height) * 0.7
+        let globe = min(proxy.size.width, proxy.size.height) * (usesCompactWorkbenchWelcomeLayout ? 0.9 : 0.7)
         ZStack {
         // 与地球同心的圆形橙色光晕，位于下层：字符叠在光晕之上，不会被糊住。
         Circle()
@@ -511,9 +518,10 @@ struct AgentHomeView: View {
         // 键盘唤起时整体压扁（宽高比变宽），把下方的标题完整让出到
         // 键盘/输入框之上；收起键盘后恢复正方形地球。
         .aspectRatio(isComposerFocused ? 2.4 : 1, contentMode: .fit)
-        .padding(.top, 12)
+        .frame(height: usesCompactWorkbenchWelcomeLayout ? 148 : nil)
+        .padding(.top, usesCompactWorkbenchWelcomeLayout ? 0 : 12)
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 0 : 12) {
                 // 抽签流程中标题切换为当前问题，文案渐入渐出。滚动区边距为
                 // 16pt，补 4pt 后标题左缘（20pt）与底部双方块入口对齐。
                 ZStack(alignment: .leading) {
@@ -554,17 +562,17 @@ struct AgentHomeView: View {
                 Image(systemName: syncEngine.trip?.isConfigured == true ? "map.fill" : "calendar.badge.exclamationmark")
                     .font(.title3)
                     .foregroundStyle(PrimaryTabPalette.accent)
-                    .frame(width: 36, height: 36)
+                    .frame(width: usesCompactWorkbenchWelcomeLayout ? 30 : 36, height: usesCompactWorkbenchWelcomeLayout ? 30 : 36)
                     .background(PrimaryTabPalette.accent.opacity(0.15), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
                     Text(tripTitle).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-                    Text(tripContextSubtitle).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText).lineLimit(2)
+                    Text(tripContextSubtitle).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText).lineLimit(usesCompactWorkbenchWelcomeLayout ? 1 : 2)
                 }
                 Spacer()
                 Image(systemName: "slider.horizontal.3")
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
-            .padding(14)
+            .padding(usesCompactWorkbenchWelcomeLayout ? 10 : 14)
             .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
         }
         .buttonStyle(.plain)
@@ -595,7 +603,7 @@ struct AgentHomeView: View {
     @ViewBuilder
     private var suggestedQuestions: some View {
         if revealedSuggestionCount > 0 {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 8 : 12) {
                 Text("可以这样问")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -611,12 +619,14 @@ struct AgentHomeView: View {
                                 .foregroundStyle(PrimaryTabPalette.accent)
                             Text(prompt)
                                 .foregroundStyle(.white)
+                                .lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: "arrow.up.right")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(PrimaryTabPalette.tertiaryText)
                         }
-                        .padding(15)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, usesCompactWorkbenchWelcomeLayout ? 9 : 15)
                         .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
                     }
                     .buttonStyle(.plain)
