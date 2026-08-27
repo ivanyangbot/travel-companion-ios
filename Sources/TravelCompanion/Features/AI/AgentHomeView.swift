@@ -594,7 +594,7 @@ struct AgentHomeView: View {
     private var welcomeGlobeCanvas: some View {
         GeometryReader { proxy in
             let globe = usesCompactWorkbenchWelcomeLayout
-                ? min(proxy.size.width * 0.68, proxy.size.height * 0.9)
+                ? min(proxy.size.width * 0.74, proxy.size.height * 0.98)
                 : min(proxy.size.width, proxy.size.height) * 0.7
 
             ZStack {
