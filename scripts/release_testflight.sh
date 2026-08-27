@@ -23,6 +23,7 @@ ASC_TIMEOUT_SECONDS="${ASC_TIMEOUT_SECONDS:-600}"
 TARGET_VERSION=""
 TARGET_BUILD=""
 SKIP_TESTS=0
+ORIGINAL_ARG_COUNT=$#
 ORIGINAL_ARGS=("$@")
 
 usage() {
@@ -128,8 +129,13 @@ if [[ "${TRAVEL_COMPANION_RELEASE_REEXECUTED:-0}" != "1" ]]; then
 
     if [[ "$before_sync_sha" != "$after_sync_sha" ]]; then
         echo "Remote updates applied; restarting the release with the synchronized script."
-        TRAVEL_COMPANION_RELEASE_REEXECUTED=1 \
-            exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" "${ORIGINAL_ARGS[@]}"
+        if ((ORIGINAL_ARG_COUNT > 0)); then
+            TRAVEL_COMPANION_RELEASE_REEXECUTED=1 \
+                exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" "${ORIGINAL_ARGS[@]}"
+        else
+            TRAVEL_COMPANION_RELEASE_REEXECUTED=1 \
+                exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+        fi
     fi
 fi
 unset TRAVEL_COMPANION_RELEASE_REEXECUTED
