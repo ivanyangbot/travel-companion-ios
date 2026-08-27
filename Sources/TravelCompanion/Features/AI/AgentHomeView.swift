@@ -1877,7 +1877,7 @@ struct AgentHomeView: View {
         store.beginTurn() 
         store.append(userMessage)
         acknowledgeInitialMessageSubmissionIfNeeded(userMessage.content)
-        message = ""
+        message = "" 
         runState.prepareForTurn()
         isComposerFocused = false
         let state = runState
