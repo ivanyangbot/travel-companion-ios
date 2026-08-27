@@ -163,7 +163,7 @@ struct AgentHomeView: View {
     @State private var workbenchViewportHeight: CGFloat = 0
     /// 锁定态下解除所需的向上滚动偏移（pt）。
     private static let welcomePeekUnlockOffset: Double = 24
-    private static let maximumAttachmentCount = 3
+    private static let maximumAttachmentCount = 9
 
     init(
         syncEngine: SyncEngine,

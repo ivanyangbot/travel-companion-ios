@@ -684,10 +684,10 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
 
     private func load(_ item: PhotosPickerItem?) {
         guard let item else { return }
-        // 服务端每轮最多接受 3 张附件；超出会在整轮校验时 400，提前拦截。
-        guard store.session.attachments.count < 3 else {
+        // 服务端每轮最多接受 9 张附件；超出会在整轮校验时 400，提前拦截。
+        guard store.session.attachments.count < 9 else {
             photo = nil
-            runState.error = "每轮最多附带 3 张图片，请先清除对话与草稿后再添加。"
+            runState.error = "每轮最多附带 9 张图片，请先清除对话与草稿后再添加。"
             return
         }
         Task {
