@@ -2422,135 +2422,542 @@ private struct LiveCandidateCard: View {
     }
 }
 
-private struct AgentV2CandidateCard: View {
+struct AgentV2CandidateCard: View {
     let candidate: AgentV2Candidate
     let selection: (Bool) -> Void
+    @State private var imageIndex = 0
+    @State private var isShowingDetails = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button { if candidate.isCommitReady { selection(!candidate.selected) } } label: {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: candidate.selected ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(candidate.selected ? PrimaryTabPalette.accent : PrimaryTabPalette.tertiaryText)
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(PrimaryTabPalette.accent)
-                            Spacer()
-                            Text(candidate.startAt).font(.caption.monospacedDigit()).foregroundStyle(PrimaryTabPalette.secondaryText)
-                        }
-                        Text(candidate.title).font(.headline).foregroundStyle(.white)
-                        Text(candidate.date + (candidate.place.map { " · \($0.name)" } ?? ""))
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.85))
-                        if let address = candidate.place?.address, !address.isEmpty {
-                            Text(address).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
-                        }
-                        if let reason = candidate.reason {
-                            Text(reason).font(.footnote).foregroundStyle(PrimaryTabPalette.secondaryText)
-                        }
-                        if !candidate.risks.isEmpty {
-                            Label(candidate.risks.joined(separator: "、"), systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                        HStack(spacing: 5) {
-                            Image(systemName: candidate.placeStatus == .verified ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                            Text(candidate.placeStatus.title)
-                        }
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(candidate.placeStatus == .verified ? .green : .orange)
-                        if let priceText {
-                            Label(priceText, systemImage: isRealtimePrice ? "clock.arrow.circlepath" : "banknote")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.orange)
+        VStack(alignment: .leading, spacing: 0) {
+            if !imageURLs.isEmpty {
+                AgentCandidateImagePager(urls: imageURLs, selection: $imageIndex, height: 174)
+                    .overlay(alignment: .topLeading) {
+                        Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(.black.opacity(0.58), in: Capsule())
+                            .padding(12)
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 11) {
+                if imageURLs.isEmpty {
+                    HStack(alignment: .firstTextBaseline) {
+                        Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(PrimaryTabPalette.accent)
+                        Spacer()
+                        if !candidate.startAt.isEmpty {
+                            Text(candidate.startAt)
+                                .font(.caption.monospacedDigit().weight(.medium))
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
                         }
                     }
                 }
+
+                Text(candidate.title)
+                    .font(.system(.headline, design: .rounded, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !scheduleLine.isEmpty {
+                    Label(scheduleLine, systemImage: "calendar")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.82))
+                        .lineLimit(2)
+                }
+
+                if let reason = candidate.reason, !reason.isEmpty {
+                    Text(reason)
+                        .font(.footnote)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 8) {
+                    statusBadge
+                    if let priceText {
+                        Label(priceText, systemImage: isRealtimePrice ? "clock.arrow.circlepath" : "banknote")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .background(Color.orange.opacity(0.12), in: Capsule())
+                    }
+                }
+
+                if let risk = candidate.risks.first, !risk.isEmpty {
+                    Label(risk, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+
+                Divider().overlay(Color.white.opacity(0.08))
+
+                HStack(spacing: 10) {
+                    Button {
+                        if candidate.isCommitReady { selection(!candidate.selected) }
+                    } label: {
+                        Label(candidate.selected ? "已选择" : "加入行程", systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(candidate.selected ? .black : .white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                candidate.selected ? PrimaryTabPalette.accent : Color.white.opacity(0.10),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!candidate.isCommitReady)
+                    .opacity(candidate.isCommitReady ? 1 : 0.45)
+
+                    Button { isShowingDetails = true } label: {
+                        HStack(spacing: 5) {
+                            Text("查看详情")
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.bold))
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+        }
+        .background(candidate.selected ? PrimaryTabPalette.accent.opacity(0.12) : PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(candidate.selected ? PrimaryTabPalette.accent.opacity(0.72) : Color.white.opacity(0.07), lineWidth: candidate.selected ? 1.5 : 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 14, y: 7)
+        .sheet(isPresented: $isShowingDetails) {
+            AgentCandidatePOIDetailSheet(candidate: candidate, selection: selection)
+                .presentationDetents([.fraction(0.78), .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(30)
+                .presentationBackground(PrimaryTabPalette.background)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var imageURLs: [URL] {
+        candidate.images.compactMap(CardImageURL.resolve)
+    }
+
+    private var scheduleLine: String {
+        [candidate.date, candidate.startAt, candidate.place?.name]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
+    }
+
+    private var statusBadge: some View {
+        HStack(spacing: 5) {
+            Image(systemName: candidate.placeStatus == .verified ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+            Text(candidate.placeStatus.title)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(candidate.placeStatus == .verified ? Color.green : Color.orange)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background((candidate.placeStatus == .verified ? Color.green : Color.orange).opacity(0.12), in: Capsule())
+    }
+
+    private var priceText: String? {
+        candidate.agentPriceText
+    }
+
+    private var isRealtimePrice: Bool {
+        candidate.priceMinor == nil && priceText != nil
+    }
+}
+
+private struct AgentCandidateImagePager: View {
+    let urls: [URL]
+    @Binding var selection: Int
+    let height: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            TabView(selection: $selection) {
+                ForEach(Array(urls.enumerated()), id: \.offset) { index, url in
+                    AsyncImage(url: url, transaction: Transaction(animation: .easeInOut(duration: 0.25))) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            placeholder(icon: "photo.badge.exclamationmark")
+                        case .empty:
+                            ZStack {
+                                placeholder(icon: "photo")
+                                ProgressView().tint(.white.opacity(0.8))
+                            }
+                        @unknown default:
+                            placeholder(icon: "photo")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height)
+                    .clipped()
+                    .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: height)
+
+            LinearGradient(colors: [.clear, .black.opacity(0.48)], startPoint: .center, endPoint: .bottom)
+                .allowsHitTesting(false)
+
+            if urls.count > 1 {
+                Text("\(selection + 1) / \(urls.count)")
+                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .padding(12)
+                    .accessibilityLabel("第 \(selection + 1) 张，共 \(urls.count) 张")
+            }
+        }
+    }
+
+    private func placeholder(icon: String) -> some View {
+        ZStack {
+            LinearGradient(
+                colors: [PrimaryTabPalette.accent.opacity(0.34), PrimaryTabPalette.elevatedSurface],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: icon)
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(.white.opacity(0.52))
+        }
+    }
+}
+
+private struct AgentCandidatePOIDetailSheet: View {
+    let candidate: AgentV2Candidate
+    let selection: (Bool) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @State private var imageIndex = 0
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                hero
+                titleBlock
+
+                if let description = candidate.description, !description.isEmpty {
+                    detailSection(title: "地点介绍", icon: "text.alignleft") {
+                        Text(description)
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(0.86))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if let place = candidate.place {
+                    locationSection(place)
+                }
+
+                if let reason = candidate.reason, !reason.isEmpty {
+                    detailSection(title: "推荐理由", icon: "sparkles") {
+                        Text(reason)
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(0.86))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if !candidate.risks.isEmpty {
+                    detailSection(title: "出发前留意", icon: "exclamationmark.triangle.fill", tint: .orange) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(candidate.risks, id: \.self) { risk in
+                                bullet(risk, color: .orange)
+                            }
+                        }
+                    }
+                }
+
+                if !candidate.tips.isEmpty {
+                    detailSection(title: "实用贴士", icon: "lightbulb.fill") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(candidate.tips, id: \.self) { tip in
+                                bullet(tip, color: PrimaryTabPalette.accent)
+                            }
+                        }
+                    }
+                }
+
+                if let notes = candidate.notes, !notes.isEmpty {
+                    detailSection(title: "补充信息", icon: "note.text") {
+                        Text(notes)
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if let sourceURL {
+                    Link(destination: sourceURL) {
+                        HStack {
+                            Label(sourceLabel, systemImage: sourceIcon)
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(16)
+                        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 112)
+        }
+        .scrollIndicators(.hidden)
+        .background(PrimaryTabPalette.background.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            selectionBar
+        }
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(.black.opacity(0.62), in: Circle())
+                    .overlay { Circle().stroke(Color.white.opacity(0.12), lineWidth: 1) }
             }
             .buttonStyle(.plain)
-            .accessibilityValue(candidate.selected ? "已选择" : "未选择")
-            .accessibilityHint(candidate.isCommitReady ? "轻点切换选择" : "信息完整后才可选择")
+            .padding(.top, 12)
+            .padding(.trailing, 18)
+            .accessibilityLabel("关闭详情")
+        }
+        .preferredColorScheme(.dark)
+    }
 
-            if let xiaohongshuURL {
-                Link(destination: xiaohongshuURL) {
-                    Label("小红书来源 · 打开原笔记", systemImage: "arrow.up.right.square")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.red)
-                }
-                .padding(.leading, 34)
-            }
-
-            if let fliggyBookingURL {
-                // Fliggy candidates carry a real booking URL. The exact price
-                // lives behind the link (or degrades to a “实时价” placeholder),
-                // so send the user to Safari rather than inventing a number.
-                Link(destination: fliggyBookingURL) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "airplane")
-                        Text("查看预订")
-                        Image(systemName: "arrow.up.right")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .font(.caption.weight(.semibold))
+    @ViewBuilder
+    private var hero: some View {
+        if imageURLs.isEmpty {
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(
+                    colors: [PrimaryTabPalette.accent.opacity(0.38), PrimaryTabPalette.elevatedSurface],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: candidate.kind.agentSymbol)
+                    .font(.system(size: 62, weight: .thin))
+                    .foregroundStyle(.white.opacity(0.22))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(24)
+                Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 11)
-                    .padding(.vertical, 6)
-                    .background(PrimaryTabPalette.accent, in: Capsule())
-                }
-                .padding(.leading, 34)
-                .accessibilityLabel("在飞猪查看预订")
+                    .padding(.vertical, 7)
+                    .background(.black.opacity(0.42), in: Capsule())
+                    .padding(16)
             }
+            .frame(height: 144)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        } else {
+            AgentCandidateImagePager(urls: imageURLs, selection: $imageIndex, height: 252)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
-        .padding(13)
-        .background(candidate.selected ? PrimaryTabPalette.accent.opacity(0.14) : PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(candidate.selected ? PrimaryTabPalette.accent.opacity(0.5) : Color.white.opacity(0.035), lineWidth: 1)
-        }
-        .opacity(candidate.isCommitReady ? 1 : 0.72)
     }
 
-    private var xiaohongshuURL: URL? {
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(candidate.title)
+                .font(.system(size: 27, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !scheduleLine.isEmpty {
+                Label(scheduleLine, systemImage: "calendar")
+                    .font(.subheadline)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+
+            HStack(spacing: 8) {
+                Label(candidate.placeStatus.title, systemImage: candidate.placeStatus == .verified ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(candidate.placeStatus == .verified ? Color.green : Color.orange)
+                if let price = candidate.agentPriceText {
+                    Label(price, systemImage: "banknote")
+                        .foregroundStyle(.orange)
+                }
+                if let duration = candidate.stayDurationMinutes {
+                    Label("\(duration) 分钟", systemImage: "clock")
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+            }
+            .font(.caption.weight(.semibold))
+        }
+    }
+
+    private func locationSection(_ place: AIChatPlace) -> some View {
+        detailSection(title: "地点", icon: "mappin.and.ellipse") {
+            Button {
+                if let mapsURL { openURL(mapsURL) }
+            } label: {
+                HStack(spacing: 13) {
+                    Image(systemName: "map.fill")
+                        .font(.title3)
+                        .foregroundStyle(PrimaryTabPalette.accent)
+                        .frame(width: 42, height: 42)
+                        .background(PrimaryTabPalette.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(place.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                        if let address = place.address, !address.isEmpty {
+                            Text(address)
+                                .font(.caption)
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+                .padding(14)
+                .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(mapsURL == nil)
+        }
+    }
+
+    private var selectionBar: some View {
+        VStack(spacing: 0) {
+            Divider().overlay(Color.white.opacity(0.08))
+            Button {
+                guard candidate.isCommitReady else { return }
+                selection(!candidate.selected)
+            } label: {
+                HStack {
+                    Image(systemName: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
+                    Text(candidate.selected ? "已选择，轻点取消" : "选择加入本轮行程")
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                }
+                .font(.headline)
+                .foregroundStyle(candidate.selected ? .black : .white)
+                .padding(.horizontal, 18)
+                .frame(height: 56)
+                .background(candidate.selected ? Color.white : PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(!candidate.isCommitReady)
+            .opacity(candidate.isCommitReady ? 1 : 0.45)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    private func detailSection<Content: View>(
+        title: String,
+        icon: String,
+        tint: Color = PrimaryTabPalette.accent,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .foregroundStyle(tint)
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.055), lineWidth: 1) }
+    }
+
+    private func bullet(_ text: String, color: Color) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Circle()
+                .fill(color)
+                .frame(width: 5, height: 5)
+                .padding(.top, 7)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var imageURLs: [URL] {
+        candidate.images.compactMap(CardImageURL.resolve)
+    }
+
+    private var scheduleLine: String {
+        let time = [candidate.startAt, candidate.endAt].filter { !$0.isEmpty }.joined(separator: "–")
+        return [candidate.date, time].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private var sourceURL: URL? {
         guard let value = candidate.url,
               let url = URL(string: value),
-              let host = url.host?.lowercased(),
-              host == "xiaohongshu.com" || host.hasSuffix(".xiaohongshu.com") ||
-              host == "xhslink.com" || host.hasSuffix(".xhslink.com") else { return nil }
+              url.scheme?.lowercased() == "https" else { return nil }
         return url
     }
 
-    /// Fliggy realtime candidates link to a real booking page rather than a
-    /// note; only trust the known Fliggy hosts so arbitrary model URLs never
-    /// render as a branded booking button.
-    private var fliggyBookingURL: URL? {
-        guard let value = candidate.url,
-              let url = URL(string: value),
-              let host = url.host?.lowercased(),
-              host == "fliggy.com" || host.hasSuffix(".fliggy.com") ||
-              host == "alitrip.com" || host.hasSuffix(".alitrip.com") else { return nil }
-        return url
+    private var sourceLabel: String {
+        guard let host = sourceURL?.host?.lowercased() else { return "打开参考链接" }
+        if host.contains("xiaohongshu") || host.contains("xhslink") { return "查看小红书原笔记" }
+        if host.contains("fliggy") || host.contains("alitrip") { return "前往飞猪查看预订" }
+        return "打开参考链接"
     }
 
-    /// Price line: a concrete minor-unit amount when present, otherwise a
-    /// “实时价” placeholder exactly when the server flagged that the live
-    /// price lives behind the booking link. Never fabricates a number.
-    private var priceText: String? {
-        if let priceMinor = candidate.priceMinor {
+    private var sourceIcon: String {
+        sourceLabel.contains("预订") ? "airplane" : "arrow.up.right.square"
+    }
+
+    private var mapsURL: URL? {
+        guard let place = candidate.place else { return nil }
+        var components = URLComponents(string: "https://maps.apple.com/")
+        var items = [URLQueryItem(name: "q", value: place.name)]
+        if let latitude = place.latitude, let longitude = place.longitude {
+            items.append(URLQueryItem(name: "ll", value: "\(latitude),\(longitude)"))
+        } else if let address = place.address, !address.isEmpty {
+            items.append(URLQueryItem(name: "address", value: address))
+        }
+        components?.queryItems = items
+        return components?.url
+    }
+}
+
+private extension AgentV2Candidate {
+    var agentPriceText: String? {
+        if let priceMinor {
             let major = Double(priceMinor) / 100
             let amount = major.truncatingRemainder(dividingBy: 1) == 0
                 ? String(format: "%.0f", major)
                 : String(format: "%.2f", major)
             return "¥\(amount)"
         }
-        if candidate.notes?.contains("实时价格见预订链接") == true { return "实时价" }
+        if notes?.contains("实时价格见预订链接") == true { return "实时价" }
         return nil
-    }
-
-    private var isRealtimePrice: Bool {
-        candidate.priceMinor == nil && priceText != nil
     }
 }
 

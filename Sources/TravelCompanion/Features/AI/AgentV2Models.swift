@@ -93,6 +93,7 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     let id: UUID
     var kind: TravelCardSnapshot.Kind
     var title: String
+    var images: [String] = []
     var sourceText: String? = nil
     var allowsUnverifiedPlace: Bool? = nil
     var date: String
@@ -173,6 +174,7 @@ extension AgentV2Candidate {
         id = try container.decode(UUID.self, forKey: .id)
         kind = try container.decode(TravelCardSnapshot.Kind.self, forKey: .kind)
         title = try container.decode(String.self, forKey: .title)
+        images = try container.decodeIfPresent([String].self, forKey: .images) ?? []
         sourceText = try container.decodeIfPresent(String.self, forKey: .sourceText)
         allowsUnverifiedPlace = try container.decodeIfPresent(Bool.self, forKey: .allowsUnverifiedPlace)
         date = try container.decodeIfPresent(String.self, forKey: .date) ?? ""

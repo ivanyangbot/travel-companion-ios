@@ -72,7 +72,7 @@ final class AgentV2StreamParserTests: XCTestCase {
         let candidateID = UUID().uuidString.lowercased()
         let fixture = """
         event: candidate_upsert
-        data: {"id":"\(candidateID)","kind":"activity","title":"热带植物园","date":null,"startAt":null,"endAt":null,"place":null,"placeStatus":"failed","allowsUnverifiedPlace":true,"tips":[],"risks":[],"missingFields":["地图地点待确认"],"selected":false}
+        data: {"id":"\(candidateID)","kind":"activity","title":"热带植物园","images":["https://img.example/one.jpg","https://img.example/two.jpg"],"date":null,"startAt":null,"endAt":null,"place":null,"placeStatus":"failed","allowsUnverifiedPlace":true,"tips":[],"risks":[],"missingFields":["地图地点待确认"],"selected":false}
 
         event: done
         data: {}
@@ -91,6 +91,7 @@ final class AgentV2StreamParserTests: XCTestCase {
         let decoded = try XCTUnwrap(candidate)
         XCTAssertEqual(decoded.date, "")
         XCTAssertEqual(decoded.startAt, "")
+        XCTAssertEqual(decoded.images, ["https://img.example/one.jpg", "https://img.example/two.jpg"])
         XCTAssertTrue(decoded.hasAllowedUnverifiedPlace)
         XCTAssertFalse(decoded.isCommitReady, "未排期候选需先由后续轮次排期才可提交")
         XCTAssertTrue(sawDone)

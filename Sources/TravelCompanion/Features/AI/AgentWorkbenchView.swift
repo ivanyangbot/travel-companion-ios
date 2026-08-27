@@ -1088,7 +1088,9 @@ private struct LiveCandidateCard: View {
     }
 }
 
-private struct AgentV2CandidateCard: View {
+// Candidate cards are shared with AgentHomeView so both entry points keep the
+// same image paging, selection, and POI-detail interaction.
+private struct LegacyAgentV2CandidateCard: View {
     let candidate: AgentV2Candidate
     let selection: (Bool) -> Void
 
