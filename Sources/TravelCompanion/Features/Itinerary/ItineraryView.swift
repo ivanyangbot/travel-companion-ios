@@ -162,7 +162,7 @@ struct ItineraryView: View {
                     appleSignIn: appleSignIn,
                     initialMessage: sheet.initialMessage
                 )
-                .presentationDetents([.fraction(0.88)])
+                .presentationDetents([.fraction(0.8)])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
                 .presentationBackground(PrimaryTabPalette.background)

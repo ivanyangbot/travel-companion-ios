@@ -420,7 +420,7 @@ struct AgentHomeView: View {
                 Color.clear.frame(height: 1).id("conversation-bottom")
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.top, usesCompactWorkbenchWelcomeLayout ? 8 : 12)
             .padding(.bottom, 16)
             // 欢迎页 ↔ 对话页切换时驱动地球的连续变形（缩小/复原）。
             .animation(.spring(response: 0.5, dampingFraction: 0.86), value: isWelcomeState)
@@ -484,9 +484,9 @@ struct AgentHomeView: View {
 
     private var welcomeView: some View {
         VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 14 : 24) {
-        // 地球与同心光晕占内容区短边的 70%。
+        // 工作台欢迎页压缩英雄区的上下留白，同时保持地球视觉尺寸接近首页。
         GeometryReader { proxy in
-        let globe = min(proxy.size.width, proxy.size.height) * 0.7
+        let globe = min(proxy.size.width, proxy.size.height) * (usesCompactWorkbenchWelcomeLayout ? 0.78 : 0.7)
         ZStack {
         // 与地球同心的圆形橙色光晕，位于下层：字符叠在光晕之上，不会被糊住。
         Circle()
@@ -508,8 +508,11 @@ struct AgentHomeView: View {
         }
         // 键盘唤起时整体压扁（宽高比变宽），把下方的标题完整让出到
         // 键盘/输入框之上；收起键盘后恢复正方形地球。
-        .aspectRatio(isComposerFocused ? 2.4 : 1, contentMode: .fit)
-        .padding(.top, 12)
+        .aspectRatio(
+            isComposerFocused ? 2.4 : (usesCompactWorkbenchWelcomeLayout ? 1.15 : 1),
+            contentMode: .fit
+        )
+        .padding(.top, usesCompactWorkbenchWelcomeLayout ? 6 : 12)
 
             VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 0 : 12) {
                 // 抽签流程中标题切换为当前问题，文案渐入渐出。滚动区边距为
