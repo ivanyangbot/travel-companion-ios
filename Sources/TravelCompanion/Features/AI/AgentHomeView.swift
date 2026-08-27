@@ -362,9 +362,14 @@ struct AgentHomeView: View {
                     dismissWorkbench()
                 }
             }) {
-                AgentTripPickerSheet(
-                    selectedTripID: syncEngine.selectedTripID,
+                // 与主页左上角的「切换旅行」共用同一弹窗；Agent 语境下副标题
+                // 换文案、多出「暂不选择行程」，编辑改为打开「旅行与偏好」。
+                TodayTripPickerSheet(
                     trips: syncEngine.trips,
+                    selectedTripID: syncEngine.selectedTripID,
+                    tripBeingSelectedID: nil,
+                    isStartingNewTrip: false,
+                    subtitle: String(localized: "agent.selectTripSheetSubtitle"),
                     onClear: {
                         resetSuggestions()
                         Task { await syncEngine.clearSelectedTrip() }
@@ -372,13 +377,7 @@ struct AgentHomeView: View {
                             closeWorkbenchAfterPickerDismiss = true
                         }
                     },
-                    onSelect: { summary in
-                        guard summary.id != syncEngine.selectedTripID else { return }
-                        startNewConversation()
-                        resetSuggestions()
-                        Task { await syncEngine.selectTrip(summary.id) }
-                    },
-                    onEditPreferences: { summary in
+                    onEditTrip: { summary in
                         // 与点击行程一致：编辑未选中的行程先切换过去，再打开「旅行与偏好」。
                         if summary.id != syncEngine.selectedTripID {
                             startNewConversation()
@@ -386,6 +385,32 @@ struct AgentHomeView: View {
                             Task { await syncEngine.selectTrip(summary.id) }
                         }
                         openContextAfterPickerDismiss = true
+                        isShowingTripPicker = false
+                    },
+                    onSelect: { summary in
+                        guard summary.id != syncEngine.selectedTripID else { return }
+                        startNewConversation()
+                        resetSuggestions()
+                        Task { await syncEngine.selectTrip(summary.id) }
+                        isShowingTripPicker = false
+                    },
+                    onCreate: {
+                        // 新建一段旅行＝回到欢迎页开新对话，从灵感开始让豆奶规划；
+                        // 当前行程保留，提交方案时再落成新行程（与主页口径一致）。
+                        startNewConversation()
+                        resetSuggestions()
+                        isShowingTripPicker = false
+                    },
+                    onEdit: { summary, destination, startDate, endDate, currency in
+                        Task {
+                            await syncEngine.updateTrip(
+                                summary,
+                                destination: destination,
+                                startDate: startDate,
+                                endDate: endDate,
+                                currency: currency
+                            )
+                        }
                     },
                     onDelete: { summary in
                         if summary.id == syncEngine.selectedTripID {
@@ -393,10 +418,15 @@ struct AgentHomeView: View {
                             resetSuggestions()
                         }
                         Task { await syncEngine.deleteTrip(summary) }
-                    }
+                    },
+                    onDismiss: { isShowingTripPicker = false }
                 )
+                // 弹窗外观与主页入口完全一致。
                 .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(28)
+                .presentationBackground(PrimaryTabPalette.background)
+                .presentationContentInteraction(.scrolls)
             }
             .sheet(isPresented: $isShowingPhotoPicker) {
                 AgentPhotoPickerSheet(
@@ -2272,141 +2302,6 @@ struct AgentHomeView: View {
     }
 }
 
-private struct AgentTripPickerSheet: View {
-    let selectedTripID: Int?
-    let trips: [TripSummary]
-    let onClear: () -> Void
-    let onSelect: (TripSummary) -> Void
-    /// 「编辑」不再弹出 TripSetupSheet（编辑共享行程），改为选中该行程并打开「旅行与偏好」。
-    let onEditPreferences: (TripSummary) -> Void
-    let onDelete: (TripSummary) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var tripPendingDeletion: TripSummary?
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Button {
-                        onClear()
-                        dismiss()
-                    } label: {
-                        tripRow(
-                            title: "暂不选择行程",
-                            subtitle: "让豆奶按你的描述开始规划",
-                            isSelected: selectedTripID == nil
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selectedTripID == nil ? .isSelected : [])
-                }
-
-                Section("我的旅行") {
-                    if trips.isEmpty {
-                        ContentUnavailableView(
-                            "还没有旅行",
-                            systemImage: "airplane.departure",
-                            description: Text("创建旅行后会显示在这里。")
-                        )
-                    } else {
-                        ForEach(trips) { summary in
-                            Button {
-                                guard summary.id != selectedTripID else { return }
-                                onSelect(summary)
-                                dismiss()
-                            } label: {
-                                tripRow(
-                                    title: summary.displayName,
-                                    subtitle: dateRange(for: summary),
-                                    isSelected: summary.id == selectedTripID
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(summary.id == selectedTripID ? .isSelected : [])
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if summary.role == "owner" {
-                                    Button(role: .destructive) {
-                                        tripPendingDeletion = summary
-                                    } label: {
-                                        Label("删除", systemImage: "trash")
-                                    }
-                                }
-
-                                Button {
-                                    onEditPreferences(summary)
-                                    dismiss()
-                                } label: {
-                                    Label("编辑", systemImage: "pencil")
-                                }
-                                .tint(PrimaryTabPalette.accent)
-                            }
-                            .accessibilityHint(summary.role == "owner" ? "向左轻扫可编辑或删除" : "向左轻扫可编辑")
-                        }
-                    }
-                }
-            }
-            .navigationTitle("切换旅行")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
-            }
-            // 与其他 sheet 一致的深色底（同 AgentContextSheet 的处理方式）
-            .scrollContentBackground(.hidden)
-            .background(PrimaryTabPalette.background)
-            .preferredColorScheme(.dark)
-        }
-        .tint(PrimaryTabPalette.accent)
-        .alert(
-            "删除旅行？",
-            isPresented: Binding(
-                get: { tripPendingDeletion != nil },
-                set: { if !$0 { tripPendingDeletion = nil } }
-            ),
-            presenting: tripPendingDeletion
-        ) { summary in
-            Button("取消", role: .cancel) {
-                tripPendingDeletion = nil
-            }
-            Button("删除", role: .destructive) {
-                tripPendingDeletion = nil
-                onDelete(summary)
-            }
-        } message: { summary in
-            Text("“\(summary.displayName)”中的行程、支出和手书内容都会永久删除，此操作无法撤销。")
-        }
-    }
-
-    private func tripRow(title: String, subtitle: String, isSelected: Bool) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "location.fill")
-                .foregroundStyle(PrimaryTabPalette.accent)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(PrimaryTabPalette.accent)
-            }
-        }
-        .contentShape(Rectangle())
-    }
-
-    private func dateRange(for summary: TripSummary) -> String {
-        let dates = [summary.startDate, summary.endDate].compactMap { $0 }
-        return dates.count == 2 ? dates.joined(separator: " – ") : "日期待设置"
-    }
-}
-
 /// 一次泊入飞行的起终点（页面坐标系矩形）与两端状态快照：heroState 是
 /// 起飞瞬间英雄位上的内容（思考 orb，或再次泊入时的地球），orbState 是
 /// 降落端思考 icon 对应的状态。
@@ -3358,7 +3253,17 @@ private struct AgentContextSheet: View {
     @State private var destination = ""
     @State private var startDate = Date()
     @State private var endDate = Date()
-    private let interests = ["美食", "文化", "自然", "购物", "拍照", "夜生活"]
+    /// 预置兴趣标签（展示名本地化；存入会话偏好的即为所显示的名称）。
+    private var interests: [String] {
+        [
+            String(localized: "agent.interest.food"),
+            String(localized: "agent.interest.culture"),
+            String(localized: "agent.interest.nature"),
+            String(localized: "agent.interest.shopping"),
+            String(localized: "agent.interest.photo"),
+            String(localized: "agent.interest.nightlife")
+        ]
+    }
 
     var body: some View {
         NavigationStack {
@@ -3366,39 +3271,42 @@ private struct AgentContextSheet: View {
                 Section {
                     if let trip = syncEngine.trip, trip.isConfigured {
                         if isTripEditable {
-                            TextField("目的地，例如：东京", text: $destination)
+                            TextField("agent.destinationPlaceholder", text: $destination)
                                 .textInputAutocapitalization(.words)
                             // 原生日期组件（Apple 文档：DatePicker(_:selection:displayedComponents:in:)），
                             // 仅显示日期；返程用 in: startDate... 约束不得早于出发。
-                            DatePicker("出发", selection: $startDate, displayedComponents: .date)
-                            DatePicker("返程", selection: $endDate, in: startDate..., displayedComponents: .date)
+                            DatePicker("agent.departure", selection: $startDate, displayedComponents: .date)
+                            DatePicker("agent.return", selection: $endDate, in: startDate..., displayedComponents: .date)
                                 .onChange(of: startDate) { _, newStartDate in
                                     if endDate < newStartDate { endDate = newStartDate }
                                 }
                         } else {
-                            LabeledContent("目的地", value: trip.destination ?? "待设置")
-                            LabeledContent("日期", value: "\(trip.startDate ?? "") – \(trip.endDate ?? "")")
+                            LabeledContent("agent.destinationLabel", value: trip.destination ?? String(localized: "agent.valueUnset"))
+                            LabeledContent(
+                                "agent.dateLabel",
+                                value: String(format: String(localized: "agent.dateRange"), trip.startDate ?? "", trip.endDate ?? "")
+                            )
                         }
                     } else {
-                        ContentUnavailableView("请先完成旅行设置", systemImage: "calendar.badge.exclamationmark", description: Text("豆奶需要目的地、日期等信息来检查地点与冲突。"))
+                        ContentUnavailableView("agent.setupEmptyTitle", systemImage: "calendar.badge.exclamationmark", description: Text("agent.setupEmptyDesc"))
                     }
                 } header: {
-                    Text("本次旅行")
+                    Text("agent.tripSection")
                 } footer: {
                     if isTripEditable {
-                        Text("目的地与日期会同步给已加入的成员，请勿填写敏感信息。")
+                        Text("agent.tripFooter")
                     }
                 }
 
-                Section("规划条件") {
-                    Picker("节奏", selection: binding(\.pace)) {
-                        Text("未设置").tag(""); Text("轻松").tag("relaxed"); Text("均衡").tag("balanced"); Text("特种兵").tag("packed")
+                Section("agent.conditionsSection") {
+                    Picker("agent.paceLabel", selection: binding(\.pace)) {
+                        Text("agent.preference.unset").tag(""); Text("agent.preference.relaxed").tag("relaxed"); Text("agent.preference.balanced").tag("balanced"); Text("agent.preference.intense").tag("packed")
                     }
-                    Picker("同行人", selection: binding(\.companions)) {
-                        Text("未设置").tag(""); Text("独自").tag("solo"); Text("情侣").tag("couple"); Text("带父母").tag("parents"); Text("带儿童").tag("children"); Text("和朋友").tag("friends")
+                    Picker("agent.companyLabel", selection: binding(\.companions)) {
+                        Text("agent.preference.unset").tag(""); Text("agent.preference.solo").tag("solo"); Text("agent.preference.couple").tag("couple"); Text("agent.preference.parents").tag("parents"); Text("agent.preference.kids").tag("children"); Text("agent.preference.friends").tag("friends")
                     }
-                    Picker("预算", selection: binding(\.budget)) {
-                        Text("未设置").tag(""); Text("省钱").tag("value"); Text("适中").tag("balanced"); Text("品质优先").tag("premium")
+                    Picker("agent.budgetLabel", selection: binding(\.budget)) {
+                        Text("agent.preference.unset").tag(""); Text("agent.preference.budget").tag("value"); Text("agent.preference.mid").tag("balanced"); Text("agent.preference.premium").tag("premium")
                     }
                 }
 
@@ -3422,7 +3330,7 @@ private struct AgentContextSheet: View {
                     .padding(.vertical, 4)
 
                     HStack(spacing: 10) {
-                        TextField("添加自定义偏好", text: $customInterest)
+                        TextField("agent.customInterestPlaceholder", text: $customInterest)
                             .font(.subheadline)
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12)
@@ -3438,11 +3346,11 @@ private struct AgentContextSheet: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(customInterest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityLabel("添加自定义偏好")
+                        .accessibilityLabel(Text("agent.customInterestA11y"))
                     }
                 } header: {
-                    Text("偏好")
-                } 
+                    Text("agent.preferencesSection")
+                }
             }
             .scrollContentBackground(.hidden)
             .background(PrimaryTabPalette.background)
@@ -3452,10 +3360,10 @@ private struct AgentContextSheet: View {
             // 编辑入口可能先切行程再打开本弹窗；选中行程异步落定后刷新一次字段。
             .onChange(of: syncEngine.trip?.id) { _, _ in loadTripFields() }
             .onDisappear { persistTripChanges() }
-            .navigationTitle("旅行与偏好")
+            .navigationTitle("agent.preferencesTitle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("common.done") { dismiss() } }
             }
         }
     }

@@ -1,0 +1,8 @@
+/* InfoPlist.strings (zh-Hant-TW) — 繁體中文（台灣） */
+
+"CFBundleDisplayName" = "yunnn";
+
+"NSRemindersUsageDescription" = "用於根據行程一鍵建立提醒事項，讓你在系統「提醒事項」App 中收到明日待辦。";
+"NSCameraUsageDescription" = "用於拍攝旅行照片、金融卡和門票等內容，交給豆奶分析或加入卡包。";
+"NSPhotoLibraryUsageDescription" = "用於選擇旅行照片交給豆奶分析，或將媒體加入手書。";
+"NSLocationWhenInUseUsageDescription" = "用於在首頁顯示你與行程地點的距離，並在當天尚無地點時將地圖定位到你的目前位置。";

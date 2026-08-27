@@ -1,6 +1,7 @@
 name: TravelCompanion
 options:
   bundleIdPrefix: com.yangzhiyuan
+  developmentLanguage: zh-Hans
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -20,6 +21,7 @@ targets:
       - Assets.xcassets
     resources:
       - Sources/TravelCompanion/Supporting/PrivacyInfo.xcprivacy
+      - path: Sources/TravelCompanion/Resources
     dependencies:
       - target: TravelCompanionShareExtension
         embed: true
@@ -50,6 +52,7 @@ targets:
       - Sources/TravelCompanionShareExtension
     resources:
       - Sources/TravelCompanionShareExtension/PrivacyInfo.xcprivacy
+      - path: Sources/TravelCompanionShareExtension/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yangzhiyuan.travelcompanion.share

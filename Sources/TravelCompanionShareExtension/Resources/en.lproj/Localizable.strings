@@ -1,0 +1,4 @@
+/* Localizable.strings (en) — Share extension */
+
+"shareext.noLink" = "No web link found to add.";
+"shareext.httpsOnly" = "Only valid HTTPS web links can be added.";

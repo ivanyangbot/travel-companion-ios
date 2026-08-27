@@ -44,21 +44,21 @@ struct TripSetupSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(isNewTrip ? "创建新旅程" : (initialTrip == nil ? "从这里开始规划" : "编辑共享行程"))
+            Text(isNewTrip ? "tripsetup.createTitle" : (initialTrip == nil ? "tripsetup.planTitle" : "tripsetup.editTitle"))
                 .font(.title2.bold())
-            Text(isNewTrip ? "新旅程会独立保存日程、卡片和支出。请勿填写敏感信息。" : "当前旅程的日程、卡片和支出会同步给已加入的成员，请勿填写敏感信息。")
+            Text(isNewTrip ? "tripsetup.createDesc" : "tripsetup.editDesc")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            TextField("目的地，例如：东京", text: $destination)
+            TextField("tripsetup.destinationPlaceholder", text: $destination)
                 .textInputAutocapitalization(.words)
                 .textFieldStyle(.roundedBorder)
-            DatePicker("出发", selection: $startDate, displayedComponents: .date)
-            DatePicker("返程", selection: $endDate, in: startDate..., displayedComponents: .date)
-            TextField("货币（ISO 代码）", text: $currency)
+            DatePicker("tripsetup.departure", selection: $startDate, displayedComponents: .date)
+            DatePicker("tripsetup.return", selection: $endDate, in: startDate..., displayedComponents: .date)
+            TextField("tripsetup.currencyPlaceholder", text: $currency)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
-            Button(isNewTrip ? "创建旅程" : "保存旅程") {
+            Button(isNewTrip ? "tripsetup.createButton" : "tripsetup.saveButton") {
                 onSave(destination, startDate, endDate, currency)
             }
             .buttonStyle(.borderedProminent)

@@ -31,8 +31,7 @@ struct TodayView: View {
     @State private var tripBeingSelectedID: Int?
     @State private var isStartingNewTrip = false
     @State private var isPlanningNewTrip = false
-    @State private var showsSignOutConfirmation = false
-    @State private var signOutErrorMessage: String?
+    @State private var showsSettings = false
     @State private var isReloading = false
     @State private var expandedPOICardID: UUID?
     @State private var poiExpansionProgress: CGFloat = 0
@@ -129,29 +128,23 @@ struct TodayView: View {
             .presentationContentInteraction(.scrolls)
             .interactiveDismissDisabled(tripBeingSelectedID != nil || isStartingNewTrip)
         }
-        .alert("退出登录？", isPresented: Binding(
-            get: { showsSignOutConfirmation },
+        .sheet(isPresented: Binding(
+            get: { showsSettings },
             set: {
-                showsSignOutConfirmation = $0
-                if !$0 { clearQuickAction(.signOut) }
+                showsSettings = $0
+                if !$0 { clearQuickAction(.settings) }
             }
         )) {
-            Button("退出登录", role: .destructive) {
-                if !appleSignIn.signOut() {
-                    signOutErrorMessage = appleSignIn.errorMessage ?? "请稍后重试。"
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("退出后将停止云端同步，仍可继续使用本地模式。")
-        }
-        .alert("无法退出登录", isPresented: Binding(
-            get: { signOutErrorMessage != nil },
-            set: { if !$0 { signOutErrorMessage = nil } }
-        )) {
-            Button("好", role: .cancel) { signOutErrorMessage = nil }
-        } message: {
-            Text(signOutErrorMessage ?? "")
+            TodaySettingsSheet(
+                appleSignIn: appleSignIn,
+                onDismiss: { showsSettings = false }
+            )
+            // 弹窗外观与「切换旅行」完全一致。
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.hidden)
+            .presentationCornerRadius(28)
+            .presentationBackground(PrimaryTabPalette.background)
+            .presentationContentInteraction(.scrolls)
         }
         .sheet(isPresented: Binding(
             get: { linkHandler.browserURL != nil },
@@ -329,7 +322,6 @@ struct TodayView: View {
                     isPOIOverlayExpanded: $isPOIOverlayExpanded,
                     activeAction: activeQuickAction,
                     isReloading: isReloading,
-                    isAuthenticated: appleSignIn.isAuthenticated,
                     onAction: { action in handleQuickAction(action, pois: pois) },
                     onOverlayExpansionChanged: { isExpanded in
                         guard isExpanded else { return }
@@ -391,10 +383,9 @@ struct TodayView: View {
                 isReloading = false
                 clearQuickAction(.reload)
             }
-        case .signOut:
-            guard appleSignIn.isAuthenticated else { return }
-            activeQuickAction = .signOut
-            showsSignOutConfirmation = true
+        case .settings:
+            activeQuickAction = .settings
+            showsSettings = true
         }
     }
 
@@ -876,25 +867,25 @@ private enum TodayQuickAction: String, CaseIterable {
     case addCompanion
     case tripSelection
     case reload
-    case signOut
+    case settings
 
     var iconName: String {
         switch self {
         case .addCompanion: "icon-adduser-outline"
         case .tripSelection: "icon-plan-outline"
         case .reload: "icon-reload-outline"
-        case .signOut: "rectangle.portrait.and.arrow.right"
+        case .settings: "gearshape"
         }
     }
 
-    var usesSystemImage: Bool { self == .signOut }
+    var usesSystemImage: Bool { self == .settings }
 
     var accessibilityLabel: String {
         switch self {
-        case .addCompanion: "邀请同行人"
-        case .tripSelection: "切换旅行"
-        case .reload: "重新同步"
-        case .signOut: "退出登录"
+        case .addCompanion: String(localized: "today.inviteA11y")
+        case .tripSelection: String(localized: "today.switchTripA11y")
+        case .reload: String(localized: "today.resyncA11y")
+        case .settings: String(localized: "today.settingsA11y")
         }
     }
 }
@@ -903,13 +894,13 @@ private struct TodayHomeDropdownMenu: View {
     @Binding var isPOIOverlayExpanded: Bool
     let activeAction: TodayQuickAction?
     let isReloading: Bool
-    let isAuthenticated: Bool
     let onAction: (TodayQuickAction) -> Void
     let onOverlayExpansionChanged: (Bool) -> Void
 
     private var isMenuExpanded: Bool { !isPOIOverlayExpanded }
     private var visibleActions: [TodayQuickAction] {
-        TodayQuickAction.allCases.filter { $0 != .signOut || isAuthenticated }
+        // 「设置」对所有用户可见；未登录时弹窗内再隐藏「退出登录」。
+        TodayQuickAction.allCases
     }
 
     private var expandedHeight: CGFloat {
@@ -975,8 +966,8 @@ private struct TodayHomeDropdownMenu: View {
         .buttonStyle(.plain)
         .frame(width: 48, height: 48)
         .zIndex(1)
-        .accessibilityLabel(isMenuExpanded ? "收起功能菜单并展开地点卡片" : "展开功能菜单并收起地点卡片")
-        .accessibilityValue(isMenuExpanded ? "已展开" : "已收起")
+        .accessibilityLabel(Text(isMenuExpanded ? "today.collapseA11y" : "today.expandA11y"))
+        .accessibilityValue(Text(isMenuExpanded ? "today.expandedValue" : "today.collapsedValue"))
     }
 
     private func actionButton(_ action: TodayQuickAction) -> some View {
@@ -1023,15 +1014,371 @@ private struct TodayHomeDropdownMenu: View {
 
 /// Dark custom trip picker used by the home-page dropdown. It replaces the
 /// system confirmation dialog with richer trip context and explicit progress.
-private struct TodayTripPickerSheet: View {
+/// 主页左上角「设置」的半屏弹窗：与「共享旅程」「切换旅行」同一套设计
+/// 语言（头部标题 + 关闭按钮、深色卡片行），提供语言、隐私政策与退出登录。
+private struct TodaySettingsSheet: View {
+    @ObservedObject var appleSignIn: AppleSignInStore
+    let onDismiss: () -> Void
+
+    /// 语言偏好：同步写入系统 AppleLanguages，重启 App 后生效。
+    @AppStorage("preferredAppLanguage") private var preferredLanguage = "system"
+    @State private var isLanguageExpanded = false
+    @State private var showsPrivacyPolicy = false
+    @State private var showsSignOutConfirmation = false
+    @State private var signOutErrorMessage: String?
+
+    private struct LanguageOption {
+        let code: String
+        let name: String
+    }
+
+    private var languageOptions: [LanguageOption] {
+        [
+            LanguageOption(code: "system", name: String(localized: "settings.languageSystem")),
+            LanguageOption(code: "zh-Hans", name: String(localized: "settings.languageZH")),
+            LanguageOption(code: "en", name: String(localized: "settings.languageEN"))
+        ]
+    }
+
+    private var currentLanguageName: String {
+        languageOptions.first { $0.code == preferredLanguage }?.name ?? String(localized: "settings.languageSystem")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    languageRow
+
+                    if isLanguageExpanded {
+                        languageOptionList
+                    }
+
+                    privacyRow
+
+                    if appleSignIn.isAuthenticated {
+                        signOutRow
+                    }
+
+                    versionFooter
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(PrimaryTabPalette.background.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .accessibilityAddTraits(.isModal)
+        .sheet(isPresented: $showsPrivacyPolicy) {
+            TodayPrivacyPolicySheet(onDismiss: { showsPrivacyPolicy = false })
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(28)
+                .presentationBackground(PrimaryTabPalette.background)
+                .presentationContentInteraction(.scrolls)
+        }
+        .alert("settings.signOutConfirmTitle", isPresented: $showsSignOutConfirmation) {
+            Button("settings.signOutConfirmButton", role: .destructive) {
+                if appleSignIn.signOut() {
+                    onDismiss()
+                } else {
+                    signOutErrorMessage = appleSignIn.errorMessage ?? String(localized: "settings.signOutFailedRetry")
+                }
+            }
+            Button("common.cancel", role: .cancel) {}
+        } message: {
+            Text("settings.signOutMessage")
+        }
+        .alert("settings.signOutFailedTitle", isPresented: Binding(
+            get: { signOutErrorMessage != nil },
+            set: { if !$0 { signOutErrorMessage = nil } }
+        )) {
+            Button("common.ok", role: .cancel) { signOutErrorMessage = nil }
+        } message: {
+            Text(signOutErrorMessage ?? "")
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("settings.title")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                Text("settings.subtitle")
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(PrimaryTabPalette.elevatedSurface, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("common.close"))
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 18)
+    }
+
+    private var languageRow: some View {
+        rowCard(icon: "globe", title: String(localized: "settings.language"), detail: currentLanguageName) {
+            withAnimation(.snappy(duration: 0.25)) {
+                isLanguageExpanded.toggle()
+            }
+        } trailing: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .rotationEffect(.degrees(isLanguageExpanded ? 90 : 0))
+        }
+    }
+
+    private var languageOptionList: some View {
+        VStack(spacing: 10) {
+            ForEach(languageOptions, id: \.code) { option in
+                languageOptionRow(option)
+            }
+
+            Text("settings.languageNote")
+                .font(.caption)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 4)
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func languageOptionRow(_ option: LanguageOption) -> some View {
+        let isSelected = preferredLanguage == option.code
+
+        return Button {
+            applyLanguage(option.code)
+            withAnimation(.snappy(duration: 0.25)) {
+                isLanguageExpanded = false
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Text(option.name)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(PrimaryTabPalette.accent)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 48)
+            .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// 记录偏好并写入系统 AppleLanguages（跟随系统 = 移除覆盖），重启后生效。
+    private func applyLanguage(_ code: String) {
+        preferredLanguage = code
+        if code == "system" {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.set([code], forKey: "AppleLanguages")
+        }
+    }
+
+    private var privacyRow: some View {
+        rowCard(icon: "hand.raised", title: String(localized: "settings.privacy")) {
+            showsPrivacyPolicy = true
+        } trailing: {
+            chevron
+        }
+    }
+
+    private var signOutRow: some View {
+        rowCard(
+            icon: "rectangle.portrait.and.arrow.right",
+            iconTint: .red,
+            title: String(localized: "settings.signOut"),
+            titleColor: .red
+        ) {
+            showsSignOutConfirmation = true
+        } trailing: {
+            chevron
+        }
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(PrimaryTabPalette.secondaryText)
+    }
+
+    private var versionFooter: some View {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "–"
+
+        return Text(String(format: String(localized: "settings.version"), version, build))
+            .font(.caption)
+            .foregroundStyle(PrimaryTabPalette.secondaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
+    }
+
+    /// 与行程行同款的设置行卡片：左侧图标贴片 + 标题/副标题 + 自定义尾部。
+    private func rowCard<Trailing: View>(
+        icon: String,
+        iconTint: Color = .white.opacity(0.72),
+        title: String,
+        titleColor: Color = .white,
+        detail: String? = nil,
+        action: @escaping () -> Void,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(iconTint)
+                    .frame(width: 38, height: 38)
+                    .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(titleColor)
+                    if let detail {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                trailing()
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 64)
+            .background(PrimaryTabPalette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 「隐私政策」内嵌页：内容依据 App 隐私清单（PrivacyInfo.xcprivacy）与
+/// 实际代码行为撰写，不依赖外部链接。
+private struct TodayPrivacyPolicySheet: View {
+    let onDismiss: () -> Void
+
+    private struct PolicySection {
+        let title: LocalizedStringKey
+        let body: LocalizedStringKey
+    }
+
+    private let sections: [PolicySection] = [
+        PolicySection(title: "settings.noTrackingTitle", body: "settings.noTrackingBody"),
+        PolicySection(title: "settings.signInTitle", body: "settings.signInBody"),
+        PolicySection(title: "settings.sharedDataTitle", body: "settings.sharedDataBody"),
+        PolicySection(title: "settings.photoTitle", body: "settings.photoBody"),
+        PolicySection(title: "settings.localFirstTitle", body: "settings.localFirstBody")
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(sections, id: \.title) { section in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(section.title)
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.white)
+                            Text(section.body)
+                                .font(.subheadline)
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .background(PrimaryTabPalette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(.white.opacity(0.08), lineWidth: 1)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(PrimaryTabPalette.background.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("settings.privacySheetTitle")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                Text("settings.privacySheetSubtitle")
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(PrimaryTabPalette.elevatedSurface, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("common.close"))
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 18)
+    }
+}
+
+/// 「切换旅行」弹窗：主页左上角菜单与 Agent 工作台共用同一实现。
+/// 行程行左滑出编辑/删除（仅 owner 可操作）；工作台通过可选参数启用
+/// Agent 语境——副标题、「暂不选择行程」行、编辑改开「旅行与偏好」。
+struct TodayTripPickerSheet: View {
     let trips: [TripSummary]
     let selectedTripID: Int?
     let tripBeingSelectedID: Int?
     let isStartingNewTrip: Bool
+    /// 弹窗副标题：主页默认「选择首页要显示的旅行」，工作台传 Agent 语境文案。
+    var subtitle: String = String(localized: "tripswitch.subtitle")
+    /// 工作台传入：显示「暂不选择行程」行（Agent 允许不带行程规划）。
+    var onClear: (() -> Void)? = nil
+    /// 工作台传入：编辑交由宿主处理（选中该行程并打开「旅行与偏好」）；
+    /// 主页保持 nil，走内置的 TripSetupSheet 编辑（目的地/日期/货币）。
+    var onEditTrip: ((TripSummary) -> Void)? = nil
     let onSelect: (TripSummary) -> Void
     let onCreate: () -> Void
-    /// 与 Agent 工作台的「切换旅行」弹窗对齐：行程行左滑出编辑/删除（仅 owner 可操作）。
-    /// 主页没有 Agent 上下文，编辑沿用 TripSetupSheet（目的地/日期/货币）。
     let onEdit: (TripSummary, String, Date, Date, String) -> Void
     let onDelete: (TripSummary) -> Void
     let onDismiss: () -> Void
@@ -1051,12 +1398,16 @@ private struct TodayTripPickerSheet: View {
                 LazyVStack(spacing: 10) {
                     createTripButton
 
+                    if let onClear {
+                        clearSelectionRow(onClear)
+                    }
+
                     if !trips.isEmpty {
                         HStack(spacing: 10) {
                             Rectangle()
                                 .fill(.white.opacity(0.12))
                                 .frame(height: 1)
-                            Text("已有旅行")
+                            Text("tripswitch.existing")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(PrimaryTabPalette.secondaryText)
                                 .fixedSize()
@@ -1089,33 +1440,33 @@ private struct TodayTripPickerSheet: View {
             .presentationDragIndicator(.visible)
         }
         .alert(
-            "删除旅行？",
+            "tripswitch.deleteTitle",
             isPresented: Binding(
                 get: { tripPendingDeletion != nil },
                 set: { if !$0 { tripPendingDeletion = nil } }
             ),
             presenting: tripPendingDeletion
         ) { summary in
-            Button("取消", role: .cancel) {
+            Button("common.cancel", role: .cancel) {
                 tripPendingDeletion = nil
             }
-            Button("删除", role: .destructive) {
+            Button("common.delete", role: .destructive) {
                 tripPendingDeletion = nil
                 revealedTripID = nil
                 onDelete(summary)
             }
         } message: { summary in
-            Text("“\(summary.displayName)”中的行程、支出和手书内容都会永久删除，此操作无法撤销。")
+            Text(String(format: String(localized: "tripswitch.deleteMessage"), summary.displayName))
         }
     }
 
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("切换旅行")
+                Text("tripswitch.title")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
-                Text("选择首页要显示的旅行")
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
@@ -1131,7 +1482,7 @@ private struct TodayTripPickerSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(isBusy)
-            .accessibilityLabel("关闭")
+            .accessibilityLabel(Text("common.close"))
         }
         .padding(.horizontal, 20)
         .padding(.top, 20)
@@ -1155,9 +1506,9 @@ private struct TodayTripPickerSheet: View {
                 .frame(width: 44, height: 44)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("新建一段旅行")
+                    Text("tripswitch.newTripButton")
                         .font(.body.weight(.bold))
-                    Text("和豆奶 Agent 一起从灵感开始规划")
+                    Text("tripswitch.newTripSubtitle")
                         .font(.caption)
                         .opacity(0.78)
                 }
@@ -1180,7 +1531,59 @@ private struct TodayTripPickerSheet: View {
         .buttonStyle(.plain)
         .disabled(isBusy)
         .opacity(isBusy && !isStartingNewTrip ? 0.55 : 1)
-        .accessibilityHint("唤起豆奶进行新旅行规划，返回时仍保留当前旅行")
+        .accessibilityHint(Text("tripswitch.newTripHint"))
+    }
+
+    /// 工作台模式的「暂不选择行程」行：与行程行相同的卡片样式，选中态
+    /// 对应 selectedTripID == nil。
+    private func clearSelectionRow(_ action: @escaping () -> Void) -> some View {
+        let isSelected = selectedTripID == nil
+
+        return Button {
+            revealedTripID = nil
+            action()
+            onDismiss()
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "location.slash")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isSelected ? PrimaryTabPalette.accent : .white.opacity(0.72))
+                    .frame(width: 38, height: 38)
+                    .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("tripswitch.workbenchTitle")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("tripswitch.workbenchSubtitle")
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(PrimaryTabPalette.accent)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 64)
+            .background(
+                isSelected ? PrimaryTabPalette.accent.opacity(0.12) : PrimaryTabPalette.surface,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? PrimaryTabPalette.accent.opacity(0.55) : .white.opacity(0.08), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func tripRow(_ trip: TripSummary) -> some View {
@@ -1198,7 +1601,11 @@ private struct TodayTripPickerSheet: View {
             onSelect: { onSelect(trip) },
             onEdit: {
                 revealedTripID = nil
-                editingTrip = trip
+                if let onEditTrip {
+                    onEditTrip(trip)
+                } else {
+                    editingTrip = trip
+                }
             },
             onDelete: {
                 tripPendingDeletion = trip
@@ -1254,7 +1661,7 @@ private struct TodayTripRow: View {
             .disabled(isBusy)
             .opacity(isBusy && !isLoading ? 0.55 : 1)
             .offset(x: rowOffset)
-            .accessibilityValue(isSelected ? "当前旅行" : "")
+            .accessibilityValue(isSelected ? Text("tripswitch.currentValue") : Text(verbatim: ""))
         }
         .gesture(canManage ? swipeGesture : nil)
     }
@@ -1271,7 +1678,7 @@ private struct TodayTripRow: View {
                     .background(.red, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("删除")
+            .accessibilityLabel(Text("tripswitch.deleteA11y"))
 
             Button {
                 onEdit()
@@ -1283,7 +1690,7 @@ private struct TodayTripRow: View {
                     .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("编辑")
+            .accessibilityLabel(Text("tripswitch.editA11y"))
         }
         .padding(.trailing, 8)
     }
@@ -1358,7 +1765,7 @@ private struct TodayTripRow: View {
         let start = trip.startDate?.replacingOccurrences(of: "-", with: ".")
         let end = trip.endDate?.replacingOccurrences(of: "-", with: ".")
         return switch (start, end) {
-        case let (start?, end?): "\(start) — \(end)"
+        case let (start?, end?): String(format: String(localized: "tripswitch.dateRange"), start, end)
         case let (start?, nil): start
         case let (nil, end?): end
         case (nil, nil): nil

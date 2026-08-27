@@ -1,0 +1,4 @@
+/* Localizable.strings (zh-Hant-HK) — 分享擴充功能 */
+
+"shareext.noLink" = "搵唔到可以加嘅網頁連結。";
+"shareext.httpsOnly" = "只可以加有效嘅 HTTPS 網頁連結。";

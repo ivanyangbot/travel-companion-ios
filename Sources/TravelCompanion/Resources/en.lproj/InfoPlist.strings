@@ -1,0 +1,8 @@
+/* InfoPlist.strings (en) — English */
+
+"CFBundleDisplayName" = "yunnn";
+
+"NSRemindersUsageDescription" = "Used to create reminders from your itinerary in one tap, so tomorrow's to-dos show up in the Reminders app.";
+"NSCameraUsageDescription" = "Used to take photos of travel moments, bank cards, and tickets for Dounai to analyze or add to your wallet.";
+"NSPhotoLibraryUsageDescription" = "Used to pick travel photos for Dounai to analyze, or to add media to your journal.";
+"NSLocationWhenInUseUsageDescription" = "Used to show how far you are from today's itinerary places on the home screen, and to center the map on your current location when a day has no places yet.";
