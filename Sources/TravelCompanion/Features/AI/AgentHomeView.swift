@@ -78,12 +78,31 @@ struct AgentHomeView: View {
     @Namespace private var composerMotion
     /// 抽签流程中已收集的选择（问题 key → 选项文案），最终作为上下文发给 Agent。
     @State private var lotteryAnswers: [(key: String, value: String)] = []
+    /// 「打算旅行多久呢？」滑动条的当前天数（1~30，30 = 30 天以上）。
+    @State private var lotteryDurationDays: Double = 5
+    /// 「我们有多少预算？」滑动条的当前预算（¥1,000~¥30,000，上限记为「以上」）。
+    @State private var lotteryBudgetAmount: Double = 10_000
     /// 「拈签定缘」的追问序列：逐步收窄范围，最后把所有选择交给 Agent 抽签。
-    private let lotterySteps: [(question: String, key: String, left: String, right: String)] = [
-        ("或许我们可以缩小一下范围？", "范围", "海外", "国内"),
-        ("想要躺平慢游，还是特种兵打卡？", "节奏", "躺平慢游", "特种兵打卡"),
-        ("预算上更偏向哪一边？", "预算", "精打细算", "品质优先")
+    /// 前两问用双方块二选一作答，后两问（天数/预算）用滑动条作答。
+    private let lotterySteps: [LotteryStep] = [
+        LotteryStep(question: "或许我们可以缩小一下范围？", key: "范围", kind: .choice(left: "海外", right: "国内")),
+        LotteryStep(question: "想要躺平慢游，还是特种兵打卡？", key: "节奏", kind: .choice(left: "躺平慢游", right: "特种兵打卡")),
+        LotteryStep(question: "打算旅行多久呢？", key: "天数", kind: .duration),
+        LotteryStep(question: "我们有多少预算？", key: "预算", kind: .budget)
     ]
+
+    /// 追问的作答形式：二选一方块，或滑动条（天数/预算）。
+    enum LotteryStepKind {
+        case choice(left: String, right: String)
+        case duration
+        case budget
+    }
+
+    struct LotteryStep {
+        let question: String
+        let key: String
+        let kind: LotteryStepKind
+    }
     /// 右侧输入入口底部滚动展示的目的地灵感（附对应国家的国旗 emoji 与
     /// 随包静态背景图的资源名），循环向上翻滚切换。
     private static let inspirationSuggestions: [(name: String, flag: String, image: String)] = [
@@ -1341,7 +1360,8 @@ struct AgentHomeView: View {
 
     /// 折叠态：左右两个宽度各占一半的正方形入口，材质与主界面悬浮 tab 栏
     /// 一致（玻璃底 + 白描边）。默认左侧“拈签定缘”、右侧输入入口（含添加
-    /// 图片控件）；进入抽签流程后两个方块变为当前问题的两个选项。
+    /// 图片控件）；抽签的二选一问题中两个方块变为选项，天数/预算两问则
+    /// 换成滑动条作答面板。
     private var collapsedComposer: some View {
         VStack(spacing: 8) {
             if lotteryStepIndex != nil {
@@ -1362,26 +1382,78 @@ struct AgentHomeView: View {
                 .transition(.opacity)
             }
 
-            HStack(spacing: 12) {
-                leftEntrySquare
-                rightEntrySquare
+            if let index = lotteryStepIndex {
+                switch lotterySteps[index].kind {
+                case .choice:
+                    HStack(spacing: 12) {
+                        leftEntrySquare
+                        rightEntrySquare
+                    }
+                    .id("lottery-choices-\(index)")
+                    .transition(.opacity)
+                case .duration:
+                    AgentLotterySliderPanel(
+                        range: 1...30,
+                        step: 1,
+                        value: $lotteryDurationDays,
+                        minLabel: "1 天",
+                        maxLabel: "30 天+",
+                        buttonTitle: "下一步",
+                        accessibilityLabel: "旅行天数",
+                        onConfirm: { confirmLotteryDuration() },
+                        format: { days in
+                            (number: "\(Int(days))", unit: days >= 30 ? "天以上" : "天")
+                        }
+                    )
+                    .id("lottery-slider-duration")
+                    .transition(.opacity)
+                case .budget:
+                    AgentLotterySliderPanel(
+                        range: 1_000...30_000,
+                        step: 500,
+                        value: $lotteryBudgetAmount,
+                        minLabel: "¥1,000",
+                        maxLabel: "¥30,000+",
+                        buttonTitle: "开始抽签",
+                        accessibilityLabel: "预算金额",
+                        onConfirm: { confirmLotteryBudget() },
+                        format: { amount in
+                            (number: "¥\(Int(amount).formatted())", unit: amount >= 30_000 ? "以上" : "")
+                        }
+                    )
+                    .id("lottery-slider-budget")
+                    .transition(.opacity)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    leftEntrySquare
+                    rightEntrySquare
+                }
+                .transition(.opacity)
             }
         }
     }
 
-    /// 左侧方块：默认是「拈签定缘」入口；抽签流程中是当前问题的左选项。
+    /// 当前追问是否为二选一形式（返回左右选项文案与下标）；滑动条两问返回 nil。
+    private var currentChoiceStep: (index: Int, left: String, right: String)? {
+        guard let index = lotteryStepIndex,
+              case .choice(let left, let right) = lotterySteps[index].kind else { return nil }
+        return (index, left, right)
+    }
+
+    /// 左侧方块：默认是「拈签定缘」入口；抽签二选一问题中是当前问题的左选项。
     private var leftEntrySquare: some View {
         Button {
-            if let index = lotteryStepIndex {
-                answerLottery(value: lotterySteps[index].left)
+            if let choice = currentChoiceStep {
+                answerLottery(value: choice.left)
             } else {
                 drawLot()
             }
         } label: {
             ZStack {
-                if let index = lotteryStepIndex {
-                    lotteryChoiceLabel(lotterySteps[index].left)
-                        .id("lottery-left-\(index)")
+                if let choice = currentChoiceStep {
+                    lotteryChoiceLabel(choice.left)
+                        .id("lottery-left-\(choice.index)")
                         .transition(.opacity)
                 } else {
                     // 白图标 + 短标签整体靠左对齐，贴齐方块左内边距（20pt）。
@@ -1403,7 +1475,7 @@ struct AgentHomeView: View {
             .background { AgentEntryGlassTile() }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(lotteryStepIndex.map { "选择 \(lotterySteps[$0].left)" } ?? "拈签定缘，随机抽一个旅行灵感")
+        .accessibilityLabel(currentChoiceStep.map { "选择 \($0.left)" } ?? "拈签定缘，随机抽一个旅行灵感")
         // 两个入口等宽，略高于正方形。
         .frame(maxWidth: .infinity)
         .aspectRatio(entryTileAspectRatio, contentMode: .fit)
@@ -1416,16 +1488,16 @@ struct AgentHomeView: View {
     }
 
     /// 右侧方块：默认是输入入口（含添加图片控件），点按展开为完整输入条；
-    /// 抽签流程中是当前问题的右选项。
+    /// 抽签二选一问题中是当前问题的右选项。
     private var rightEntrySquare: some View {
         Group {
-            if let index = lotteryStepIndex {
+            if let choice = currentChoiceStep {
                 Button {
-                    answerLottery(value: lotterySteps[index].right)
+                    answerLottery(value: choice.right)
                 } label: {
                     ZStack {
-                        lotteryChoiceLabel(lotterySteps[index].right)
-                            .id("lottery-right-\(index)")
+                        lotteryChoiceLabel(choice.right)
+                            .id("lottery-right-\(choice.index)")
                             .transition(.opacity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1493,7 +1565,7 @@ struct AgentHomeView: View {
                 .onTapGesture { expandComposer() }
             }
         }
-        .accessibilityLabel(lotteryStepIndex.map { "选择 \(lotterySteps[$0].right)" } ?? "展开输入框")
+        .accessibilityLabel(currentChoiceStep.map { "选择 \($0.right)" } ?? "展开输入框")
         // 两个入口等宽，略高于正方形。
         .frame(maxWidth: .infinity)
         .aspectRatio(entryTileAspectRatio, contentMode: .fit)
@@ -1653,6 +1725,8 @@ struct AgentHomeView: View {
     /// 「拈签定缘」：进入抽签追问流程，逐步收窄范围后把所有选择交给 Agent。
     private func drawLot() {
         lotteryAnswers = []
+        lotteryDurationDays = 5
+        lotteryBudgetAmount = 10_000
         withAnimation(.easeInOut(duration: 0.3)) { lotteryStepIndex = 0 }
     }
 
@@ -1689,6 +1763,18 @@ struct AgentHomeView: View {
         } else {
             finishLottery()
         }
+    }
+
+    /// 天数滑动条确认：记录所选天数并推进（30 天记为「30天以上」）。
+    private func confirmLotteryDuration() {
+        let days = Int(lotteryDurationDays)
+        answerLottery(value: days >= 30 ? "30天以上" : "\(days)天")
+    }
+
+    /// 预算滑动条确认：记录所选预算并推进（拉满记为「以上」）。
+    private func confirmLotteryBudget() {
+        let amount = Int(lotteryBudgetAmount)
+        answerLottery(value: "¥\(amount.formatted())" + (amount >= 30_000 ? "以上" : ""))
     }
 
     /// 结束抽签流程（回答完最后一问，或在最后一问点「跳过」）：把已收集的选择
@@ -2285,6 +2371,148 @@ private struct AgentEntryGlassTile: View {
     var body: some View {
         Color.clear
             .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+/// 「拈签定缘」滑动条作答面板（天数/预算两问）：大号数值 + 自定义滑动条 +
+/// 确认按钮，玻璃底与入口方块一致；整体宽高比也对齐双方块入口的高度节奏。
+private struct AgentLotterySliderPanel: View {
+    let range: ClosedRange<Double>
+    let step: Double
+    @Binding var value: Double
+    let minLabel: String
+    let maxLabel: String
+    let buttonTitle: String
+    let accessibilityLabel: String
+    let onConfirm: () -> Void
+    let format: (Double) -> (number: String, unit: String)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(format(value).number)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(format(value).unit)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                Spacer(minLength: 0)
+            }
+
+            Spacer(minLength: 6)
+
+            AgentLotterySlider(
+                range: range,
+                step: step,
+                value: $value,
+                accessibilityLabel: accessibilityLabel,
+                format: { format($0).number + format($0).unit }
+            )
+
+            HStack {
+                Text(minLabel)
+                Spacer()
+                Text(maxLabel)
+            }
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(PrimaryTabPalette.tertiaryText)
+            .padding(.top, 6)
+
+            Button(action: onConfirm) {
+                Text(buttonTitle)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 12)
+            .accessibilityLabel(buttonTitle)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1.78, contentMode: .fit)
+        .background { AgentEntryGlassTile() }
+    }
+}
+
+/// 自定义滑动条：暖色渐变已选轨道 + 白色圆形拇指，按步长吸附；数值变化时
+/// 触发轻微触感反馈，支持 VoiceOver 增减调节。暖色渐变与「拈签定缘」
+/// 光晕同色系。
+private struct AgentLotterySlider: View {
+    let range: ClosedRange<Double>
+    let step: Double
+    @Binding var value: Double
+    let accessibilityLabel: String
+    let format: (Double) -> String
+
+    @State private var haptic: UIImpactFeedbackGenerator?
+
+    private static let trackHeight: CGFloat = 6
+    private static let thumbSize: CGFloat = 24
+
+    var body: some View {
+        GeometryReader { proxy in
+            let thumbSize = Self.thumbSize
+            let usableWidth = max(1, proxy.size.width - thumbSize)
+            let span = range.upperBound - range.lowerBound
+            let fraction = min(1, max(0, (value - range.lowerBound) / span))
+            let thumbCenter = thumbSize / 2 + usableWidth * CGFloat(fraction)
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.14))
+                    .frame(height: Self.trackHeight)
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(hex: 0xFFAA46).opacity(0.85), PrimaryTabPalette.accent],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: thumbCenter, height: Self.trackHeight)
+                    .shadow(color: PrimaryTabPalette.accent.opacity(0.4), radius: 4)
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .shadow(color: .black.opacity(0.38), radius: 4, y: 2)
+                    .overlay(Circle().stroke(PrimaryTabPalette.accent.opacity(0.3), lineWidth: 1))
+                    .offset(x: thumbCenter - thumbSize / 2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let raw = (gesture.location.x - thumbSize / 2) / usableWidth
+                        let clamped = min(1, max(0, raw))
+                        let snapped = ((range.lowerBound + Double(clamped) * span) / step)
+                            .rounded() * step
+                        let newValue = min(range.upperBound, max(range.lowerBound, snapped))
+                        guard abs(newValue - value) > 0.001 else { return }
+                        value = newValue
+                        haptic?.impactOccurred()
+                    }
+            )
+            .accessibilityElement()
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityValue(format(value))
+            .accessibilityAdjustableAction { direction in
+                let delta: Double = direction == .increment ? step : -step
+                let adjusted = min(range.upperBound, max(range.lowerBound, value + delta))
+                guard adjusted != value else { return }
+                value = adjusted
+                haptic?.impactOccurred()
+            }
+        }
+        .frame(height: 34)
+        .onAppear {
+            if haptic == nil { haptic = UIImpactFeedbackGenerator(style: .light) }
+        }
     }
 }
 
