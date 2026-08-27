@@ -1284,17 +1284,18 @@ private struct TodaySettingsSheet: View {
 private struct TodayPrivacyPolicySheet: View {
     let onDismiss: () -> Void
 
-    private struct PolicySection {
+    private struct PolicySection: Identifiable {
+        let id: String
         let title: LocalizedStringKey
         let body: LocalizedStringKey
     }
 
     private let sections: [PolicySection] = [
-        PolicySection(title: "settings.noTrackingTitle", body: "settings.noTrackingBody"),
-        PolicySection(title: "settings.signInTitle", body: "settings.signInBody"),
-        PolicySection(title: "settings.sharedDataTitle", body: "settings.sharedDataBody"),
-        PolicySection(title: "settings.photoTitle", body: "settings.photoBody"),
-        PolicySection(title: "settings.localFirstTitle", body: "settings.localFirstBody")
+        PolicySection(id: "no-tracking", title: "settings.noTrackingTitle", body: "settings.noTrackingBody"),
+        PolicySection(id: "sign-in", title: "settings.signInTitle", body: "settings.signInBody"),
+        PolicySection(id: "shared-data", title: "settings.sharedDataTitle", body: "settings.sharedDataBody"),
+        PolicySection(id: "photo", title: "settings.photoTitle", body: "settings.photoBody"),
+        PolicySection(id: "local-first", title: "settings.localFirstTitle", body: "settings.localFirstBody")
     ]
 
     var body: some View {
@@ -1303,7 +1304,7 @@ private struct TodayPrivacyPolicySheet: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(sections, id: \.title) { section in
+                    ForEach(sections) { section in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(section.title)
                                 .font(.subheadline.weight(.bold))
