@@ -515,6 +515,17 @@ final class AgentV2SessionStore: ObservableObject {
         session.attachments.append(attachment)
         save()
     }
+
+    func removeAttachment(id: UUID) {
+        session.attachments.removeAll { $0.id == id }
+        save()
+    }
+
+    func clearAttachments() {
+        guard !session.attachments.isEmpty else { return }
+        session.attachments.removeAll()
+        save()
+    }
 }
 
 private extension JSONEncoder {

@@ -48,7 +48,11 @@ struct AgentHomeView: View {
     @EnvironmentObject private var runState: AgentV2RunState
     @FocusState private var isComposerFocused: Bool
     @State private var message = ""
-    @State private var photo: PhotosPickerItem?
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var isShowingPhotoPicker = false
+    @State private var isShowingCameraPicker = false
+    @State private var isShowingDocumentPicker = false
+    @State private var isProcessingAttachment = false
     @State private var isShowingContext = false
     @State private var isShowingHistory = false
     @State private var isShowingSignIn = false
@@ -157,6 +161,7 @@ struct AgentHomeView: View {
     @State private var contentWidth: CGFloat = 0
     /// 锁定态下解除所需的向上滚动偏移（pt）。
     private static let welcomePeekUnlockOffset: Double = 24
+    private static let maximumAttachmentCount = 3
 
     init(
         syncEngine: SyncEngine,
@@ -313,6 +318,30 @@ struct AgentHomeView: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
             }
+            .photosPicker(
+                isPresented: $isShowingPhotoPicker,
+                selection: $selectedPhotos,
+                maxSelectionCount: max(1, remainingAttachmentSlots),
+                matching: .images
+            )
+            .onChange(of: selectedPhotos) { _, items in
+                guard !items.isEmpty else { return }
+                load(items)
+            }
+            .sheet(isPresented: $isShowingCameraPicker) {
+                AgentCameraPicker(isPresented: $isShowingCameraPicker) { image in
+                    loadCapturedImage(image)
+                }
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $isShowingDocumentPicker) {
+                AgentDocumentPicker(isPresented: $isShowingDocumentPicker) { urls in
+                    loadDocuments(urls)
+                }
+                .presentationDetents([.fraction(0.9)])
+                .presentationDragIndicator(.visible)
+            }
             .alert("无法完成操作", isPresented: Binding(get: { runState.error != nil }, set: { if !$0 { runState.error = nil } })) {
                 Button("知道了", role: .cancel) {}
             } message: { Text(runState.error ?? "") }
@@ -427,6 +456,11 @@ struct AgentHomeView: View {
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                if isComposerFocused { isComposerFocused = false }
+            }
+        )
         // 欢迎态由固定高度的英雄区、行程卡与三条建议组成；无论入口来自
         // 首页还是工作台都不允许滚动，进入对话后才恢复滚动。
         .scrollDisabled(isWelcomeState)
@@ -1132,16 +1166,7 @@ struct AgentHomeView: View {
     private var composer: some View {
         VStack(spacing: 8) {
             if !store.session.attachments.isEmpty {
-                HStack(spacing: 8) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .foregroundStyle(PrimaryTabPalette.accent)
-                    Text("已附 \(store.session.attachments.count) 张图片")
-                        .foregroundStyle(.white)
-                    Text("· 发送失败后仍可重试").foregroundStyle(PrimaryTabPalette.secondaryText)
-                    Spacer()
-                }
-                .font(.caption)
-                .padding(.horizontal, 4)
+                attachmentPreviewStrip
             }
 
             // 双方块入口只在欢迎页（尚无对话）出现；进入对话后输入条常驻，
@@ -1163,12 +1188,15 @@ struct AgentHomeView: View {
         // 过渡避免生硬的横切线。欢迎页玻璃方块需透出 ASCII 底纹，不加遮罩。
         .background {
             Group {
-                if !isWelcomeState {
+                if !isWelcomeState || isComposerExpanded || isComposerFocused {
                     LinearGradient(
                         stops: [
-                            .init(color: PrimaryTabPalette.background.opacity(0), location: 0),
-                            .init(color: PrimaryTabPalette.background.opacity(0.88), location: 0.22),
-                            .init(color: PrimaryTabPalette.background, location: 0.6)
+                            .init(
+                                color: PrimaryTabPalette.background.opacity(isComposerFocused ? 0.82 : 0),
+                                location: 0
+                            ),
+                            .init(color: PrimaryTabPalette.background.opacity(0.96), location: 0.24),
+                            .init(color: PrimaryTabPalette.background, location: 0.56)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -1177,6 +1205,7 @@ struct AgentHomeView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: isWelcomeState)
+            .animation(.easeInOut(duration: 0.2), value: isComposerFocused)
         }
         .onChange(of: isComposerFocused) { _, focused in
             // 键盘收起且没有草稿文本时收回为双方块入口；有内容或已在对话页
@@ -1188,6 +1217,34 @@ struct AgentHomeView: View {
                 withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = false }
             }
         }
+    }
+
+    /// ChatGPT-style attachment tray: selected images/files sit directly
+    /// above the text field and can be removed before sending.
+    private var attachmentPreviewStrip: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 10) {
+                ForEach(store.session.attachments) { attachment in
+                    AgentAttachmentPreviewCard(attachment: attachment) {
+                        store.removeAttachment(id: attachment.id)
+                    }
+                }
+
+                if isProcessingAttachment {
+                    ProgressView()
+                        .tint(PrimaryTabPalette.accent)
+                        .frame(width: 72, height: 72)
+                        .background(
+                            PrimaryTabPalette.surface,
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        )
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.top, 8)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// 展开态：完整输入条（图片、文本框、发送键）。背景与「+」控件和折叠态
@@ -1383,9 +1440,28 @@ struct AgentHomeView: View {
         .aspectRatio(entryTileAspectRatio, contentMode: .fit)
     }
 
-    /// 「+」添加图片控件：折叠方块与展开输入条共用，随布局切换连续移动。
+    /// 「+」附件菜单：使用原生 Menu，保持与系统的键盘、VoiceOver 和
+    /// pointer 交互一致。具体选择器在照片/拍摄/文件入口中分别呈现。
     private var addPhotoButton: some View {
-        PhotosPicker(selection: $photo, matching: .images) {
+        Menu {
+            Button {
+                presentCameraPicker()
+            } label: {
+                Label("拍摄", systemImage: "camera")
+            }
+
+            Button {
+                presentPhotoPicker()
+            } label: {
+                Label("照片", systemImage: "photo.on.rectangle")
+            }
+
+            Button {
+                presentDocumentPicker()
+            } label: {
+                Label("文件", systemImage: "paperclip")
+            }
+        } label: {
             Image(systemName: "plus")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.white)
@@ -1393,8 +1469,9 @@ struct AgentHomeView: View {
                 .background(PrimaryTabPalette.surface, in: Circle())
         }
         .buttonStyle(.plain)
-        .onChange(of: photo) { _, item in load(item) }
-        .accessibilityLabel("添加攻略图片")
+        .menuOrder(.fixed)
+        .disabled(isProcessingAttachment)
+        .accessibilityLabel("添加照片或文件")
         .matchedGeometryEffect(id: "composer-plus", in: composerMotion)
     }
 
@@ -1571,7 +1648,8 @@ struct AgentHomeView: View {
     }
 
     private var canSend: Bool {
-        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !runState.isGenerating
+        (!message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !store.session.attachments.isEmpty)
+            && !runState.isGenerating
     }
 
     private func consumeInitialMessageIfNeeded() {
@@ -1635,42 +1713,137 @@ struct AgentHomeView: View {
         store.discardTurn()
     }
 
-    private func load(_ item: PhotosPickerItem?) {
-        guard let item else { return }
-        // 服务端每轮最多接受 3 张附件；超出会在整轮校验时 400，提前拦截。
-        guard store.session.attachments.count < 3 else {
-            photo = nil
-            runState.error = "每轮最多附带 3 张图片，请先清除对话与草稿后再添加。"
+    private var remainingAttachmentSlots: Int {
+        max(0, Self.maximumAttachmentCount - store.session.attachments.count)
+    }
+
+    private func presentCameraPicker() {
+        guard reserveAttachmentSlot() else { return }
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            runState.error = "当前设备无法使用相机。"
             return
         }
+        isComposerFocused = false
+        isShowingCameraPicker = true
+    }
+
+    private func presentPhotoPicker() {
+        guard reserveAttachmentSlot() else { return }
+        isComposerFocused = false
+        isShowingPhotoPicker = true
+    }
+
+    private func presentDocumentPicker() {
+        guard reserveAttachmentSlot() else { return }
+        isComposerFocused = false
+        isShowingDocumentPicker = true
+    }
+
+    private func reserveAttachmentSlot() -> Bool {
+        guard remainingAttachmentSlots > 0 else {
+            runState.error = "每轮最多添加 \(Self.maximumAttachmentCount) 个附件，请先移除一个。"
+            return false
+        }
+        return true
+    }
+
+    private func load(_ items: [PhotosPickerItem]) {
+        let accepted = Array(items.prefix(remainingAttachmentSlots))
+        guard !accepted.isEmpty else {
+            selectedPhotos = []
+            return
+        }
+        isProcessingAttachment = true
         Task {
-            defer { photo = nil }
-            do {
-                guard let data = try await item.loadTransferable(type: Data.self) else {
-                    throw AgentImageAttachmentError.unreadable
+            defer {
+                selectedPhotos = []
+                isProcessingAttachment = false
+            }
+            for (index, item) in accepted.enumerated() {
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self) else {
+                        throw AgentAttachmentError.unreadable
+                    }
+                    try await addImageAttachment(data, fileName: "照片-\(index + 1).jpg")
+                } catch {
+                    runState.error = error.localizedDescription
                 }
-                let prepared = try await Task.detached(priority: .userInitiated) {
-                    try AgentImageAttachmentProcessor.prepare(data)
-                }.value
-                store.addAttachment(.init(
-                    id: UUID(),
-                    mediaType: prepared.mediaType,
-                    dataURI: prepared.dataURI
-                ))
-                // 折叠态下从「+」添加图片后直接展开输入条；弹窗模式本来就
-                // 常驻输入条，只需把焦点交回文本框。
-                expandComposer()
+            }
+            restoreComposerAfterPicking()
+        }
+    }
+
+    private func loadCapturedImage(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.92) else {
+            runState.error = AgentAttachmentError.unreadable.localizedDescription
+            return
+        }
+        isProcessingAttachment = true
+        Task {
+            defer { isProcessingAttachment = false }
+            do {
+                try await addImageAttachment(data, fileName: "拍摄照片.jpg")
+                restoreComposerAfterPicking()
             } catch {
                 runState.error = error.localizedDescription
             }
         }
     }
 
+    private func loadDocuments(_ urls: [URL]) {
+        let accepted = Array(urls.prefix(remainingAttachmentSlots))
+        guard !accepted.isEmpty else { return }
+        isProcessingAttachment = true
+        Task {
+            defer { isProcessingAttachment = false }
+            for url in accepted {
+                do {
+                    let prepared = try await Task.detached(priority: .userInitiated) {
+                        try AgentFileAttachmentProcessor.prepare(url)
+                    }.value
+                    store.addAttachment(.init(
+                        id: UUID(),
+                        mediaType: prepared.mediaType,
+                        dataURI: prepared.dataURI,
+                        fileName: prepared.fileName
+                    ))
+                } catch {
+                    runState.error = error.localizedDescription
+                }
+            }
+            restoreComposerAfterPicking()
+        }
+    }
+
+    private func addImageAttachment(_ data: Data, fileName: String) async throws {
+        let prepared = try await Task.detached(priority: .userInitiated) {
+            try AgentImageAttachmentProcessor.prepare(data)
+        }.value
+        store.addAttachment(.init(
+            id: UUID(),
+            mediaType: prepared.mediaType,
+            dataURI: prepared.dataURI,
+            fileName: fileName
+        ))
+    }
+
+    private func restoreComposerAfterPicking() {
+        if presentation == .home {
+            withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = true }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            isComposerFocused = true
+        }
+    }
+
     private func send() {
-        guard let request = makeRequest() else { runState.error = "请先完成旅行设置。"; return }
+        let submittedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "请分析这些附件，并结合当前旅行给出建议。"
+            : message
+        guard let request = makeRequest(message: submittedMessage) else { runState.error = "请先完成旅行设置。"; return }
         // plan_new（无生效旅程或「暂不选择行程」）时 tripID 为 nil，服务端不强制本接口的旅程鉴权。
         let tripID = syncEngine.trip?.id
-        let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: message, createdAt: .now)
+        let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: submittedMessage, createdAt: .now)
         store.beginTurn()
         store.append(userMessage)
         acknowledgeInitialMessageSubmissionIfNeeded(userMessage.content)
@@ -1714,6 +1887,7 @@ struct AgentHomeView: View {
                             state.streamingReply = ""
                         }
                         sessionStore.completeTurn()
+                        sessionStore.clearAttachments()
                         state.liveCards = []
                     default: sessionStore.apply(event)
                     }
@@ -1742,21 +1916,21 @@ struct AgentHomeView: View {
         onInitialMessageSubmitted?()
     }
 
-    private func makeRequest() -> AgentV2TurnRequest? {
+    private func makeRequest(message requestMessage: String) -> AgentV2TurnRequest? {
         if plansNewTrip {
-            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: message, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: requestMessage, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
         }
         guard let trip = syncEngine.trip, trip.isConfigured else {
             // 无生效旅程：从零规划模式（plan_new）。服务端会产出待用户确认的
             // 旅程提案（trip_proposal），确认前不落库创建旅程。
-            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: message, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: requestMessage, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
         }
         let days = trip.days.map { day in
             AgentV2TurnRequest.Day(date: day.date, cards: day.cards.map { card in
                 AgentV2TurnRequest.Card(id: card.serverID, kind: card.kind.rawValue, title: card.title, startAt: ISO8601DateFormatter().string(from: card.startAt), endAt: card.endAt.map { ISO8601DateFormatter().string(from: $0) }, place: card.place?.name, notes: card.notes)
             })
         }
-        return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: message, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+        return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: requestMessage, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
     }
 
     /// 用户确认旅程提案：复用既有建旅程链路创建旅程，随后清除提案。

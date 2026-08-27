@@ -46,6 +46,14 @@ struct AgentV2TurnRequest: Codable, Sendable {
         let id: UUID
         let mediaType: String
         let dataURI: String
+        let fileName: String?
+
+        init(id: UUID, mediaType: String, dataURI: String, fileName: String? = nil) {
+            self.id = id
+            self.mediaType = mediaType
+            self.dataURI = dataURI
+            self.fileName = fileName
+        }
     }
 
     var schemaVersion: Int = 2

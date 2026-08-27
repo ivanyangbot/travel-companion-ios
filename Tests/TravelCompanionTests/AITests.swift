@@ -57,6 +57,32 @@ final class AITests: XCTestCase {
         XCTAssertTrue(prepared.dataURI.hasPrefix("data:image/jpeg;base64,"))
     }
 
+    func testAgentTextFileIsPreparedAsNamedDataURI() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-attachment-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("旅行确认单".utf8).write(to: url)
+
+        let prepared = try AgentFileAttachmentProcessor.prepare(url)
+
+        XCTAssertEqual(prepared.fileName, url.lastPathComponent)
+        XCTAssertEqual(prepared.mediaType, "text/plain")
+        XCTAssertTrue(prepared.dataURI.hasPrefix("data:text/plain;base64,"))
+    }
+
+    func testAgentFileRejectsUnsupportedExtension() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-attachment-\(UUID().uuidString).exe")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data([0x01]).write(to: url)
+
+        XCTAssertThrowsError(try AgentFileAttachmentProcessor.prepare(url)) { error in
+            guard case AgentAttachmentError.unsupportedFile = error else {
+                return XCTFail("Expected unsupportedFile, got \(error)")
+            }
+        }
+    }
+
     func testDraftDecodesAsSelectedEditableCards() throws {
         let data = Data("""
         {"data":{"days":[{"date":"2026-10-01","cards":[{"kind":"activity","title":"故宫","date":"2026-10-01","time":"09:00","place":{"name":"故宫博物院","address":"北京","latitude":39.9163,"longitude":116.3972,"placeId":"ChIJg","cityCode":null},"notes":null}]}]}}

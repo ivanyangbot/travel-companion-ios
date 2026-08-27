@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00A7C447CE5B49298348A1F0 /* AgentAttachmentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00A7C447CE5B49298348A1F1 /* AgentAttachmentSupport.swift */; };
 		01CF842454052FCA56C9E53F /* MemoListEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */; };
 		031F69F3FAA8CCDE6D3B1751 /* TripSharingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30369EF50639AA58432D5AF7 /* TripSharingSheet.swift */; };
 		038861FECCE58D3B9FD8B931 /* MapLibreTodayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */; };
@@ -153,6 +154,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		00A7C447CE5B49298348A1F1 /* AgentAttachmentSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAttachmentSupport.swift; sourceTree = "<group>"; };
 		052363166F7B2BC56DBDB352 /* MemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoTests.swift; sourceTree = "<group>"; };
 		07EC18374E8F4516FD09F006 /* ExternalLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLinkHandler.swift; sourceTree = "<group>"; };
 		09F5CB7948CE9E0D540F0968 /* dest-morocco.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-morocco.jpg"; sourceTree = "<group>"; };
@@ -485,6 +487,7 @@
 		C12227DB86BAF3A591AB23A6 /* AI */ = {
 			isa = PBXGroup;
 			children = (
+				00A7C447CE5B49298348A1F1 /* AgentAttachmentSupport.swift */,
 				A4C82FBF8EC96938C50799C4 /* AgentHomeView.swift */,
 				8CD253A87557EF495F2A1BAD /* AgentV2Models.swift */,
 				7D05FB265C37B209B9DB4C4C /* AgentV2SessionStore.swift */,
@@ -745,6 +748,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				00A7C447CE5B49298348A1F0 /* AgentAttachmentSupport.swift in Sources */,
 				392264090A247D29C681C7F2 /* AIExpenseConversationSheet.swift in Sources */,
 				D18CAD03BDA23AD32F53F9A4 /* AIItinerarySheet.swift in Sources */,
 				698C0569AAFAAA8B9145E381 /* APIClient.swift in Sources */,
