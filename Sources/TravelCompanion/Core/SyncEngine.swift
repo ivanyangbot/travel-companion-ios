@@ -14,6 +14,9 @@ final class SyncEngine: ObservableObject {
     @Published private(set) var trip: SharedTripSnapshot?
     @Published private(set) var trips: [TripSummary] = []
     @Published private(set) var selectedTripID: Int?
+    /// 用户在 Agent 中显式「暂不选择行程」后置位：refresh 不再自动回落到
+    /// 第一条行程，直到用户重新主动选择/创建行程（随 clearSelectedTrip 归位）。
+    @Published private(set) var hasExplicitlyDeselectedTrip = false
     @Published private(set) var status: Status = .loading
     @Published private(set) var apiBaseURLText: String
     /// Mirrors the current Apple sign-in state for UI display. The source of
@@ -146,7 +149,12 @@ final class SyncEngine: ObservableObject {
                 }
             }
             trips = summaries
-            if selectedTripID == nil || !summaries.contains(where: { $0.id == selectedTripID }) {
+            if selectedTripID == nil {
+                // 显式「暂不选择行程」后保持未选择；否则自动回落到第一条。
+                if !hasExplicitlyDeselectedTrip {
+                    selectedTripID = summaries.first?.id
+                }
+            } else if !summaries.contains(where: { $0.id == selectedTripID }) {
                 selectedTripID = summaries.first?.id
             }
             await apiClient.setActiveTripID(selectedTripID)
@@ -339,6 +347,7 @@ final class SyncEngine: ObservableObject {
     func selectTrip(_ id: Int) async {
         guard id != selectedTripID else { return }
         selectedTripID = id
+        hasExplicitlyDeselectedTrip = false
         await apiClient.setActiveTripID(id)
         do { trip = try repository.cachedTrip(id: id) } catch { trip = nil }
         if localOnly {
@@ -353,6 +362,7 @@ final class SyncEngine: ObservableObject {
     func clearSelectedTrip() async {
         selectedTripID = nil
         trip = nil
+        hasExplicitlyDeselectedTrip = true
         await apiClient.setActiveTripID(nil)
     }
 

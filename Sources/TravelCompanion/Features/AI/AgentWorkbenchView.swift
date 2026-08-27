@@ -1227,6 +1227,7 @@ private struct AgentContextSheet: View {
     @ObservedObject var store: AgentV2SessionStore
     @Environment(\.dismiss) private var dismiss
 
+    @State private var customInterest = ""
     private let interests = ["美食", "文化", "自然", "购物", "拍照", "夜生活"]
 
     var body: some View {
@@ -1255,7 +1256,7 @@ private struct AgentContextSheet: View {
 
                 Section {
                     FlowLayout(spacing: 8) {
-                        ForEach(interests, id: \.self) { interest in
+                        ForEach(displayInterests, id: \.self) { interest in
                             Button { toggleInterest(interest) } label: {
                                 HStack(spacing: 5) {
                                     if store.session.preferences.interests.contains(interest) { Image(systemName: "checkmark") }
@@ -1271,6 +1272,26 @@ private struct AgentContextSheet: View {
                         }
                     }
                     .padding(.vertical, 4)
+
+                    HStack(spacing: 10) {
+                        TextField("添加自定义偏好", text: $customInterest)
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(PrimaryTabPalette.elevatedSurface, in: Capsule())
+                            .onSubmit { addCustomInterest() }
+                        Button {
+                            addCustomInterest()
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(PrimaryTabPalette.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(customInterest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("添加自定义偏好")
+                    }
                 } header: {
                     Text("偏好")
                 }
@@ -1296,6 +1317,22 @@ private struct AgentContextSheet: View {
 
     private func toggleInterest(_ interest: String) {
         store.toggleInterest(interest)
+    }
+
+    /// 预置偏好 + 已保存的自定义偏好；自定义项取消勾选后即从列表移除。
+    private var displayInterests: [String] {
+        let saved = store.session.preferences.interests
+        return interests + saved.filter { !interests.contains($0) }
+    }
+
+    /// 添加自定义偏好：去空白、去重后直接勾选加入。
+    private func addCustomInterest() {
+        let name = customInterest.trimmingCharacters(in: .whitespacesAndNewlines)
+        customInterest = ""
+        guard !name.isEmpty else { return }
+        if !store.session.preferences.interests.contains(name) {
+            store.toggleInterest(name)
+        }
     }
 }
 

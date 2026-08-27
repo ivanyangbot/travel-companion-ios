@@ -46,6 +46,9 @@ struct AgentHomeView: View {
     let presentation: AgentHomePresentation
     @EnvironmentObject private var store: AgentV2SessionStore
     @EnvironmentObject private var runState: AgentV2RunState
+    /// 工作台模式下指向承载本视图的 sheet：清除行程选择后用它关掉整个工作台。
+    /// 首页内嵌（.home）模式下不存在宿主 sheet，不会被调用。
+    @Environment(\.dismiss) private var dismissWorkbench
     @FocusState private var isComposerFocused: Bool
     @State private var message = ""
     @State private var isShowingPhotoPicker = false
@@ -56,6 +59,11 @@ struct AgentHomeView: View {
     @State private var isShowingHistory = false
     @State private var isShowingSignIn = false
     @State private var isShowingTripPicker = false
+    /// 「切换旅行」的「编辑」入口：等 picker 收起后再打开「旅行与偏好」，避免两张 sheet 抢占同一宿主。
+    @State private var openContextAfterPickerDismiss = false
+    /// 工作台内「暂不选择行程」：等 picker 收起后连同工作台 sheet 一起关闭，
+    /// 主页直接落到未选择行程的状态，而不是闪回地图。
+    @State private var closeWorkbenchAfterPickerDismiss = false
     @State private var didConsumeInitialMessage = false
     @State private var didSubmitInitialMessage = false
     /// Coalesce the many scroll requests produced by a token stream. Without
@@ -72,6 +80,9 @@ struct AgentHomeView: View {
     /// 底部输入区是否已展开：折叠态为左右两个等宽正方形入口，
     /// 点按右侧输入方块后才展开为完整输入条并弹出键盘。
     @State private var isComposerExpanded = false
+    /// 附件预览条的实测高度：输入区渐变遮罩按它向上延伸，
+    /// 避免写死数值与实际内容对不上。
+    @State private var attachmentStripHeight: CGFloat = 0
     /// 「拈签定缘」抽签流程：nil 表示未在流程中，否则为当前问题的下标。
     @State private var lotteryStepIndex: Int?
     /// 折叠方块与展开输入条之间做连续变形动画（matchedGeometryEffect）的命名空间。
@@ -80,7 +91,9 @@ struct AgentHomeView: View {
     @State private var lotteryAnswers: [(key: String, value: String)] = []
     /// 「打算旅行多久呢？」滑动条的当前天数（1~30，30 = 30 天以上）。
     @State private var lotteryDurationDays: Double = 5
-    /// 「我们有多少预算？」滑动条的当前预算（¥1,000~¥30,000，上限记为「以上」）。
+    /// 「我们有多少预算？」滑动条的当前预算：范围随天数联动（低档
+    /// max(¥300, ¥250/天)、高档 max(¥5,000, ¥3,000/天)），天数变化时
+    /// 自动夹回新范围。
     @State private var lotteryBudgetAmount: Double = 10_000
     /// 「拈签定缘」的追问序列：逐步收窄范围，最后把所有选择交给 Agent 抽签。
     /// 前两问用双方块二选一作答，后两问（天数/预算）用滑动条作答。
@@ -315,19 +328,35 @@ struct AgentHomeView: View {
             }
             .sheet(isPresented: $isShowingContext) {
                 AgentContextSheet(syncEngine: syncEngine, store: store)
+                    // 展开高度与 AgentWorkbenchView 的初始 detent（0.8）一致
+                    .presentationDetents([.fraction(0.8)])
             }
             .sheet(isPresented: $isShowingHistory) {
                 AgentHistorySheet(store: store) {
                     runState.clearTransientState()
                 }
             }
-            .sheet(isPresented: $isShowingTripPicker) {
+            .sheet(isPresented: $isShowingTripPicker, onDismiss: {
+                // 「编辑」先关掉本弹窗，待其完全收起后再弹出「旅行与偏好」。
+                if openContextAfterPickerDismiss {
+                    openContextAfterPickerDismiss = false
+                    isShowingContext = true
+                }
+                // 「暂不选择行程」直接关闭整个工作台，主页落到未选择行程的状态。
+                if closeWorkbenchAfterPickerDismiss {
+                    closeWorkbenchAfterPickerDismiss = false
+                    dismissWorkbench()
+                }
+            }) {
                 AgentTripPickerSheet(
                     selectedTripID: syncEngine.selectedTripID,
                     trips: syncEngine.trips,
                     onClear: {
                         resetSuggestions()
                         Task { await syncEngine.clearSelectedTrip() }
+                        if presentation == .workbench {
+                            closeWorkbenchAfterPickerDismiss = true
+                        }
                     },
                     onSelect: { summary in
                         guard summary.id != syncEngine.selectedTripID else { return }
@@ -335,16 +364,14 @@ struct AgentHomeView: View {
                         resetSuggestions()
                         Task { await syncEngine.selectTrip(summary.id) }
                     },
-                    onEdit: { summary, destination, startDate, endDate, currency in
-                        Task {
-                            await syncEngine.updateTrip(
-                                summary,
-                                destination: destination,
-                                startDate: startDate,
-                                endDate: endDate,
-                                currency: currency
-                            )
+                    onEditPreferences: { summary in
+                        // 与点击行程一致：编辑未选中的行程先切换过去，再打开「旅行与偏好」。
+                        if summary.id != syncEngine.selectedTripID {
+                            startNewConversation()
+                            resetSuggestions()
+                            Task { await syncEngine.selectTrip(summary.id) }
                         }
+                        openContextAfterPickerDismiss = true
                     },
                     onDelete: { summary in
                         if summary.id == syncEngine.selectedTripID {
@@ -690,7 +717,7 @@ struct AgentHomeView: View {
         let preferences = store.session.preferences
         return [
             preferenceTitle(preferences.pace, values: ["relaxed": "轻松", "balanced": "均衡", "packed": "特种兵"]),
-            preferenceTitle(preferences.companions, values: ["solo": "独自", "couple": "情侣", "parents": "带父母", "children": "带儿童"]),
+            preferenceTitle(preferences.companions, values: ["solo": "独自", "couple": "情侣", "parents": "带父母", "children": "带儿童", "friends": "和朋友"]),
             preferenceTitle(preferences.budget, values: ["value": "省钱", "balanced": "适中", "premium": "品质优先"])
         ].compactMap { $0 }
     }
@@ -1259,30 +1286,28 @@ struct AgentHomeView: View {
         // 聊天框所在区域的渐变遮罩：盖住从输入控件（加号、文本框、发送键）
         // 之间缝隙透出的滚动内容，向下延伸覆盖到屏幕底；顶缘留少量透明
         // 过渡避免生硬的横切线。欢迎页玻璃方块需透出 ASCII 底纹，不加遮罩。
-        // 附件条出现时渐变向上延伸一段（渐变上延），让图片缩略图背后同样
-        // 有遮罩过渡，而不是直接压在滚动内容上。
+        // 遮罩条件与展开输入条的出现条件保持一致：工作台欢迎态键盘收起时
+        // 输入条常驻，遮罩也不消失。
+        // 附件条出现时按实测高度（附件条 + 间距）向上延伸，渐变过渡正好
+        // 覆盖缩略图背后，不多出一截。
         .background {
             Group {
-                if !isWelcomeState || isComposerExpanded || isComposerFocused {
+                if presentation == .workbench || isComposerExpanded || !isWelcomeState {
                     LinearGradient(
                         stops: [
-                            .init(
-                                color: PrimaryTabPalette.background.opacity(isComposerFocused ? 0.82 : 0),
-                                location: 0
-                            ),
-                            .init(color: PrimaryTabPalette.background.opacity(0.96), location: 0.24),
-                            .init(color: PrimaryTabPalette.background, location: 0.56)
+                            .init(color: PrimaryTabPalette.background.opacity(0), location: 0),
+                            .init(color: PrimaryTabPalette.background.opacity(0.72), location: 0.26),
+                            .init(color: PrimaryTabPalette.background.opacity(0.95), location: 0.55),
+                            .init(color: PrimaryTabPalette.background, location: 0.82)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    // 附件条（约 8pt 内边距 + 76pt 预览卡 + 间距）出现时向上延伸。
-                    .padding(.top, store.session.attachments.isEmpty ? 0 : -112)
+                    .padding(.top, store.session.attachments.isEmpty ? 0 : -(attachmentStripHeight + 8))
                     .ignoresSafeArea(edges: .bottom)
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: isWelcomeState)
-            .animation(.easeInOut(duration: 0.2), value: isComposerFocused)
             .animation(.easeInOut(duration: 0.25), value: store.session.attachments.isEmpty)
         }
         .onChange(of: isComposerFocused) { _, focused in
@@ -1294,6 +1319,12 @@ struct AgentHomeView: View {
                isWelcomeState {
                 withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = false }
             }
+        }
+        .onChange(of: lotteryDurationDays) { _, days in
+            // 预算范围随天数联动：天数变化时把当前预算夹回新的取值范围，
+            // 避免确认时把超范围的天价/低价记录进上下文。
+            let range = budgetRange(forDays: Int(days))
+            lotteryBudgetAmount = min(max(lotteryBudgetAmount, range.lowerBound), range.upperBound)
         }
     }
 
@@ -1323,6 +1354,12 @@ struct AgentHomeView: View {
         }
         .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // 实测附件条高度（含顶部内边距），供渐变遮罩按需向上延伸。
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { _, height in
+            attachmentStripHeight = height
+        }
     }
 
     /// 展开态：完整输入条（图片、文本框、发送键）。背景与「+」控件和折叠态
@@ -1409,16 +1446,16 @@ struct AgentHomeView: View {
                     .transition(.opacity)
                 case .budget:
                     AgentLotterySliderPanel(
-                        range: 1_000...30_000,
-                        step: 500,
+                        range: lotteryBudgetRange,
+                        step: lotteryBudgetStep,
                         value: $lotteryBudgetAmount,
-                        minLabel: "¥1,000",
-                        maxLabel: "¥30,000+",
+                        minLabel: "¥\(Int(lotteryBudgetRange.lowerBound).formatted())",
+                        maxLabel: "¥\(Int(lotteryBudgetRange.upperBound).formatted())+",
                         buttonTitle: "开始抽签",
                         accessibilityLabel: "预算金额",
                         onConfirm: { confirmLotteryBudget() },
                         format: { amount in
-                            (number: "¥\(Int(amount).formatted())", unit: amount >= 30_000 ? "以上" : "")
+                            (number: "¥\(Int(amount).formatted())", unit: amount >= lotteryBudgetRange.upperBound ? "以上" : "")
                         }
                     )
                     .id("lottery-slider-budget")
@@ -1766,15 +1803,47 @@ struct AgentHomeView: View {
     }
 
     /// 天数滑动条确认：记录所选天数并推进（30 天记为「30天以上」）。
+    /// 预算范围随天数联动：若此前记录的预算落在新范围之外，重置为按
+    /// 每人每天 ¥1,500 的默认档。
     private func confirmLotteryDuration() {
         let days = Int(lotteryDurationDays)
+        let range = budgetRange(forDays: days)
+        if !range.contains(lotteryBudgetAmount) {
+            let step = budgetStep(forDays: days)
+            let fallback = ((Double(days) * 1_500) / step).rounded() * step
+            lotteryBudgetAmount = min(max(fallback, range.lowerBound), range.upperBound)
+        }
         answerLottery(value: days >= 30 ? "30天以上" : "\(days)天")
     }
 
     /// 预算滑动条确认：记录所选预算并推进（拉满记为「以上」）。
     private func confirmLotteryBudget() {
         let amount = Int(lotteryBudgetAmount)
-        answerLottery(value: "¥\(amount.formatted())" + (amount >= 30_000 ? "以上" : ""))
+        answerLottery(value: "¥\(amount.formatted())" + (amount >= Int(lotteryBudgetRange.upperBound) ? "以上" : ""))
+    }
+
+    /// 预算滑动条的取值范围随天数联动：1 天 ¥300~¥5,000、30 天
+    /// ¥7,500~¥90,000（低档 max(¥300, ¥250/天)，高档 max(¥5,000, ¥3,000/天)）。
+    private func budgetRange(forDays days: Int) -> ClosedRange<Double> {
+        let days = Double(max(1, days))
+        return max(300, days * 250)...max(5_000, days * 3_000)
+    }
+
+    private var lotteryBudgetRange: ClosedRange<Double> {
+        budgetRange(forDays: Int(lotteryDurationDays))
+    }
+
+    /// 步长取「量程 ÷ 30」并吸附到 1/2/2.5/5×10ⁿ，任何天数下刻度都保持好看。
+    private func budgetStep(forDays days: Int) -> Double {
+        let range = budgetRange(forDays: days)
+        let rawStep = (range.upperBound - range.lowerBound) / 30
+        let magnitude = pow(10, floor(log10(rawStep)))
+        let multiples = [1.0, 2.0, 2.5, 3.0, 5.0, 10.0].map { $0 * magnitude }
+        return multiples.first(where: { $0 >= rawStep }) ?? 10 * magnitude
+    }
+
+    private var lotteryBudgetStep: Double {
+        budgetStep(forDays: Int(lotteryDurationDays))
     }
 
     /// 结束抽签流程（回答完最后一问，或在最后一问点「跳过」）：把已收集的选择
@@ -2193,10 +2262,10 @@ private struct AgentTripPickerSheet: View {
     let trips: [TripSummary]
     let onClear: () -> Void
     let onSelect: (TripSummary) -> Void
-    let onEdit: (TripSummary, String, Date, Date, String) -> Void
+    /// 「编辑」不再弹出 TripSetupSheet（编辑共享行程），改为选中该行程并打开「旅行与偏好」。
+    let onEditPreferences: (TripSummary) -> Void
     let onDelete: (TripSummary) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var editingTrip: TripSummary?
     @State private var tripPendingDeletion: TripSummary?
 
     var body: some View {
@@ -2249,7 +2318,8 @@ private struct AgentTripPickerSheet: View {
                                 }
 
                                 Button {
-                                    editingTrip = summary
+                                    onEditPreferences(summary)
+                                    dismiss()
                                 } label: {
                                     Label("编辑", systemImage: "pencil")
                                 }
@@ -2267,16 +2337,12 @@ private struct AgentTripPickerSheet: View {
                     Button("完成") { dismiss() }
                 }
             }
+            // 与其他 sheet 一致的深色底（同 AgentContextSheet 的处理方式）
+            .scrollContentBackground(.hidden)
+            .background(PrimaryTabPalette.background)
+            .preferredColorScheme(.dark)
         }
         .tint(PrimaryTabPalette.accent)
-        .sheet(item: $editingTrip) { summary in
-            TripSetupSheet(initialTrip: summary) { destination, startDate, endDate, currency in
-                editingTrip = nil
-                onEdit(summary, destination, startDate, endDate, currency)
-            }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-        }
         .alert(
             "删除旅行？",
             isPresented: Binding(
@@ -2418,17 +2484,20 @@ private struct AgentLotterySliderPanel: View {
             .foregroundStyle(PrimaryTabPalette.tertiaryText)
             .padding(.top, 6)
 
-            Button(action: onConfirm) {
-                Text(buttonTitle)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            HStack {
+                Spacer()
+                Button(action: onConfirm) {
+                    Text(buttonTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .frame(height: 36)
+                        .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(buttonTitle)
             }
-            .buttonStyle(.plain)
-            .padding(.top, 12)
-            .accessibilityLabel(buttonTitle)
+            .padding(.top, 10)
         }
         .padding(.horizontal, 18)
         .padding(.top, 14)
@@ -2439,9 +2508,8 @@ private struct AgentLotterySliderPanel: View {
     }
 }
 
-/// 自定义滑动条：暖色渐变已选轨道 + 白色圆形拇指，按步长吸附；数值变化时
-/// 触发轻微触感反馈，支持 VoiceOver 增减调节。暖色渐变与「拈签定缘」
-/// 光晕同色系。
+/// 自定义滑动条：纯色已选轨道 + 白色圆形拇指，按步长吸附；数值变化时
+/// 触发轻微触感反馈，支持 VoiceOver 增减调节。
 private struct AgentLotterySlider: View {
     let range: ClosedRange<Double>
     let step: Double
@@ -2467,15 +2535,8 @@ private struct AgentLotterySlider: View {
                     .fill(Color.white.opacity(0.14))
                     .frame(height: Self.trackHeight)
                 Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: 0xFFAA46).opacity(0.85), PrimaryTabPalette.accent],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
+                    .fill(PrimaryTabPalette.accent)
                     .frame(width: thumbCenter, height: Self.trackHeight)
-                    .shadow(color: PrimaryTabPalette.accent.opacity(0.4), radius: 4)
                 Circle()
                     .fill(Color.white)
                     .frame(width: thumbSize, height: thumbSize)
@@ -3277,17 +3338,40 @@ private struct AgentContextSheet: View {
     @ObservedObject var store: AgentV2SessionStore
     @Environment(\.dismiss) private var dismiss
 
+    @State private var customInterest = ""
+    /// 本次旅行的可编辑字段：进入弹窗或切换行程时从快照载入，离开时如有改动则保存。
+    @State private var destination = ""
+    @State private var startDate = Date()
+    @State private var endDate = Date()
     private let interests = ["美食", "文化", "自然", "购物", "拍照", "夜生活"]
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("本次旅行") {
+                Section {
                     if let trip = syncEngine.trip, trip.isConfigured {
-                        LabeledContent("目的地", value: trip.destination ?? "待设置")
-                        LabeledContent("日期", value: "\(trip.startDate ?? "") – \(trip.endDate ?? "")")
+                        if isTripEditable {
+                            TextField("目的地，例如：东京", text: $destination)
+                                .textInputAutocapitalization(.words)
+                            // 原生日期组件（Apple 文档：DatePicker(_:selection:displayedComponents:in:)），
+                            // 仅显示日期；返程用 in: startDate... 约束不得早于出发。
+                            DatePicker("出发", selection: $startDate, displayedComponents: .date)
+                            DatePicker("返程", selection: $endDate, in: startDate..., displayedComponents: .date)
+                                .onChange(of: startDate) { _, newStartDate in
+                                    if endDate < newStartDate { endDate = newStartDate }
+                                }
+                        } else {
+                            LabeledContent("目的地", value: trip.destination ?? "待设置")
+                            LabeledContent("日期", value: "\(trip.startDate ?? "") – \(trip.endDate ?? "")")
+                        }
                     } else {
                         ContentUnavailableView("请先完成旅行设置", systemImage: "calendar.badge.exclamationmark", description: Text("豆奶需要目的地、日期等信息来检查地点与冲突。"))
+                    }
+                } header: {
+                    Text("本次旅行")
+                } footer: {
+                    if isTripEditable {
+                        Text("目的地与日期会同步给已加入的成员，请勿填写敏感信息。")
                     }
                 }
 
@@ -3296,7 +3380,7 @@ private struct AgentContextSheet: View {
                         Text("未设置").tag(""); Text("轻松").tag("relaxed"); Text("均衡").tag("balanced"); Text("特种兵").tag("packed")
                     }
                     Picker("同行人", selection: binding(\.companions)) {
-                        Text("未设置").tag(""); Text("独自").tag("solo"); Text("情侣").tag("couple"); Text("带父母").tag("parents"); Text("带儿童").tag("children")
+                        Text("未设置").tag(""); Text("独自").tag("solo"); Text("情侣").tag("couple"); Text("带父母").tag("parents"); Text("带儿童").tag("children"); Text("和朋友").tag("friends")
                     }
                     Picker("预算", selection: binding(\.budget)) {
                         Text("未设置").tag(""); Text("省钱").tag("value"); Text("适中").tag("balanced"); Text("品质优先").tag("premium")
@@ -3305,7 +3389,7 @@ private struct AgentContextSheet: View {
 
                 Section {
                     FlowLayout(spacing: 8) {
-                        ForEach(interests, id: \.self) { interest in
+                        ForEach(displayInterests, id: \.self) { interest in
                             Button { toggleInterest(interest) } label: {
                                 HStack(spacing: 5) {
                                     if store.session.preferences.interests.contains(interest) { Image(systemName: "checkmark") }
@@ -3321,6 +3405,26 @@ private struct AgentContextSheet: View {
                         }
                     }
                     .padding(.vertical, 4)
+
+                    HStack(spacing: 10) {
+                        TextField("添加自定义偏好", text: $customInterest)
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(PrimaryTabPalette.elevatedSurface, in: Capsule())
+                            .onSubmit { addCustomInterest() }
+                        Button {
+                            addCustomInterest()
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(PrimaryTabPalette.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(customInterest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("添加自定义偏好")
+                    }
                 } header: {
                     Text("偏好")
                 } 
@@ -3329,6 +3433,10 @@ private struct AgentContextSheet: View {
             .background(PrimaryTabPalette.background)
             .tint(PrimaryTabPalette.accent)
             .preferredColorScheme(.dark)
+            .onAppear { loadTripFields() }
+            // 编辑入口可能先切行程再打开本弹窗；选中行程异步落定后刷新一次字段。
+            .onChange(of: syncEngine.trip?.id) { _, _ in loadTripFields() }
+            .onDisappear { persistTripChanges() }
             .navigationTitle("旅行与偏好")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -3336,6 +3444,57 @@ private struct AgentContextSheet: View {
             }
         }
     }
+
+    /// 当前选中行程的摘要；保存目的地与日期时需要它定位行程。
+    private var currentSummary: TripSummary? {
+        syncEngine.trips.first { $0.id == syncEngine.selectedTripID }
+    }
+
+    /// 与「切换旅行」弹窗的「编辑」入口一致：只有 owner 能改行程信息。
+    private var isTripEditable: Bool {
+        currentSummary?.role == "owner"
+    }
+
+    /// 进入弹窗或切换行程时，把共享行程快照载入可编辑字段。
+    private func loadTripFields() {
+        guard let trip = syncEngine.trip else { return }
+        destination = trip.destination ?? ""
+        let start = trip.startDate.flatMap(Self.formatter.date(from:)) ?? Date()
+        startDate = start
+        endDate = max(start, trip.endDate.flatMap(Self.formatter.date(from:)) ?? start)
+    }
+
+    /// 离开弹窗时保存改动（点「完成」或下拉关闭都会触发）。
+    /// 目的地为空视作未完成编辑，不落库；无改动时不发请求。
+    private func persistTripChanges() {
+        guard isTripEditable, let summary = currentSummary, let trip = syncEngine.trip else { return }
+        let newDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newDestination.isEmpty else { return }
+        let newStart = Self.formatter.string(from: startDate)
+        let newEnd = Self.formatter.string(from: endDate)
+        guard newDestination != (trip.destination ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            || newStart != (trip.startDate ?? "")
+            || newEnd != (trip.endDate ?? "") else { return }
+        Task {
+            await syncEngine.updateTrip(
+                summary,
+                destination: newDestination,
+                startDate: startDate,
+                endDate: endDate,
+                currency: trip.currency ?? "CNY"
+            )
+        }
+    }
+
+    /// 与 TripSetupSheet 一致：日期以 "yyyy-MM-dd"（GMT/POSIX）字符串存储。
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     private func binding(_ keyPath: WritableKeyPath<AgentV2TurnRequest.Preferences, String?>) -> Binding<String> {
         Binding(
@@ -3346,6 +3505,22 @@ private struct AgentContextSheet: View {
 
     private func toggleInterest(_ interest: String) {
         store.toggleInterest(interest)
+    }
+
+    /// 预置偏好 + 已保存的自定义偏好；自定义项取消勾选后即从列表移除。
+    private var displayInterests: [String] {
+        let saved = store.session.preferences.interests
+        return interests + saved.filter { !interests.contains($0) }
+    }
+
+    /// 添加自定义偏好：去空白、去重后直接勾选加入。
+    private func addCustomInterest() {
+        let name = customInterest.trimmingCharacters(in: .whitespacesAndNewlines)
+        customInterest = ""
+        guard !name.isEmpty else { return }
+        if !store.session.preferences.interests.contains(name) {
+            store.toggleInterest(name)
+        }
     }
 }
 
