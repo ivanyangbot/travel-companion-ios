@@ -167,27 +167,84 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
-/// 半屏照片选择：内嵌官方 PHPickerViewController（SwiftUI 的
-/// .photosPickerStyle(.inline) 在相册 Face ID 解锁后会把内部导航撑出容器，
-/// 导致布局破坏、选择失效；直接内嵌 PHPicker 则解锁后仅在自身视图内刷新）。
-struct AgentPhotoPickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
+/// 将系统 PHPicker 直接嵌入当前 Agent 层级，而不是再创建一层 SwiftUI
+/// sheet。受保护相册通过 Face ID 后会重建远程 picker 视图；保持同一个
+/// 宿主层级可避免重建时用系统灰色 presentation host 替换上半屏。
+struct AgentPhotoPickerOverlay: View {
     let maximumSelectionCount: Int
     let onPick: ([PHPickerResult]) -> Void
+    let onDismiss: () -> Void
+    @GestureState private var dragOffset: CGFloat = 0
 
     var body: some View {
-        ZStack {
-            Color(uiColor: .secondarySystemBackground)
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.24)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onDismiss)
+                    .accessibilityHidden(true)
 
-            AgentPhotoLibraryPicker(selectionLimit: maximumSelectionCount) { results in
-                dismiss()
-                onPick(results)
+                VStack(spacing: 0) {
+                    HStack {
+                        Capsule()
+                            .fill(Color.white.opacity(0.34))
+                            .frame(width: 46, height: 5)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 21)
+                    .contentShape(Rectangle())
+                    .gesture(dismissGesture)
+
+                    AgentPhotoLibraryPicker(selectionLimit: maximumSelectionCount) { results in
+                        if results.isEmpty {
+                            onDismiss()
+                        } else {
+                            onPick(results)
+                        }
+                    }
+                }
+                .frame(
+                    height: min(
+                        max(420, proxy.size.height * 0.58),
+                        max(420, proxy.size.height - 28)
+                    )
+                )
+                .background(Color.black)
+                .offset(y: max(0, dragOffset))
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 32,
+                        topTrailingRadius: 32,
+                        style: .continuous
+                    )
+                )
+                .overlay {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 32,
+                        topTrailingRadius: 32,
+                        style: .continuous
+                    )
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.42), radius: 24, y: -6)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .ignoresSafeArea(edges: .bottom)
+        .ignoresSafeArea()
         .preferredColorScheme(.dark)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var dismissGesture: some Gesture {
+        DragGesture(minimumDistance: 4)
+            .updating($dragOffset) { value, state, _ in
+                state = max(0, value.translation.height)
+            }
+            .onEnded { value in
+                if value.translation.height > 72 || value.predictedEndTranslation.height > 120 {
+                    onDismiss()
+                }
+            }
     }
 }
 
@@ -203,16 +260,19 @@ struct AgentPhotoLibraryPicker: UIViewControllerRepresentable {
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = context.coordinator
         picker.overrideUserInterfaceStyle = .dark
-        picker.view.backgroundColor = .secondarySystemBackground
+        picker.view.backgroundColor = .black
+        picker.view.isOpaque = true
+        picker.view.clipsToBounds = true
         return picker
     }
 
     func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {
         uiViewController.overrideUserInterfaceStyle = .dark
-        // Unlocking a protected Photos collection briefly rebuilds the
-        // picker's remote view hierarchy. Keep the host view opaque so the
-        // rebuilt hierarchy never exposes the sheet's black backing view.
-        uiViewController.view.backgroundColor = .secondarySystemBackground
+        // Face ID success replaces the out-of-process child hierarchy. The
+        // local host remains opaque and matches the Agent palette throughout
+        // that replacement instead of exposing secondarySystemBackground.
+        uiViewController.view.backgroundColor = .black
+        uiViewController.view.isOpaque = true
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }

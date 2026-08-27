@@ -318,23 +318,28 @@ struct AgentHomeView: View {
                     .accessibilityHint(Text("agent.signInHint"))
                 }
             }
-            .overlay {
-                if isShowingPhotoPicker {
-                    // PHPicker may invoke Face ID for protected albums. Let the
-                    // presenting view remain live while the scene resigns and
-                    // becomes active again; a local scrim provides stable
-                    // dimming without UIKit replacing the upper sheet backdrop
-                    // with an opaque black view after authentication.
-                    Color.black.opacity(0.24)
-                        .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .onTapGesture {}
-                        .accessibilityHidden(true)
-                }
-            }
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            .overlay {
+                if isShowingPhotoPicker {
+                    AgentPhotoPickerOverlay(
+                        maximumSelectionCount: max(1, remainingAttachmentSlots),
+                        onPick: { results in
+                            withAnimation(.easeOut(duration: 0.22)) {
+                                isShowingPhotoPicker = false
+                            }
+                            loadPHPickerResults(results)
+                        },
+                        onDismiss: {
+                            withAnimation(.easeOut(duration: 0.22)) {
+                                isShowingPhotoPicker = false
+                            }
+                        }
+                    )
+                    .zIndex(100)
+                }
+            }
             .sheet(isPresented: $isShowingSignIn) {
                 AgentHomeSignInSheet(appleSignIn: appleSignIn)
                     .presentationDetents([.height(300)])
@@ -427,19 +432,6 @@ struct AgentHomeView: View {
                 .presentationCornerRadius(28)
                 .presentationBackground(PrimaryTabPalette.background)
                 .presentationContentInteraction(.scrolls)
-            }
-            .sheet(isPresented: $isShowingPhotoPicker) {
-                AgentPhotoPickerSheet(
-                    maximumSelectionCount: max(1, remainingAttachmentSlots)
-                ) { results in
-                    isShowingPhotoPicker = false
-                    loadPHPickerResults(results)
-                }
-                .presentationDetents([.fraction(0.58)])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(32)
-                .presentationBackground(Color(uiColor: .secondarySystemBackground))
-                .presentationBackgroundInteraction(.enabled)
             }
             .sheet(isPresented: $isShowingCameraPicker) {
                 AgentCameraSheet(isPresented: $isShowingCameraPicker) { image in
@@ -1990,7 +1982,9 @@ struct AgentHomeView: View {
     private func presentPhotoPicker() {
         guard reserveAttachmentSlot() else { return }
         isComposerFocused = false
-        isShowingPhotoPicker = true
+        withAnimation(.easeOut(duration: 0.22)) {
+            isShowingPhotoPicker = true
+        }
     }
 
     private func presentDocumentPicker() {
