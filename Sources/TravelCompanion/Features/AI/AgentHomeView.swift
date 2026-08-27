@@ -1990,7 +1990,7 @@ private struct AgentHistorySheet: View {
                                         .foregroundStyle(.primary)
                                         .lineLimit(1)
                                     HStack(spacing: 6) {
-                                        Text(archived.updatedAt, style: .relative)
+                                        Text(AgentHistoryRelativeTime.display(for: archived.updatedAt))
                                         Text("· \(archived.messages.count) 条消息")
                                     }
                                     .font(.caption)
@@ -2030,6 +2030,40 @@ private struct AgentHistorySheet: View {
             ?? ""
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "未命名对话" : String(trimmed.prefix(40))
+    }
+}
+
+/// 历史会话只展示一个中文时间层级，避免系统相对时间显示「18 hr 22 min」这类组合文案。
+enum AgentHistoryRelativeTime {
+    static func display(for date: Date, now: Date = .now) -> String {
+        let elapsedSeconds = max(0, now.timeIntervalSince(date))
+        let elapsedMinutes = Int(elapsedSeconds / 60)
+
+        guard elapsedMinutes >= 1 else { return "刚刚" }
+        if elapsedMinutes < 60 { return "\(elapsedMinutes)分钟" }
+
+        let elapsedHours = elapsedMinutes / 60
+        if elapsedHours < 24 { return "\(elapsedHours)小时" }
+
+        let elapsedDays = elapsedHours / 24
+        if elapsedDays < 7 { return "\(chineseCount(elapsedDays))天前" }
+
+        let elapsedWeeks = elapsedDays / 7
+        if elapsedDays < 30 { return "\(chineseCount(elapsedWeeks))周前" }
+
+        let elapsedMonths = elapsedDays / 30
+        if elapsedMonths < 12 { return "\(chineseCount(elapsedMonths))个月前" }
+
+        return "\(chineseCount(elapsedDays / 365))年前"
+    }
+
+    private static func chineseCount(_ value: Int) -> String {
+        if value == 2 { return "两" }
+
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "zh_Hans_CN")
+        formatter.numberStyle = .spellOut
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 }
 

@@ -3,6 +3,15 @@ import XCTest
 @testable import TravelCompanion
 
 final class AgentV2SessionStoreTests: XCTestCase {
+    func testHistoryRelativeTimeUsesSingleChineseUnit() {
+        let now = Date(timeIntervalSinceReferenceDate: 10_000_000)
+
+        XCTAssertEqual(AgentHistoryRelativeTime.display(for: now.addingTimeInterval(-30), now: now), "刚刚")
+        XCTAssertEqual(AgentHistoryRelativeTime.display(for: now.addingTimeInterval(-(18 * 60 * 60 + 22 * 60)), now: now), "18小时")
+        XCTAssertEqual(AgentHistoryRelativeTime.display(for: now.addingTimeInterval(-(2 * 24 * 60 * 60 + 11 * 60 * 60)), now: now), "两天前")
+        XCTAssertEqual(AgentHistoryRelativeTime.display(for: now.addingTimeInterval(-(16 * 24 * 60 * 60)), now: now), "两周前")
+    }
+
     @MainActor
     func testRestoreKeepsExplicitTextOnlyPlaceAndRemovesUnsafeUnverifiedCandidates() throws {
         let defaults = try makeDefaults()
