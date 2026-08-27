@@ -1874,7 +1874,7 @@ struct AgentHomeView: View {
         // plan_new（无生效旅程或「暂不选择行程」）时 tripID 为 nil，服务端不强制本接口的旅程鉴权。
         let tripID = syncEngine.trip?.id
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: submittedMessage, createdAt: .now)
-        store.beginTurn()
+        store.beginTurn() 
         store.append(userMessage)
         acknowledgeInitialMessageSubmissionIfNeeded(userMessage.content)
         message = ""
