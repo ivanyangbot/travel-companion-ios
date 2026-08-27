@@ -1,0 +1,14 @@
+---
+description: Commit and push every completed travel-companion-ios change
+alwaysApply: true
+---
+
+# Frontend change synchronization
+
+For every completed change anywhere in this `travel-companion-ios` project—including source code, tests, assets, configuration, and documentation:
+
+1. Run the smallest relevant validation available in the current environment.
+2. Create a focused Git commit containing only the completed change.
+3. Push that commit to the configured remote on the current branch immediately.
+
+Do not combine unrelated or pre-existing working-tree changes into the commit. If a commit or push cannot be completed, report the exact blocker and leave the affected change clearly identified.
