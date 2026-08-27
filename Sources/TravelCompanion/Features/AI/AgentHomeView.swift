@@ -271,7 +271,7 @@ struct AgentHomeView: View {
                 // 当前对话并完全复位到首页初始状态（双方块入口）。
                 if showsBackButton {
                     Button {
-                        if showsDeselectedTripBackButton {
+                        if showsTripRecoveryButton {
                             isShowingTripPicker = true
                         } else if let onCancelNewTripPlanning,
                            lotteryStepIndex == nil,
@@ -297,7 +297,7 @@ struct AgentHomeView: View {
                     .padding(.top, 8)
                     .transition(.opacity)
                     .accessibilityLabel(Text(
-                        showsDeselectedTripBackButton
+                        showsTripRecoveryButton
                             ? String(localized: "agent.switchTripA11y")
                             : String(localized: "agent.backA11y")
                     ))
@@ -506,11 +506,13 @@ struct AgentHomeView: View {
         return trip.destination ?? String(localized: "agent.currentTripTitle")
     }
 
-    /// 首页根欢迎态通常没有“返回”语义；但从工作台明确选择“暂不选择
-    /// 行程”后，返回键是恢复已有行程的唯一就近入口，因此打开行程选择器。
-    private var showsDeselectedTripBackButton: Bool {
+    /// 首页根欢迎态通常没有“返回”语义；但只要账号已有行程而当前未选中
+    /// 行程，返回键就是恢复/切换行程的唯一就近入口。这里必须使用已发布的
+    /// 真实选择状态，不能依赖仅在本次进程里设置的“主动取消选择”标记：
+    /// 冷启动、缓存恢复或账号同步都可能产生相同的合法未选择状态。
+    private var showsTripRecoveryButton: Bool {
         presentation == .home
-            && syncEngine.hasExplicitlyDeselectedTrip
+            && syncEngine.selectedTripID == nil
             && !syncEngine.trips.isEmpty
             && lotteryStepIndex == nil
             && !isComposerExpanded
@@ -519,7 +521,7 @@ struct AgentHomeView: View {
     }
 
     private var showsBackButton: Bool {
-        showsDeselectedTripBackButton
+        showsTripRecoveryButton
             || lotteryStepIndex != nil
             || isComposerExpanded
             || !isWelcomeState
