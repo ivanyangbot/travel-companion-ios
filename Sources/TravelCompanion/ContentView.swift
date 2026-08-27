@@ -109,6 +109,10 @@ struct ContentView: View {
                     ProgressView("豆奶正在赶来...")
                 }
             }
+            .presentationDetents([.fraction(0.88)])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
+            .presentationBackground(PrimaryTabPalette.background)
         }
         .task {
             guard syncEngine == nil else { return }

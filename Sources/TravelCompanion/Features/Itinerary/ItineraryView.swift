@@ -162,6 +162,10 @@ struct ItineraryView: View {
                     appleSignIn: appleSignIn,
                     initialMessage: sheet.initialMessage
                 )
+                .presentationDetents([.fraction(0.88)])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+                .presentationBackground(PrimaryTabPalette.background)
             }
             .sheet(item: $detailCard) { card in
                 CardDetailView(card: card, currency: syncEngine.trip?.currency)
