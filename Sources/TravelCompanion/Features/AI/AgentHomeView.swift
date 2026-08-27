@@ -1844,6 +1844,8 @@ private struct AgentTripPickerSheet: View {
                             isSelected: selectedTripID == nil
                         )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selectedTripID == nil ? .isSelected : [])
                 }
 
                 Section("我的旅行") {
@@ -1866,7 +1868,8 @@ private struct AgentTripPickerSheet: View {
                                     isSelected: summary.id == selectedTripID
                                 )
                             }
-                            .disabled(summary.id == selectedTripID)
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(summary.id == selectedTripID ? .isSelected : [])
                         }
                     }
                 }
@@ -1879,6 +1882,7 @@ private struct AgentTripPickerSheet: View {
                 }
             }
         }
+        .tint(PrimaryTabPalette.accent)
     }
 
     private func tripRow(title: String, subtitle: String, isSelected: Bool) -> some View {
