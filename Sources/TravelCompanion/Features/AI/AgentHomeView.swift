@@ -52,6 +52,7 @@ struct AgentHomeView: View {
     @State private var isShowingContext = false
     @State private var isShowingHistory = false
     @State private var isShowingSignIn = false
+    @State private var isShowingTripPicker = false
     @State private var didConsumeInitialMessage = false
     @State private var didSubmitInitialMessage = false
     /// Coalesce the many scroll requests produced by a token stream. Without
@@ -294,6 +295,24 @@ struct AgentHomeView: View {
                     runState.clearTransientState()
                 }
             }
+            .sheet(isPresented: $isShowingTripPicker) {
+                AgentTripPickerSheet(
+                    selectedTripID: syncEngine.selectedTripID,
+                    trips: syncEngine.trips,
+                    onClear: {
+                        resetSuggestions()
+                        Task { await syncEngine.clearSelectedTrip() }
+                    },
+                    onSelect: { summary in
+                        guard summary.id != syncEngine.selectedTripID else { return }
+                        startNewConversation()
+                        resetSuggestions()
+                        Task { await syncEngine.selectTrip(summary.id) }
+                    }
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+            }
             .alert("无法完成操作", isPresented: Binding(get: { runState.error != nil }, set: { if !$0 { runState.error = nil } })) {
                 Button("知道了", role: .cancel) {}
             } message: { Text(runState.error ?? "") }
@@ -345,35 +364,7 @@ struct AgentHomeView: View {
         GeometryReader { proxy in
         ZStack {
             HStack(spacing: 12) {
-                Menu {
-                    Button {
-                        resetSuggestions()
-                        Task { await syncEngine.clearSelectedTrip() }
-                    } label: {
-                        if syncEngine.selectedTripID == nil {
-                            Label("暂不选择行程", systemImage: "checkmark")
-                        } else {
-                            Text("暂不选择行程")
-                        }
-                    }
-                    if !syncEngine.trips.isEmpty {
-                        Divider()
-                        ForEach(syncEngine.trips) { summary in
-                            Button {
-                                guard summary.id != syncEngine.selectedTripID else { return }
-                                startNewConversation()
-                                resetSuggestions()
-                                Task { await syncEngine.selectTrip(summary.id) }
-                            } label: {
-                                if summary.id == syncEngine.selectedTripID {
-                                    Label(summary.displayName, systemImage: "checkmark")
-                                } else {
-                                    Text(summary.displayName)
-                                }
-                            }
-                        }
-                    }
-                } label: {
+                Button { isShowingTripPicker = true } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "location.fill")
                             .font(.system(size: 11, weight: .semibold))
@@ -1830,6 +1821,93 @@ struct AgentHomeView: View {
             }
             runState.isCommitting = false
         }
+    }
+}
+
+private struct AgentTripPickerSheet: View {
+    let selectedTripID: Int?
+    let trips: [TripSummary]
+    let onClear: () -> Void
+    let onSelect: (TripSummary) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        onClear()
+                        dismiss()
+                    } label: {
+                        tripRow(
+                            title: "暂不选择行程",
+                            subtitle: "让豆奶按你的描述开始规划",
+                            isSelected: selectedTripID == nil
+                        )
+                    }
+                }
+
+                Section("我的旅行") {
+                    if trips.isEmpty {
+                        ContentUnavailableView(
+                            "还没有旅行",
+                            systemImage: "airplane.departure",
+                            description: Text("创建旅行后会显示在这里。")
+                        )
+                    } else {
+                        ForEach(trips) { summary in
+                            Button {
+                                guard summary.id != selectedTripID else { return }
+                                onSelect(summary)
+                                dismiss()
+                            } label: {
+                                tripRow(
+                                    title: summary.displayName,
+                                    subtitle: dateRange(for: summary),
+                                    isSelected: summary.id == selectedTripID
+                                )
+                            }
+                            .disabled(summary.id == selectedTripID)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("切换旅行")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func tripRow(title: String, subtitle: String, isSelected: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "location.fill")
+                .foregroundStyle(PrimaryTabPalette.accent)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func dateRange(for summary: TripSummary) -> String {
+        let dates = [summary.startDate, summary.endDate].compactMap { $0 }
+        return dates.count == 2 ? dates.joined(separator: " – ") : "日期待设置"
     }
 }
 
