@@ -456,6 +456,7 @@ struct AgentHomeView: View {
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
+        .contentShape(Rectangle())
         .simultaneousGesture(
             TapGesture().onEnded {
                 if isComposerFocused { isComposerFocused = false }
