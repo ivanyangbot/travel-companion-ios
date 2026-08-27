@@ -21,6 +21,7 @@ ASC_TIMEOUT_SECONDS="${ASC_TIMEOUT_SECONDS:-600}"
 TARGET_VERSION=""
 TARGET_BUILD=""
 SKIP_TESTS=0
+ORIGINAL_ARGS=("$@")
 
 usage() {
     cat <<'EOF'
@@ -35,6 +36,9 @@ Options:
 Environment overrides:
   SIMULATOR_NAME, ASC_APP_ID, ASC_GROUP_NAME, ASC_KEY_ID, ASC_ISSUER_ID,
   ASC_TIMEOUT_SECONDS, SCHEME, CONFIGURATION.
+
+The current branch is fast-forwarded from its configured upstream before
+the version is updated and the release build starts.
 EOF
 }
 
@@ -66,6 +70,39 @@ done
 
 cd "$REPO_ROOT"
 
+dirty_status="$(git status --porcelain --untracked-files=all)"
+if [[ -n "$dirty_status" ]]; then
+    echo "Working tree must be clean before syncing and starting a release." >&2
+    echo "$dirty_status" >&2
+    exit 1
+fi
+
+current_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+if [[ -z "$current_branch" ]]; then
+    echo "A release must be run from a branch, not a detached HEAD." >&2
+    exit 1
+fi
+
+upstream_branch="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+if [[ -z "$upstream_branch" ]]; then
+    echo "Branch $current_branch has no configured upstream; refusing to release unsynchronized code." >&2
+    exit 1
+fi
+
+if [[ "${TRAVEL_COMPANION_RELEASE_REEXECUTED:-0}" != "1" ]]; then
+    before_sync_sha="$(git rev-parse HEAD)"
+    echo "Syncing $current_branch from $upstream_branch"
+    git pull --ff-only
+    after_sync_sha="$(git rev-parse HEAD)"
+
+    if [[ "$before_sync_sha" != "$after_sync_sha" ]]; then
+        echo "Remote updates applied; restarting the release with the synchronized script."
+        TRAVEL_COMPANION_RELEASE_REEXECUTED=1 \
+            exec "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" "${ORIGINAL_ARGS[@]}"
+    fi
+fi
+unset TRAVEL_COMPANION_RELEASE_REEXECUTED
+
 current_version="$(awk '/^[[:space:]]*MARKETING_VERSION:/ { print $2; exit }' "$PROJECT_YML")"
 current_build="$(awk '/^[[:space:]]*CURRENT_PROJECT_VERSION:/ { print $2; exit }' "$PROJECT_YML")"
 
@@ -87,13 +124,6 @@ if [[ ! "$TARGET_BUILD" =~ ^[0-9]+$ ]]; then
 fi
 if ((TARGET_BUILD <= current_build)); then
     echo "Build number must increase: current=$current_build target=$TARGET_BUILD" >&2
-    exit 1
-fi
-
-dirty_status="$(git status --porcelain --untracked-files=all | grep -v '^?? scripts/release_testflight\.sh$' || true)"
-if [[ -n "$dirty_status" ]]; then
-    echo "Working tree must be clean before starting a release." >&2
-    echo "$dirty_status" >&2
     exit 1
 fi
 
