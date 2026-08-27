@@ -33,6 +33,11 @@ final class AgentV2RunState: ObservableObject {
     /// out. Injectable so tests can verify the fade without real waits.
     var fliggyFadeInterval: TimeInterval = 1.5
     private var fliggyFadeTask: Task<Void, Never>?
+    /// SSE often delivers assistant text one token at a time. Publishing every
+    /// token forces SwiftUI (and its accessibility tree) to rebuild at the same
+    /// rate, so collect short bursts and publish at most once per frame budget.
+    private var streamingReplyBuffer = ""
+    private var streamingReplyFlushTask: Task<Void, Never>?
 
     private(set) var generationTask: Task<Void, Never>?
     private var generationID: UUID?
@@ -69,7 +74,7 @@ final class AgentV2RunState: ObservableObject {
     }
 
     func prepareForTurn() {
-        streamingReply = ""
+        resetStreamingReply()
         reasoningSummary = ""
         stagedSummaryText = ""
         liveCards = []
@@ -80,13 +85,41 @@ final class AgentV2RunState: ObservableObject {
 
     func clearTransientState() {
         cancelGeneration()
-        streamingReply = ""
+        resetStreamingReply()
         reasoningSummary = ""
         stagedSummaryText = ""
         liveCards = []
         error = nil
         isCommitting = false
         clearFliggyProgress()
+    }
+
+    func appendStreamingReply(_ text: String) {
+        guard !text.isEmpty else { return }
+        streamingReplyBuffer += text
+        guard streamingReplyFlushTask == nil else { return }
+
+        streamingReplyFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled, let self else { return }
+            self.flushStreamingReply()
+        }
+    }
+
+    /// Makes buffered text visible before `.done` persists the completed reply.
+    func flushStreamingReply() {
+        streamingReplyFlushTask?.cancel()
+        streamingReplyFlushTask = nil
+        guard !streamingReplyBuffer.isEmpty else { return }
+        streamingReply += streamingReplyBuffer
+        streamingReplyBuffer = ""
+    }
+
+    private func resetStreamingReply() {
+        streamingReplyFlushTask?.cancel()
+        streamingReplyFlushTask = nil
+        streamingReplyBuffer = ""
+        streamingReply = ""
     }
 
     // MARK: - Fliggy realtime-search chip

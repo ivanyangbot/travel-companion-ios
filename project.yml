@@ -4,8 +4,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: 0.2.7
-    CURRENT_PROJECT_VERSION: 40
+    MARKETING_VERSION: 0.4.4
+    CURRENT_PROJECT_VERSION: 50
 packages:
   MapLibre:
     url: https://github.com/maplibre/maplibre-gl-native-distribution
@@ -39,7 +39,7 @@ targets:
           DEVELOPMENT_TEAM: 9Z29478796
         Release:
           CODE_SIGN_STYLE: Manual
-          CODE_SIGN_IDENTITY: "Apple Distribution"
+          CODE_SIGN_IDENTITY: "A3E24240093D0924BC17227C32EFE18210630E32"
           DEVELOPMENT_TEAM: 9Z29478796
           PROVISIONING_PROFILE_SPECIFIER: "Indo Main Release SignIn 20260803"
   TravelCompanionShareExtension:
@@ -64,7 +64,7 @@ targets:
           DEVELOPMENT_TEAM: 9Z29478796
         Release:
           CODE_SIGN_STYLE: Manual
-          CODE_SIGN_IDENTITY: "Apple Distribution"
+          CODE_SIGN_IDENTITY: "A3E24240093D0924BC17227C32EFE18210630E32"
           DEVELOPMENT_TEAM: 9Z29478796
           PROVISIONING_PROFILE_SPECIFIER: "TravelCompanion Share App Store"
   TravelCompanionTests:

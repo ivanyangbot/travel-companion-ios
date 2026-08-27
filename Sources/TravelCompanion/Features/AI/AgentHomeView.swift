@@ -1,3 +1,4 @@
+import AuthenticationServices
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -24,13 +25,25 @@ struct AgentHomeActiveKey: PreferenceKey {
     }
 }
 
+/// 同一套 Agent 交互在首页与悬浮弹窗中的展示方式。两者共享完整的对话、
+/// 地球变形和弹窗状态机，只在欢迎态的入口内容上有所区别。
+enum AgentHomePresentation {
+    case home
+    case workbench
+}
+
 /// 首页（无生效行程时）内嵌的 Agent 页：从 AgentWorkbenchView 复制而来，
 /// 供首页场景独立调整，与 Agent 主页面互不影响。草稿同样保持在本地，
 /// 用户明确选择并确认后才写入行程。
 struct AgentHomeView: View {
     @ObservedObject var syncEngine: SyncEngine
+    @ObservedObject var appleSignIn: AppleSignInStore
     let initialMessage: String?
     let onInitialMessageSubmitted: (() -> Void)?
+    let plansNewTrip: Bool
+    let onCancelNewTripPlanning: (() -> Void)?
+    let onNewTripCreated: (() -> Void)?
+    let presentation: AgentHomePresentation
     @EnvironmentObject private var store: AgentV2SessionStore
     @EnvironmentObject private var runState: AgentV2RunState
     @FocusState private var isComposerFocused: Bool
@@ -38,10 +51,20 @@ struct AgentHomeView: View {
     @State private var photo: PhotosPickerItem?
     @State private var isShowingContext = false
     @State private var isShowingHistory = false
+    @State private var isShowingSignIn = false
     @State private var didConsumeInitialMessage = false
     @State private var didSubmitInitialMessage = false
+    /// Coalesce the many scroll requests produced by a token stream. Without
+    /// this, every published fragment queues another main-thread layout pass.
+    @State private var streamingScrollTask: Task<Void, Never>?
     @State private var isCreatingTripFromProposal = false
     @State private var isReasoningExpanded = false
+    /// 悬浮 Agent 欢迎态由服务端按当前行程生成的问题推荐。
+    @State private var suggestedPrompts: [String] = []
+    @State private var suggestedIcons: [String] = []
+    @State private var suggestionsTripID: Int?
+    /// 推荐问题逐条揭示；每次只插入一条，保证从左向右移入的阶梯节奏。
+    @State private var revealedSuggestionCount = 0
     /// 底部输入区是否已展开：折叠态为左右两个等宽正方形入口，
     /// 点按右侧输入方块后才展开为完整输入条并弹出键盘。
     @State private var isComposerExpanded = false
@@ -136,12 +159,22 @@ struct AgentHomeView: View {
 
     init(
         syncEngine: SyncEngine,
+        appleSignIn: AppleSignInStore,
         initialMessage: String? = nil,
-        onInitialMessageSubmitted: (() -> Void)? = nil
+        onInitialMessageSubmitted: (() -> Void)? = nil,
+        plansNewTrip: Bool = false,
+        onCancelNewTripPlanning: (() -> Void)? = nil,
+        onNewTripCreated: (() -> Void)? = nil,
+        presentation: AgentHomePresentation = .home
     ) {
         self.syncEngine = syncEngine
+        self.appleSignIn = appleSignIn
         self.initialMessage = initialMessage
         self.onInitialMessageSubmitted = onInitialMessageSubmitted
+        self.plansNewTrip = plansNewTrip
+        self.onCancelNewTripPlanning = onCancelNewTripPlanning
+        self.onNewTripCreated = onNewTripCreated
+        self.presentation = presentation
     }
 
     var body: some View {
@@ -150,6 +183,11 @@ struct AgentHomeView: View {
                 PrimaryTabPalette.background.ignoresSafeArea()
 
                 VStack(spacing: 0) {
+                    if presentation == .workbench, isWelcomeState {
+                        workbenchHeader
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
                     ZStack {
                         // ASCII 底纹与暗角：欢迎页常驻（延伸到输入区下方，让玻璃
                         // 方块能模糊到底部内容）；对话页顶部下拉（overscroll）时
@@ -188,9 +226,14 @@ struct AgentHomeView: View {
                 // 左上角共用返回键：抽签流程中返回上一步（第一问时退出流程）；
                 // 欢迎页输入条展开时收起，回到双方块入口；对话页返回则归档
                 // 当前对话并完全复位到首页初始状态（双方块入口）。
-                if lotteryStepIndex != nil || isComposerExpanded || !isWelcomeState {
+                if lotteryStepIndex != nil || isComposerExpanded || !isWelcomeState || onCancelNewTripPlanning != nil {
                     Button {
-                        if lotteryStepIndex != nil {
+                        if let onCancelNewTripPlanning,
+                           lotteryStepIndex == nil,
+                           !isComposerExpanded,
+                           isWelcomeState {
+                            onCancelNewTripPlanning()
+                        } else if lotteryStepIndex != nil {
                             backLottery()
                         } else if isWelcomeState {
                             collapseComposer()
@@ -211,9 +254,38 @@ struct AgentHomeView: View {
                     .accessibilityLabel("返回")
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if presentation == .home, !appleSignIn.isAuthenticated {
+                    Button {
+                        appleSignIn.errorMessage = nil
+                        isShowingSignIn = true
+                    } label: {
+                        Label("登录", systemImage: "person.crop.circle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .background(PrimaryTabPalette.surface, in: Capsule())
+                            .overlay {
+                                Capsule()
+                                    .stroke(.white.opacity(0.14), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 16)
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    .accessibilityHint("打开 Sign in with Apple")
+                }
+            }
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            .sheet(isPresented: $isShowingSignIn) {
+                AgentHomeSignInSheet(appleSignIn: appleSignIn)
+                    .presentationDetents([.height(300)])
+                    .presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $isShowingContext) {
                 AgentContextSheet(syncEngine: syncEngine, store: store)
             }
@@ -227,7 +299,10 @@ struct AgentHomeView: View {
             } message: { Text(runState.error ?? "") }
             .onAppear {
                 consumeInitialMessageIfNeeded()
+                loadSuggestionsIfNeeded()
             }
+            .onChange(of: syncEngine.trip?.id) { _, _ in loadSuggestionsIfNeeded() }
+            .onChange(of: syncEngine.trip?.isConfigured) { _, _ in loadSuggestionsIfNeeded() }
             .onChange(of: runState.isGenerating) { _, isGenerating in
                 // 新一轮生成从折叠状态开始；生成结束后思考摘要整体隐藏。
                 if !isGenerating { isReasoningExpanded = false }
@@ -247,21 +322,97 @@ struct AgentHomeView: View {
         // 欢迎入口后恢复。
         .preference(
             key: AgentHomeHidesTabBarKey.self,
-            value: hidesTabBar
+            value: presentation == .home && hidesTabBar
         )
         // 只要本视图在场就声明「首页即 Agent 页」，ContentView 据此收起
         // tab 栏右侧的 Agent 按钮视图；离开（有生效行程回到地图）后偏好
         // 回落默认值 false，按钮自动恢复。
-        .preference(key: AgentHomeActiveKey.self, value: true)
+        .preference(key: AgentHomeActiveKey.self, value: presentation == .home)
         // tab 栏在场（欢迎页双方块）时为其预留整块高度（栏高 60pt + 底边距
         // 32pt），双方块悬浮其上；tab 栏隐藏（展开输入条/抽签/对话页）时不
         // 预留，输入区随 safeAreaInset 贴到屏幕底部安全区之上。
-        .padding(.bottom, anchorsComposerToBottom ? 0 : 92)
+        .padding(.bottom, presentation == .workbench || anchorsComposerToBottom ? 0 : 92)
     }
 
     private var tripTitle: String {
         guard let trip = syncEngine.trip, trip.isConfigured else { return "未设置旅行" }
         return trip.destination ?? "本次旅行"
+    }
+
+    /// 悬浮 Agent 的欢迎态头部保留行程切换、历史和新建入口；发送首条消息后
+    /// 它随欢迎态退场，后续界面与 AgentHomeView 的对话态完全一致。
+    private var workbenchHeader: some View {
+        ZStack {
+            Text("旅行 Agent")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+
+            HStack(spacing: 12) {
+                Menu {
+                    Button {
+                        resetSuggestions()
+                        Task { await syncEngine.clearSelectedTrip() }
+                    } label: {
+                        if syncEngine.selectedTripID == nil {
+                            Label("暂不选择行程", systemImage: "checkmark")
+                        } else {
+                            Text("暂不选择行程")
+                        }
+                    }
+                    if !syncEngine.trips.isEmpty {
+                        Divider()
+                        ForEach(syncEngine.trips) { summary in
+                            Button {
+                                guard summary.id != syncEngine.selectedTripID else { return }
+                                startNewConversation()
+                                resetSuggestions()
+                                Task { await syncEngine.selectTrip(summary.id) }
+                            } label: {
+                                if summary.id == syncEngine.selectedTripID {
+                                    Label(summary.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(summary.displayName)
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(PrimaryTabPalette.accent)
+                        Text(tripTitle)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                }
+                .buttonStyle(.glass)
+                .frame(maxWidth: 170, alignment: .leading)
+                .accessibilityLabel("切换行程")
+
+                Spacer(minLength: 0)
+
+                Button { isShowingHistory = true } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .buttonStyle(.glass)
+                .accessibilityLabel("历史对话")
+
+                Button { startNewConversation() } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.glass)
+                .disabled(isWelcomeState)
+                .accessibilityLabel("新建对话")
+            }
+        }
+        .frame(height: 48)
+        .padding(.horizontal, 20)
+        .padding(.top, 2)
     }
 
     /// 欢迎页/对话页共用的滚动区：承载地球、消息与流式内容；从 body 拆出
@@ -286,7 +437,7 @@ struct AgentHomeView: View {
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
         // 初始页（ASCII 地球欢迎态）固定不可滑动；进入对话后恢复滚动。
-        .scrollDisabled(isWelcomeState)
+        .scrollDisabled(isWelcomeState && presentation == .home)
         // 下滑/回顶驱动地球在「顶部常驻」与「状态行泊位」之间切换；
         // 顶部下拉（overscroll，偏移为负）则随距离恢复首页观感。
         .onScrollGeometryChange(
@@ -302,9 +453,13 @@ struct AgentHomeView: View {
         .contentShape(Rectangle())
         .onTapGesture { if isComposerExpanded { collapseComposer() } }
         .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
-        .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
+        .onChange(of: runState.streamingReply) { _, _ in scheduleStreamingScroll(proxy) }
         .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
         .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
+        .onDisappear {
+            streamingScrollTask?.cancel()
+            streamingScrollTask = nil
+        }
     }
 
     private var isWelcomeState: Bool {
@@ -383,7 +538,10 @@ struct AgentHomeView: View {
                 .offset(y: isWelcomeTitleWrapped ? -32 : 0)
             }
 
-            // tripContextCard
+            if presentation == .workbench {
+                tripContextCard
+                suggestedQuestions
+            }
         }
         // 键盘唤起/收起时，地球压扁与标题上移/回落作为同一整体参与动画，
         // 标题不会瞬移。
@@ -432,6 +590,119 @@ struct AgentHomeView: View {
     private func preferenceTitle(_ value: String?, values: [String: String]) -> String? {
         guard let value else { return nil }
         return values[value]
+    }
+
+    @ViewBuilder
+    private var suggestedQuestions: some View {
+        if revealedSuggestionCount > 0 {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("可以这样问")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+
+                ForEach(
+                    Array(suggestedPrompts.prefix(revealedSuggestionCount).enumerated()),
+                    id: \.element
+                ) { index, prompt in
+                    Button { useSuggestedPrompt(prompt) } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: suggestionIcon(at: index, fallback: prompt))
+                                .frame(width: 24)
+                                .foregroundStyle(PrimaryTabPalette.accent)
+                            Text(prompt)
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(PrimaryTabPalette.tertiaryText)
+                        }
+                        .padding(15)
+                        .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
+                    }
+                    .buttonStyle(.plain)
+                    // 每条从左侧向右移入，同时由透明变为不透明；数组按节拍
+                    // 一次只增加一项，因此不会出现三条同时淡入。
+                    .transition(.offset(x: -32).combined(with: .opacity))
+                }
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func promptIcon(_ prompt: String) -> String {
+        if prompt.contains("粘贴小红书") { return "link" }
+        if prompt.contains("去小红书找") { return "magnifyingglass" }
+        if prompt.contains("父母") { return "figure.2.and.child.holdinghands" }
+        if prompt.contains("室内") { return "cloud.rain" }
+        if prompt.contains("500") { return "banknote" }
+        return "sparkles"
+    }
+
+    private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
+        guard index < suggestedIcons.count else { return promptIcon(prompt) }
+        return suggestedIcons[index]
+    }
+
+    private func useSuggestedPrompt(_ prompt: String) {
+        message = prompt
+        expandComposer()
+    }
+
+    private func resetSuggestions() {
+        withAnimation(.easeOut(duration: 0.18)) {
+            revealedSuggestionCount = 0
+            suggestedPrompts = []
+            suggestedIcons = []
+        }
+    }
+
+    /// 拉取当前行程的三条动态建议。返回后以独立插入的方式逐条播放，确保
+    /// 每条问题都完整走完“左侧进入 + 渐显”，而不是整组一起淡入。
+    private func loadSuggestionsIfNeeded() {
+        guard presentation == .workbench, isWelcomeState else { return }
+        let trip = syncEngine.trip
+        let hasActiveTrip = trip?.isConfigured == true
+        let suggestionKey = hasActiveTrip ? (trip?.id ?? -1) : -1
+        guard suggestionsTripID != suggestionKey else { return }
+        suggestionsTripID = suggestionKey
+        resetSuggestions()
+
+        let preferences = store.session.preferences
+        let request = AITripSuggestionsRequest(
+            mode: hasActiveTrip ? nil : "journey",
+            destination: trip?.destination,
+            startDate: trip?.startDate,
+            endDate: trip?.endDate,
+            currency: trip?.currency,
+            preferences: AITripSuggestionsRequest.Preferences(
+                pace: preferences.pace,
+                companions: preferences.companions,
+                budget: preferences.budget,
+                scope: preferences.scope,
+                interests: preferences.interests.isEmpty ? nil : preferences.interests
+            ),
+            existingItinerary: hasActiveTrip ? syncEngine.existingItinerarySnapshot() : nil
+        )
+
+        Task { @MainActor in
+            guard let result = try? await APIClient().fetchTripSuggestions(
+                request,
+                tripID: hasActiveTrip ? trip?.id : nil
+            ), !result.suggestions.isEmpty,
+               suggestionsTripID == suggestionKey,
+               isWelcomeState else { return }
+
+            suggestedPrompts = result.suggestions
+            suggestedIcons = result.icons ?? []
+            revealedSuggestionCount = 0
+            for count in 1...result.suggestions.count {
+                guard suggestionsTripID == suggestionKey, isWelcomeState else { return }
+                withAnimation(.easeOut(duration: 0.34)) {
+                    revealedSuggestionCount = count
+                }
+                try? await Task.sleep(for: .milliseconds(110))
+            }
+        }
     }
 
     private var conversationView: some View {
@@ -500,6 +771,10 @@ struct AgentHomeView: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                // The completed message is exposed immediately after `.done`.
+                // Hiding the per-token intermediate value avoids rebuilding a
+                // very large accessibility label dozens of times per second.
+                .accessibilityHidden(true)
             }
 
             if let fliggy = runState.fliggyProgress {
@@ -521,7 +796,8 @@ struct AgentHomeView: View {
                 }
             }
 
-            if let proposal = store.session.pendingProposal, syncEngine.trip?.isConfigured != true {
+            if let proposal = store.session.pendingProposal,
+               plansNewTrip || syncEngine.trip?.isConfigured != true {
                 AssistantMessageContainer {
                     tripProposalCard(proposal)
                 }
@@ -868,7 +1144,7 @@ struct AgentHomeView: View {
 
             // 双方块入口只在欢迎页（尚无对话）出现；进入对话后输入条常驻，
             // 键盘收起也不再收回为方块形态。
-            if isComposerExpanded || !isWelcomeState {
+            if presentation == .workbench || isComposerExpanded || !isWelcomeState {
                 expandedComposer
             } else {
                 collapsedComposer
@@ -879,7 +1155,7 @@ struct AgentHomeView: View {
         // 隐藏（展开输入条/抽签/对话页）输入区贴近屏幕底部，只留 8pt。
         .padding(.horizontal, 20)
         .padding(.top, 10)
-        .padding(.bottom, anchorsComposerToBottom ? 8 : 36)
+        .padding(.bottom, presentation == .workbench || anchorsComposerToBottom ? 8 : 36)
         // 聊天框所在区域的渐变遮罩：盖住从输入控件（加号、文本框、发送键）
         // 之间缝隙透出的滚动内容，向下延伸覆盖到屏幕底；顶缘留少量透明
         // 过渡避免生硬的横切线。欢迎页玻璃方块需透出 ASCII 底纹，不加遮罩。
@@ -903,7 +1179,8 @@ struct AgentHomeView: View {
         .onChange(of: isComposerFocused) { _, focused in
             // 键盘收起且没有草稿文本时收回为双方块入口；有内容或已在对话页
             // （输入条常驻）时保持展开。
-            if !focused,
+            if presentation == .home,
+               !focused,
                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                isWelcomeState {
                 withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = false }
@@ -1130,7 +1407,7 @@ struct AgentHomeView: View {
     /// 都光栅化在画布（= 方块）自身边界内，结构上杜绝溢出按钮——不依赖
     /// 任何裁剪修饰符。不参与命中测试，纯视觉提示可点按抽签。
     private var lotteryGlow: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.periodic(from: .now, by: 1 / 30)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 let rect = CGRect(origin: .zero, size: size)
@@ -1179,6 +1456,7 @@ struct AgentHomeView: View {
             }
             .allowsHitTesting(false)
         }
+        .accessibilityHidden(true)
     }
 
     /// 底部灵感滚动条：定位图标固定不动，目的地小字和国旗一起像翻牌一样
@@ -1221,7 +1499,9 @@ struct AgentHomeView: View {
     }
 
     private func expandComposer() {
-        withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = true }
+        if presentation == .home {
+            withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = true }
+        }
         // 等展开后的布局提交再弹键盘，避免焦点在视图切换瞬间被丢弃。
         DispatchQueue.main.async { isComposerFocused = true }
     }
@@ -1312,6 +1592,16 @@ struct AgentHomeView: View {
         }
     }
 
+    private func scheduleStreamingScroll(_ proxy: ScrollViewProxy) {
+        guard streamingScrollTask == nil else { return }
+        streamingScrollTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            proxy.scrollTo("conversation-bottom", anchor: .bottom)
+            streamingScrollTask = nil
+        }
+    }
+
     private func clearSession() {
         store.discardTurn()
         runState.clearTransientState()
@@ -1365,8 +1655,9 @@ struct AgentHomeView: View {
                     mediaType: prepared.mediaType,
                     dataURI: prepared.dataURI
                 ))
-                // 折叠态下从「+」添加图片后直接展开输入条，便于继续输入说明文字。
-                withAnimation(.snappy(duration: 0.25)) { isComposerExpanded = true }
+                // 折叠态下从「+」添加图片后直接展开输入条；弹窗模式本来就
+                // 常驻输入条，只需把焦点交回文本框。
+                expandComposer()
             } catch {
                 runState.error = error.localizedDescription
             }
@@ -1397,7 +1688,7 @@ struct AgentHomeView: View {
                     case .reasoningSummary(let text): state.reasoningSummary += text
                     case .assistantDelta(let text):
                         state.status = nil
-                        state.streamingReply += text
+                        state.appendStreamingReply(text)
                     case .cardBegin(let id, let index):
                         if !state.liveCards.contains(where: { $0.id == id }) { state.liveCards.append(.init(id: id, index: index)) }
                     case .cardFieldDelta(let id, let field, let value):
@@ -1414,6 +1705,7 @@ struct AgentHomeView: View {
                     case .fliggySearchCompleted(let completion):
                         state.fliggySearchCompleted(completion)
                     case .done:
+                        state.flushStreamingReply()
                         let completedReply = state.streamingReply.isEmpty ? state.stagedSummaryText : state.streamingReply
                         if !completedReply.isEmpty {
                             sessionStore.append(.init(id: UUID(), role: "assistant", content: completedReply, createdAt: .now))
@@ -1449,6 +1741,9 @@ struct AgentHomeView: View {
     }
 
     private func makeRequest() -> AgentV2TurnRequest? {
+        if plansNewTrip {
+            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: message, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+        }
         guard let trip = syncEngine.trip, trip.isConfigured else {
             // 无生效旅程：从零规划模式（plan_new）。服务端会产出待用户确认的
             // 旅程提案（trip_proposal），确认前不落库创建旅程。
@@ -1477,9 +1772,12 @@ struct AgentHomeView: View {
         }
         isCreatingTripFromProposal = true
         Task {
+            let previousTripID = syncEngine.selectedTripID
             await syncEngine.createTrip(destination: proposal.destination, startDate: startDate, endDate: endDate, currency: proposal.currency)
-            if syncEngine.trip != nil {
+            if let selectedTripID = syncEngine.selectedTripID,
+               selectedTripID != previousTripID {
                 store.clearPendingProposal()
+                onNewTripCreated?()
             } else {
                 runState.error = "旅程创建失败，请稍后重试。"
             }
@@ -1982,6 +2280,76 @@ private struct AgentContextSheet: View {
 
     private func toggleInterest(_ interest: String) {
         store.toggleInterest(interest)
+    }
+}
+
+/// 首页 Agent 右上角登录入口的轻量弹窗。原生 Apple 登录按钮在授权期间
+/// 始终保留在视图层级中，确保系统凭证能正常回传给 AppleSignInStore。
+private struct AgentHomeSignInSheet: View {
+    @ObservedObject var appleSignIn: AppleSignInStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "person.crop.circle.badge.checkmark")
+                .font(.system(size: 38, weight: .medium))
+                .foregroundStyle(PrimaryTabPalette.accent)
+
+            VStack(spacing: 6) {
+                Text("登录豆奶旅行")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                Text("登录后开启云端同步，并在你的设备间保留行程与 Agent 对话。")
+                    .font(.subheadline)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+            }
+
+            ZStack {
+                SignInWithAppleButton(
+                    .signIn,
+                    onRequest: { request in
+                        appleSignIn.configure(request)
+                        Task { await appleSignIn.signIn(apiClient: APIClient()) }
+                    },
+                    onCompletion: { appleSignIn.handle(result: $0) }
+                )
+                .signInWithAppleButtonStyle(.white)
+                .frame(height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .allowsHitTesting(!appleSignIn.isSigningIn)
+
+                if appleSignIn.isSigningIn {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.black)
+                        Text("正在登录…")
+                            .font(.body.weight(.semibold))
+                    }
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .allowsHitTesting(false)
+                }
+            }
+
+            if let errorMessage = appleSignIn.errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(PrimaryTabPalette.background.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .onChange(of: appleSignIn.isAuthenticated) { _, isAuthenticated in
+            if isAuthenticated { dismiss() }
+        }
     }
 }
 

@@ -515,6 +515,28 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testStreamingReplyCoalescesFragmentsAndFlushesBeforeCompletion() async throws {
+        let state = AgentV2RunState()
+        state.prepareForTurn()
+
+        state.appendStreamingReply("你")
+        state.appendStreamingReply("好")
+        XCTAssertEqual(state.streamingReply, "", "short SSE bursts should not publish every token")
+
+        state.flushStreamingReply()
+        XCTAssertEqual(state.streamingReply, "你好")
+
+        state.appendStreamingReply("，世界")
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(state.streamingReply, "你好，世界")
+
+        state.appendStreamingReply("不应泄漏")
+        state.prepareForTurn()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(state.streamingReply, "", "reset must cancel and discard a pending flush")
+    }
+
+    @MainActor
     func testFliggyProgressLifecycleAcrossStartedAndCompleted() async throws {
         let state = AgentV2RunState()
         state.fliggyFadeInterval = 0.05

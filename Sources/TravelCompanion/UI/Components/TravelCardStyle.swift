@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 
 enum PrimaryTabPalette {
@@ -84,14 +85,12 @@ struct AgentIntroASCIIBackgroundView: View {
             let rows = Int((size.height / cell).rounded(.up))
             for row in 0 ... rows {
                 for column in 0 ... columns {
-                    context.draw(
-                        Text(String(Self.glyph(column: column, row: row)))
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.22)),
-                        at: CGPoint(
-                            x: (CGFloat(column) + 0.5) * cell,
-                            y: (CGFloat(row) + 0.5) * cell
-                        )
+                    AgentASCIIGlyphRenderer.draw(
+                        Self.glyph(column: column, row: row),
+                        in: &context,
+                        at: CGPoint(x: (CGFloat(column) + 0.5) * cell, y: (CGFloat(row) + 0.5) * cell),
+                        fontSize: 12,
+                        color: .white.opacity(0.22)
                     )
                 }
             }
@@ -104,6 +103,54 @@ struct AgentIntroASCIIBackgroundView: View {
     private static func glyph(column: Int, row: Int) -> Character {
         let seed = UInt(bitPattern: (column &* 2_654_435_761) ^ (row &* 2_246_822_519))
         return glyphPool[Int(seed % UInt(glyphPool.count))]
+    }
+}
+
+/// Draws monospaced characters as cached vector outlines instead of SwiftUI
+/// `Text`. On physical devices, each `GraphicsContext.draw(Text(...))` call is
+/// registered synchronously by `AXUIContextDrawingAnnotation`; the animated
+/// globe can issue hundreds of those calls per frame and stall the main run
+/// loop for seconds. Filling glyph paths preserves the ASCII appearance while
+/// keeping the drawing out of the system text-annotation pipeline.
+private enum AgentASCIIGlyphRenderer {
+    private static let baseFontSize: CGFloat = 12
+    private static let characters = Array(Set("01·:+* .:;',wiogOLXHWYV@"))
+    private static let outlines: [Character: Path] = {
+        let font = CTFontCreateWithName("SFMono-Regular" as CFString, baseFontSize, nil)
+        return Dictionary(uniqueKeysWithValues: characters.compactMap { character in
+            guard let codeUnit = String(character).utf16.first else { return nil }
+            var unicode = codeUnit
+            var glyph = CGGlyph()
+            guard CTFontGetGlyphsForCharacters(font, &unicode, &glyph, 1),
+                  let glyphPath = CTFontCreatePathForGlyph(font, glyph, nil) else { return nil }
+            let bounds = glyphPath.boundingBoxOfPath
+            guard !bounds.isNull, !bounds.isEmpty else { return nil }
+            var transform = CGAffineTransform(
+                a: 1,
+                b: 0,
+                c: 0,
+                d: -1,
+                tx: -bounds.midX,
+                ty: bounds.midY
+            )
+            guard let centeredPath = glyphPath.copy(using: &transform) else { return nil }
+            return (character, Path(centeredPath))
+        })
+    }()
+
+    static func draw(
+        _ character: Character,
+        in context: inout GraphicsContext,
+        at point: CGPoint,
+        fontSize: CGFloat,
+        color: Color
+    ) {
+        guard let outline = outlines[character] else { return }
+        var glyphContext = context
+        glyphContext.translateBy(x: point.x, y: point.y)
+        let scale = fontSize / baseFontSize
+        glyphContext.scaleBy(x: scale, y: scale)
+        glyphContext.fill(outline, with: .color(color))
     }
 }
 
@@ -178,19 +225,25 @@ struct AgentIntroGlobeView: View {
     private var activeSpin: AgentGlobeSpin { spin ?? ownSpin }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1 / 30)) { context in
-            Canvas { canvas, size in
-                let rotation = activeSpin.rotation(at: context.date)
-                    .truncatingRemainder(dividingBy: .pi * 2)
-                AgentIntroGlobeRenderer.draw(
-                    context: &canvas,
-                    size: size,
-                    rotation: rotation
-                )
+        ZStack {
+            TimelineView(.periodic(from: .now, by: 1 / 30)) { context in
+                Canvas { canvas, size in
+                    let rotation = activeSpin.rotation(at: context.date)
+                        .truncatingRemainder(dividingBy: .pi * 2)
+                    AgentIntroGlobeRenderer.draw(
+                        context: &canvas,
+                        size: size,
+                        rotation: rotation
+                    )
+                }
             }
+            // Hundreds of ASCII glyphs are drawn each frame. Hide the drawing
+            // itself and expose only the stable semantic wrapper below.
+            .accessibilityHidden(true)
         }
         .frame(width: diameter, height: diameter)
         .globeEquatorDrag(spin: activeSpin, diameter: diameter)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("旋转的 ASCII 地球，可左右拖动")
     }
 }
@@ -262,11 +315,12 @@ enum AgentIntroGlobeRenderer {
 
             // 透视深度：越靠边缘的字符越小越淡
             let depth = tiltedZ
-            context.draw(
-                Text(String(glyph))
-                    .font(.system(size: 12 * (0.78 + 0.32 * depth), design: .monospaced))
-                    .foregroundStyle(PrimaryTabPalette.accent.opacity(0.4 + 0.6 * depth)),
-                at: CGPoint(x: centerX + rotatedX * radius, y: centerY - tiltedY * radius)
+            AgentASCIIGlyphRenderer.draw(
+                glyph,
+                in: &context,
+                at: CGPoint(x: centerX + rotatedX * radius, y: centerY - tiltedY * radius),
+                fontSize: 12 * (0.78 + 0.32 * depth),
+                color: PrimaryTabPalette.accent.opacity(0.4 + 0.6 * depth)
             )
         }
     }
@@ -283,10 +337,6 @@ enum AgentIntroOrbRenderer {
     private static let glyphScale: Double = 5.5
     /// 字号夹取（预设坐标系）：远端小点不缩成亚像素，近端大点不糊成团。
     private static let fontSizeRange: ClosedRange<Double> = 3.5...9
-    /// "." 墨迹贴着基线，位于文本包围盒中心之下；锚点下移让句点恰好
-    /// 落在引擎给出的点坐标上。
-    private static let periodAnchor = UnitPoint(x: 0.5, y: 0.75)
-
     static func draw(
         into context: inout GraphicsContext,
         state: OrbState,
@@ -311,12 +361,12 @@ enum AgentIntroOrbRenderer {
         }
         for dot in frame.dots {
             let fontSize = min(fontSizeRange.upperBound, max(fontSizeRange.lowerBound, dot.r * glyphScale))
-            context.draw(
-                Text(".")
-                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(tint.opacity(inkAlpha(dot.white, dot.a * alpha))),
+            AgentASCIIGlyphRenderer.draw(
+                ".",
+                in: &context,
                 at: CGPoint(x: dot.x, y: dot.y),
-                anchor: periodAnchor
+                fontSize: fontSize,
+                color: tint.opacity(inkAlpha(dot.white, dot.a * alpha))
             )
         }
     }
@@ -360,19 +410,22 @@ struct AgentHeroGlobeView: View {
     private var activeSpin: AgentGlobeSpin { spin ?? ownSpin }
 
     var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas(rendersAsynchronously: false) { context, size in
-                let date = timeline.date
-                let blend = blend(at: date)
-                drawLayer(
-                    previousThinkingState, into: context, size: size, date: date,
-                    alpha: 1 - blend, scale: 1 + 0.06 * blend
-                )
-                drawLayer(
-                    thinkingState, into: context, size: size, date: date,
-                    alpha: blend, scale: 0.94 + 0.06 * blend
-                )
+        ZStack {
+            TimelineView(.periodic(from: .now, by: 1 / 30)) { timeline in
+                Canvas(rendersAsynchronously: false) { context, size in
+                    let date = timeline.date
+                    let blend = blend(at: date)
+                    drawLayer(
+                        previousThinkingState, into: context, size: size, date: date,
+                        alpha: 1 - blend, scale: 1 + 0.06 * blend
+                    )
+                    drawLayer(
+                        thinkingState, into: context, size: size, date: date,
+                        alpha: blend, scale: 0.94 + 0.06 * blend
+                    )
+                }
             }
+            .accessibilityHidden(true)
         }
         .frame(width: diameter, height: diameter)
         // 地球呈现期间支持沿赤道拖动（思考 orb 不受拖动影响）。
@@ -382,7 +435,7 @@ struct AgentHeroGlobeView: View {
             previousThinkingState = oldValue
             transitionStartedAt = .now
         }
-        .accessibilityElement()
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(thinkingState?.label ?? "旋转的 ASCII 地球，可左右拖动")
     }
 

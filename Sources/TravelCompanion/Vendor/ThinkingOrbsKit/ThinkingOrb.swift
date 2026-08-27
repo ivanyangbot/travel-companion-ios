@@ -1,6 +1,6 @@
 // The SwiftUI ThinkingOrb.
 //
-// TimelineView(.animation) drives the clock and Canvas does the drawing —
+// A 30 fps TimelineView drives the clock and Canvas does the drawing —
 // no timers, no Metal, no CADisplayLink to tear down. SwiftUI stops
 // servicing a TimelineView that is off-screen, which is the equivalent of
 // the web build's IntersectionObserver pause and comes for free.
@@ -60,27 +60,32 @@ public struct ThinkingOrb: View {
         let effSpeed = preset.speed * speed
         let side = displaySize ?? size.value
 
-        Group {
-            if let frozenTime {
-                // Raw engine time, NOT scaled by speed: the golden vectors and
-                // the web parity harness both evaluate the engine at this t
-                // directly, so applying the preset speed here would compare
-                // two different instants and report a false mismatch.
-                canvas(preset: preset, t: frozenTime)
-            } else if reduceMotion || paused {
-                // one static, deterministic frame — same instant as the web
-                canvas(preset: preset, t: OrbSpec.reducedMotionT * effSpeed)
-            } else {
-                TimelineView(.animation(paused: paused)) { timeline in
-                    // One shared clock, so several orbs on screen stay in
-                    // phase exactly as they do on the web.
-                    let t = timeline.date.timeIntervalSinceReferenceDate * effSpeed
-                    canvas(preset: preset, t: t)
+        ZStack {
+            Group {
+                if let frozenTime {
+                    // Raw engine time, NOT scaled by speed: the golden vectors and
+                    // the web parity harness both evaluate the engine at this t
+                    // directly, so applying the preset speed here would compare
+                    // two different instants and report a false mismatch.
+                    canvas(preset: preset, t: frozenTime)
+                } else if reduceMotion || paused {
+                    // one static, deterministic frame — same instant as the web
+                    canvas(preset: preset, t: OrbSpec.reducedMotionT * effSpeed)
+                } else {
+                    TimelineView(.periodic(from: .now, by: 1 / 30)) { timeline in
+                        // One shared clock, so several orbs on screen stay in
+                        // phase exactly as they do on the web.
+                        let t = timeline.date.timeIntervalSinceReferenceDate * effSpeed
+                        canvas(preset: preset, t: t)
+                    }
                 }
             }
+            // Keep AccessibilityUIUtilities from re-annotating the animated
+            // drawing every frame. The wrapper below provides one stable node.
+            .accessibilityHidden(true)
         }
         .frame(width: side, height: side)
-        .accessibilityElement()
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(state.label)
         .accessibilityAddTraits(.isImage)
     }

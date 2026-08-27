@@ -159,6 +159,7 @@ struct ItineraryView: View {
             .sheet(item: $agentSheet) { sheet in
                 AgentWorkbenchView(
                     syncEngine: syncEngine,
+                    appleSignIn: appleSignIn,
                     initialMessage: sheet.initialMessage
                 )
             }

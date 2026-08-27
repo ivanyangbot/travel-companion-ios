@@ -6,6 +6,7 @@ import UIKit
 /// user explicitly selects and commits candidate cards.
 struct AgentWorkbenchView: View {
     @ObservedObject var syncEngine: SyncEngine
+    @ObservedObject var appleSignIn: AppleSignInStore
     let initialMessage: String?
     let onInitialMessageSubmitted: (() -> Void)?
     @EnvironmentObject private var store: AgentV2SessionStore
@@ -17,6 +18,7 @@ struct AgentWorkbenchView: View {
     @State private var isShowingHistory = false
     @State private var didConsumeInitialMessage = false
     @State private var didSubmitInitialMessage = false
+    @State private var streamingScrollTask: Task<Void, Never>?
     @State private var isCreatingTripFromProposal = false
     @State private var isReasoningExpanded = false
     @State private var suggestedPrompts: [String] = []
@@ -25,91 +27,24 @@ struct AgentWorkbenchView: View {
 
     init(
         syncEngine: SyncEngine,
+        appleSignIn: AppleSignInStore,
         initialMessage: String? = nil,
         onInitialMessageSubmitted: (() -> Void)? = nil
     ) {
         self.syncEngine = syncEngine
+        self.appleSignIn = appleSignIn
         self.initialMessage = initialMessage
         self.onInitialMessageSubmitted = onInitialMessageSubmitted
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                PrimaryTabPalette.background.ignoresSafeArea()
-
-                VStack(spacing: 0) {
-                    agentHeader
-
-                    ZStack {
-                        if isWelcomeState {
-                            AgentIntroASCIIBackgroundView()
-                            RadialGradient(
-                                colors: [.clear, PrimaryTabPalette.background.opacity(0.74)],
-                                center: .center,
-                                startRadius: 100,
-                                endRadius: 330
-                            )
-                            .allowsHitTesting(false)
-                        }
-
-                        ScrollViewReader { proxy in
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 22) {
-                                    if isWelcomeState {
-                                        welcomeView
-                                    } else {
-                                        conversationView
-                                    }
-                                    Color.clear.frame(height: 1).id("conversation-bottom")
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.top, 12)
-                                .padding(.bottom, 16)
-                            }
-                            .scrollIndicators(.hidden)
-                            .scrollDismissesKeyboard(.interactively)
-                            // 初始页（ASCII 地球欢迎态）固定不可滑动；进入对话后恢复滚动。
-                            .scrollDisabled(isWelcomeState)
-                            .onChange(of: store.session.messages.count) { _, _ in scrollToBottom(proxy) }
-                            .onChange(of: runState.streamingReply) { _, _ in scrollToBottom(proxy, animated: false) }
-                            .onChange(of: runState.liveCards.count) { _, _ in scrollToBottom(proxy) }
-                            .onChange(of: store.session.draft?.candidates.count ?? 0) { _, _ in scrollToBottom(proxy) }
-                        }
-                    }
-                }
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            .preferredColorScheme(.dark)
-            .safeAreaInset(edge: .bottom, spacing: 0) { composer }
-            .sheet(isPresented: $isShowingContext) {
-                AgentContextSheet(syncEngine: syncEngine, store: store)
-            }
-            .sheet(isPresented: $isShowingHistory) {
-                AgentHistorySheet(store: store) {
-                    runState.clearTransientState()
-                }
-            }
-            .alert("无法完成操作", isPresented: Binding(get: { runState.error != nil }, set: { if !$0 { runState.error = nil } })) {
-                Button("知道了", role: .cancel) {}
-            } message: { Text(runState.error ?? "") }
-            .onAppear {
-                consumeInitialMessageIfNeeded()
-                loadSuggestionsIfNeeded()
-            }
-            .onChange(of: syncEngine.trip?.id) { _, _ in loadSuggestionsIfNeeded() }
-            .onChange(of: syncEngine.trip?.isConfigured) { _, _ in loadSuggestionsIfNeeded() }
-            .onChange(of: runState.isGenerating) { _, isGenerating in
-                // 新一轮生成从折叠状态开始；生成结束后思考摘要整体隐藏。
-                if !isGenerating { isReasoningExpanded = false }
-            }
-            .onChange(of: initialMessage) { _, newValue in
-                guard newValue != nil else { return }
-                didConsumeInitialMessage = false
-                didSubmitInitialMessage = false
-                consumeInitialMessageIfNeeded()
-            }
-        }
+        AgentHomeView(
+            syncEngine: syncEngine,
+            appleSignIn: appleSignIn,
+            initialMessage: initialMessage,
+            onInitialMessageSubmitted: onInitialMessageSubmitted,
+            presentation: .workbench
+        )
     }
 
     /// 与各主页面一致的暗色自定义头部：居中标题、左侧行程切换（Liquid Glass 菜单）、右侧历史与新建对话。
@@ -370,6 +305,7 @@ AgentIntroGlobeView(diameter: 208)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .accessibilityHidden(true)
             }
 
             if let fliggy = runState.fliggyProgress {
@@ -720,6 +656,16 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
         }
     }
 
+    private func scheduleStreamingScroll(_ proxy: ScrollViewProxy) {
+        guard streamingScrollTask == nil else { return }
+        streamingScrollTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            proxy.scrollTo("conversation-bottom", anchor: .bottom)
+            streamingScrollTask = nil
+        }
+    }
+
     private func clearSession() {
         store.discardTurn()
         runState.clearTransientState()
@@ -789,7 +735,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
                     case .reasoningSummary(let text): state.reasoningSummary += text
                     case .assistantDelta(let text):
                         state.status = nil
-                        state.streamingReply += text
+                        state.appendStreamingReply(text)
                     case .cardBegin(let id, let index):
                         if !state.liveCards.contains(where: { $0.id == id }) { state.liveCards.append(.init(id: id, index: index)) }
                     case .cardFieldDelta(let id, let field, let value):
@@ -806,6 +752,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
                     case .fliggySearchCompleted(let completion):
                         state.fliggySearchCompleted(completion)
                     case .done:
+                        state.flushStreamingReply()
                         let completedReply = state.streamingReply.isEmpty ? state.stagedSummaryText : state.streamingReply
                         if !completedReply.isEmpty {
                             sessionStore.append(.init(id: UUID(), role: "assistant", content: completedReply, createdAt: .now))

@@ -3,18 +3,21 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		01CF842454052FCA56C9E53F /* MemoListEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */; };
 		031F69F3FAA8CCDE6D3B1751 /* TripSharingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30369EF50639AA58432D5AF7 /* TripSharingSheet.swift */; };
 		038861FECCE58D3B9FD8B931 /* MapLibreTodayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */; };
+		055028DF0C808F7DAE1B21E4 /* dest-norway.jpg in Resources */ = {isa = PBXBuildFile; fileRef = BED3D72600B0E86DF8EA08B3 /* dest-norway.jpg */; };
 		0554718E10121E7B104D9B3A /* MemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052363166F7B2BC56DBDB352 /* MemoTests.swift */; };
 		0708992FBBEE91B48EE542ED /* AgentV2StreamParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5842942547DFB60B2B196D /* AgentV2StreamParserTests.swift */; };
 		0A2311E7F6DD352F955656DB /* TodayWeatherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 166A7CE158BD23101732C46C /* TodayWeatherTests.swift */; };
 		0E217A4F17380B945F95119B /* AppleSignInStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419F1199DA05DB1C55ADACA7 /* AppleSignInStore.swift */; };
 		0E7C6172ACCE591382CA08CE /* GooeyPinDemoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D69475DDA7AAD5F6096456 /* GooeyPinDemoView.swift */; };
+		101BED30744E1125916D7697 /* dest-dali.jpg in Resources */ = {isa = PBXBuildFile; fileRef = E7AA87C1838CDBE2B00E5FCA /* dest-dali.jpg */; };
+		10A3C51B1F9936E6B43124DE /* dest-amalfi.jpg in Resources */ = {isa = PBXBuildFile; fileRef = B1311ED5F2D3E486E99533DE /* dest-amalfi.jpg */; };
 		10B70769A5EACA7A2BBDB428 /* AITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D3E600510D1900A40A2985 /* AITests.swift */; };
 		13D51FAB6652A2895340E686 /* ThinkingOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC63787CDAF3EC5433776D5 /* ThinkingOrb.swift */; };
 		173CE8FC76B8BEC1C6AA5CEC /* AgentV2SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404C61F2E1107308DC348938 /* AgentV2SessionStoreTests.swift */; };
@@ -27,8 +30,11 @@
 		2352DBCC56E1620F5C39F1EA /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB83218A06E8F8F9F34CA62 /* NotesView.swift */; };
 		25AC3913D806D65A7324BE88 /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA17FF91696BD112B2C29F4 /* AppConfiguration.swift */; };
 		28047E8EF5E0B106BC692162 /* AgentV2SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D05FB265C37B209B9DB4C4C /* AgentV2SessionStore.swift */; };
+		28E5ACC8D4C0E70949A38049 /* dest-komodo.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 8D722F6F187773B4853CEB21 /* dest-komodo.jpg */; };
 		2917A5166A857599388F1F69 /* ReminderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9631F4B29F35CB686EA9442 /* ReminderStore.swift */; };
+		29A6CA508A4F7D53EBB11DA8 /* dest-chiangmai.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 1D6C87FED1E1BBBEA407FE8A /* dest-chiangmai.jpg */; };
 		2EE79098752CF59BB7100B47 /* RouteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78BAC71530FADC8EED9D35C0 /* RouteSheet.swift */; };
+		3094FD9F017B127E0BD1C2DF /* dest-hokkaido.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 827A0A71D6521A7A5118B40E /* dest-hokkaido.jpg */; };
 		36BF9F6590177563EC583242 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4153572CEB1B068748B76E6 /* ShareViewController.swift */; };
 		36F9B0F26C4A95B17D31BEFF /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CCCA5F5474E7099BA0DB8B9 /* KeychainStore.swift */; };
 		392264090A247D29C681C7F2 /* AIExpenseConversationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E33AD73866889EA77CCC85B /* AIExpenseConversationSheet.swift */; };
@@ -37,6 +43,7 @@
 		41684B84A0670660E575A95E /* TravelCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E822F89152175BACCA023A3F /* TravelCardView.swift */; };
 		460CDC18128838A78852D316 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */; };
 		4C73D9470C399114DC003184 /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1680BBEB0A853E9295127F80 /* APIModels.swift */; };
+		4F03C5D8E2845809ED318040 /* dest-switzerland.jpg in Resources */ = {isa = PBXBuildFile; fileRef = B95FD9D2869CEB2C744FF926 /* dest-switzerland.jpg */; };
 		51ED2B038D4D774FE18AD7BF /* CardLegPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297971AD9DCBEA57F1F1D5F7 /* CardLegPreference.swift */; };
 		53B29067BF554345C3A28F82 /* WalletCardScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1EEA02504CF36B48DB8165 /* WalletCardScanTests.swift */; };
 		554F3057D599DDA39DEDABE6 /* ItineraryChatCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 527D1567359E38E7955393A5 /* ItineraryChatCardView.swift */; };
@@ -55,8 +62,11 @@
 		78220BFCF175DDD982D5EAD5 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72EAFDA83E7A9A0A19462E9B /* TodayView.swift */; };
 		7965BC0AB89D1C07744D1D05 /* SharedModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC509B17BD5736DD641FE015 /* SharedModels.swift */; };
 		7979F0B770A26778ACB9A16F /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A86FDF07921274643C9DA1E /* WalletView.swift */; };
+		7B1C0716E519F5959745E51F /* dest-tuscany.jpg in Resources */ = {isa = PBXBuildFile; fileRef = DF5242B14D747D3B7ECD454B /* dest-tuscany.jpg */; };
 		7CAAC9F78ACB912B7166C2E2 /* TodayMapStyle.json in Resources */ = {isa = PBXBuildFile; fileRef = F06077E1F953BE92E1D0733F /* TodayMapStyle.json */; };
 		7F66A8BEFA8F151CF1397890 /* PendingSharedLinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FACC90B0B873713F42DB22E /* PendingSharedLinkStore.swift */; };
+		80BE8E92A343EE44EBAFE4A6 /* dest-morocco.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 09F5CB7948CE9E0D540F0968 /* dest-morocco.jpg */; };
+		8152E070FC4290235E29B350 /* dest-newzealand.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 2E7E25765B4F1B662E95526D /* dest-newzealand.jpg */; };
 		834363BD092FA8393B0274F8 /* AlarmScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5E9B3D8C17EA8A30BEF503 /* AlarmScheduler.swift */; };
 		840C6E88D8E9206E7826D657 /* OrbSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13F238CB94415F2BA2AC4DF4 /* OrbSpec.swift */; };
 		85C1F17BA4A204B9FAD64FC0 /* ExpenseListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB2711532E17CBD08B29873 /* ExpenseListView.swift */; };
@@ -64,50 +74,38 @@
 		8A5B3E462908B377E402461C /* DayEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC53B5FAD8D6AFD665BEF072 /* DayEditor.swift */; };
 		8BAB11F8CD2A919508908B1B /* Presets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CC408791A5A460E700D9B0F /* Presets.swift */; };
 		8D987F32B1F3204120D521DA /* CardImageURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E71023CBDA0960AF76B17AE /* CardImageURL.swift */; };
+		900F439268FC16352F8E6C8A /* dest-cappadocia.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 2419F9528A994039DCE14096 /* dest-cappadocia.jpg */; };
 		9038344B92E77A7B706449EF /* RouteCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB30A60EBABC73ACC172EF1 /* RouteCache.swift */; };
 		9068403E3B53DE6E8BA45DFF /* JournalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2257908B5B0D4672E0FD271 /* JournalModels.swift */; };
 		93B3545644FC677A168D5107 /* TravelCardsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5172A532CF62EC36B6BC9BD9 /* TravelCardsTests.swift */; };
 		93BBB6A1CAD3C3BF79AF4FEA /* TravelCardStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC967E42D0A71344B8A10BB4 /* TravelCardStyle.swift */; };
+		941AA799DE490BCB371DF5BE /* dest-kyoto.jpg in Resources */ = {isa = PBXBuildFile; fileRef = BA8772A41F4EEC4677CAC4C7 /* dest-kyoto.jpg */; };
 		95CE149AC33EA3A5F3E34A22 /* GooeyPinDemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25896262E71560F5E5053CE3 /* GooeyPinDemoTests.swift */; };
+		98E6AE4DD2268C952EF68176 /* dest-santorini.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 6C85157919257E369CF275CF /* dest-santorini.jpg */; };
 		9CDEED6D6FA9E8DB2A22E5ED /* TravelCompanionShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F908BCA76A82FE0B98955362 /* TravelCompanionShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		9E02493F9FA3FFBA908A6202 /* WalletCardArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 976F92479D074458A64539B8 /* WalletCardArtwork.swift */; };
 		9FA52E9035113E2F77D140D7 /* AgentHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C82FBF8EC96938C50799C4 /* AgentHomeView.swift */; };
 		9FD973AC094F885DBE095C44 /* CardDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B69CCD3DE0E2E85F11528FB /* CardDetailView.swift */; };
+		A4C42CA74D01CB0DF3146407 /* dest-masai-mara.jpg in Resources */ = {isa = PBXBuildFile; fileRef = ED7F8892933FEDE3D8AEE7CE /* dest-masai-mara.jpg */; };
 		A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */ = {isa = PBXBuildFile; fileRef = 6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */; };
-		A84150ACA89F0A6C9183D624 /* dest-amalfi.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 9BF0B5A27BD004F2EE144939 /* dest-amalfi.jpg */; };
-		7EA1FF52D436EF663F046788 /* dest-bali.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 9615FB38970BA4CCB9DAEB41 /* dest-bali.jpg */; };
-		7BCA5CAC1EEE23822A90B572 /* dest-cappadocia.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5DB3831B3CA3ECEBADF64C46 /* dest-cappadocia.jpg */; };
-		4333C802AC369F48FCBBB66D /* dest-chiangmai.jpg in Resources */ = {isa = PBXBuildFile; fileRef = D435F39EEA722D977623B5D6 /* dest-chiangmai.jpg */; };
-		0602CE36E74B2AF854B7C4F9 /* dest-dali.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 9B473092E42FB173A5F3A87E /* dest-dali.jpg */; };
-		E3796F112BED816E626B09A1 /* dest-hokkaido.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 560C82A03DD686B27C02392F /* dest-hokkaido.jpg */; };
-		0AF3A321F4A9E4A6BEF4DF47 /* dest-iceland.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 3B6AC046421C5235DF729DB9 /* dest-iceland.jpg */; };
-		F9B7AA8035FE2DD3A37A6F15 /* dest-kanas.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA89AB790974468228C37ED3 /* dest-kanas.jpg */; };
-		5702B4DF7F6BFFDEED9614E8 /* dest-komodo.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 7DF4F6F9906FFD20D7FBD712 /* dest-komodo.jpg */; };
-		07CB4C91ABE6C4C8BBCFAE62 /* dest-kyoto.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 4B6A4523A2188FA16A38F689 /* dest-kyoto.jpg */; };
-		2FA9FE2A8369D4E47D5DF413 /* dest-machupicchu.jpg in Resources */ = {isa = PBXBuildFile; fileRef = A445A5B1EBDA43B0350FA32F /* dest-machupicchu.jpg */; };
-		D6A4FC3ACEFF5BE8E19B3A32 /* dest-masai-mara.jpg in Resources */ = {isa = PBXBuildFile; fileRef = CAB3E96503422541CEDB14F1 /* dest-masai-mara.jpg */; };
-		2E61A5549E88E36987DBB81B /* dest-morocco.jpg in Resources */ = {isa = PBXBuildFile; fileRef = B1BDDF3EFEFAC2D88B71B206 /* dest-morocco.jpg */; };
-		9C5CC5CFC64EB50600E5656F /* dest-newzealand.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 38CD2215E5DD2AD0013793CE /* dest-newzealand.jpg */; };
-		7275B1D90773974C059B71F5 /* dest-norway.jpg in Resources */ = {isa = PBXBuildFile; fileRef = DEC9807DD21E63C6E164DEBA /* dest-norway.jpg */; };
-		A81CDCD24391AAC0D11FD7F1 /* dest-palau.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 7384FE214E9CFA0E7EC8D8E6 /* dest-palau.jpg */; };
-		A4D02FF4D312A50590E1C37B /* dest-sahara.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 9229F02DE9D8B57E4FC1A5E8 /* dest-sahara.jpg */; };
-		FD092EE47A419F19F45496DC /* dest-santorini.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 3D4488EE3C86BC8A9E69879C /* dest-santorini.jpg */; };
-		FCB752E134A366FB027FA181 /* dest-switzerland.jpg in Resources */ = {isa = PBXBuildFile; fileRef = F66A0003C1524A85DF99CBC5 /* dest-switzerland.jpg */; };
-		4E5C2923828CF6FD47B8F71E /* dest-tuscany.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5C2F600E41D7891DB843DD06 /* dest-tuscany.jpg */; };
 		A8364023D2EC1516D5945D50 /* ExpenseSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE7AC844A5A5929E9C18F8D /* ExpenseSummaryView.swift */; };
 		A85A5EA57496C62193E16781 /* ExpensesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239E82715D8B09548A9B6AE2 /* ExpensesTests.swift */; };
 		A92FD3B481DD54A4B24F93B3 /* TripSetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C42CC5E8251F33492311AC /* TripSetupSheet.swift */; };
 		AADAF1743D75ECEDE43DC8DC /* JournalMediaSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5BEF8FBB530519A885CB28 /* JournalMediaSupport.swift */; };
 		AB651682CAA79075E6E225E1 /* MapsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971BB2C1553DAD49063C4934 /* MapsTests.swift */; };
 		B0F43F3DFD03ED20D7B2CE48 /* TravelCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F5D705DE2E7F9662C9A578 /* TravelCompanionApp.swift */; };
+		B36392744E730C463F8AB645 /* dest-sahara.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 95454C75C59E6639A370A997 /* dest-sahara.jpg */; };
 		B66AC424F51D6D527254777D /* Lattice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BB9A7A7A9CAACCFB318A18 /* Lattice.swift */; };
+		C53748E9CF0A79C892630C02 /* dest-kanas.jpg in Resources */ = {isa = PBXBuildFile; fileRef = D30BBB7050B746256BE6C8E4 /* dest-kanas.jpg */; };
 		C653DF612DCEF56D8FC33442 /* Morph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81143AC25FD597D5D0AC83EC /* Morph.swift */; };
 		CBEEA65C97FD894797DEEF46 /* WalletEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBF3C1C03EE755977735724 /* WalletEditorView.swift */; };
 		D0E1EF0AD5FDC45E7E63724A /* AppleMapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F42D02E361B74E833454FBE1 /* AppleMapService.swift */; };
 		D1504380DCD8A82254554413 /* MemoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A762EA2F77A29FFD875DA223 /* MemoSection.swift */; };
 		D18CAD03BDA23AD32F53F9A4 /* AIItinerarySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBD21BBCF210B3C99799519 /* AIItinerarySheet.swift */; };
 		D1C34A8978C74BF45F5D7C2D /* JourneyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */; };
+		D9020D2EEECB91EA4764FD4C /* dest-bali.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5B9E3AF4C0C9F9A3D0483E60 /* dest-bali.jpg */; };
 		DA870007AF58DAF77B192DCD /* NeonTodayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5337983395B60705321FDC /* NeonTodayMap.swift */; };
+		E567E2AC95E490F55DAF38CB /* dest-iceland.jpg in Resources */ = {isa = PBXBuildFile; fileRef = DCAB7EA7071CB9D9F79E72A0 /* dest-iceland.jpg */; };
 		E670704D79E281B974DC5128 /* WalletCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD71E8A9B4EB9071A9830E8 /* WalletCrypto.swift */; };
 		E7D5EF13E50BCD8A2FF76A82 /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BDC9F2AD77F8654907C219 /* Core.swift */; };
 		E907DF43C051B0DAF088CE60 /* ExpenseEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768B5F4FCDC82CB0A5449464 /* ExpenseEditorView.swift */; };
@@ -115,10 +113,12 @@
 		ED5B127795A18F06919FE7A1 /* PlaceSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFFF65364CA027FE09B695E /* PlaceSearchView.swift */; };
 		EE22351C0FA0D396E24F2D34 /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = AC854E7F79A7B22A7D8C464E /* MapLibre */; };
 		EF0349F2BF435F2B71099A4A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 93705EA523BBFC35E34367CD /* PrivacyInfo.xcprivacy */; };
+		F266D3A546F04A27C6D45B66 /* dest-machupicchu.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FF25A0CD6C39EB59465E4285 /* dest-machupicchu.jpg */; };
 		F663D1D69B44261D68F51CE8 /* CardLegEstimateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6487F1A4A5B10200D6F17F0 /* CardLegEstimateView.swift */; };
 		F6771DB1BF02F36DE6AB4B6C /* CardPrice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417B65ABD31631164FAC1432 /* CardPrice.swift */; };
 		F9259F0C412752FC39352154 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1B6DDEF3EF354A696B98AB2B /* Assets.xcassets */; };
 		F965CC59DA0BA2ED1C5A87EB /* WalletCardScanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BEF8DAF7AA93B2E6831EFED /* WalletCardScanModels.swift */; };
+		FF195222AD7FFB936A73F028 /* dest-palau.jpg in Resources */ = {isa = PBXBuildFile; fileRef = AAD49C5C3B4E16308824191C /* dest-palau.jpg */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -155,6 +155,7 @@
 /* Begin PBXFileReference section */
 		052363166F7B2BC56DBDB352 /* MemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoTests.swift; sourceTree = "<group>"; };
 		07EC18374E8F4516FD09F006 /* ExternalLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLinkHandler.swift; sourceTree = "<group>"; };
+		09F5CB7948CE9E0D540F0968 /* dest-morocco.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-morocco.jpg"; sourceTree = "<group>"; };
 		0D4FDAB08CAD5BFF0161E7C6 /* SharedTripRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTripRepository.swift; sourceTree = "<group>"; };
 		13F238CB94415F2BA2AC4DF4 /* OrbSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbSpec.swift; sourceTree = "<group>"; };
 		166A7CE158BD23101732C46C /* TodayWeatherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWeatherTests.swift; sourceTree = "<group>"; };
@@ -163,12 +164,15 @@
 		18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TravelCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B6DDEF3EF354A696B98AB2B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1BEF8DAF7AA93B2E6831EFED /* WalletCardScanModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCardScanModels.swift; sourceTree = "<group>"; };
+		1D6C87FED1E1BBBEA407FE8A /* dest-chiangmai.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-chiangmai.jpg"; sourceTree = "<group>"; };
 		1D9751A45B66E0DBD03DD2F4 /* JourneyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyView.swift; sourceTree = "<group>"; };
 		1E33AD73866889EA77CCC85B /* AIExpenseConversationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIExpenseConversationSheet.swift; sourceTree = "<group>"; };
 		239E82715D8B09548A9B6AE2 /* ExpensesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpensesTests.swift; sourceTree = "<group>"; };
+		2419F9528A994039DCE14096 /* dest-cappadocia.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-cappadocia.jpg"; sourceTree = "<group>"; };
 		25896262E71560F5E5053CE3 /* GooeyPinDemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooeyPinDemoTests.swift; sourceTree = "<group>"; };
 		273744B5B086AC4E6E5D594D /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		297971AD9DCBEA57F1F1D5F7 /* CardLegPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLegPreference.swift; sourceTree = "<group>"; };
+		2E7E25765B4F1B662E95526D /* dest-newzealand.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-newzealand.jpg"; sourceTree = "<group>"; };
 		2FACC90B0B873713F42DB22E /* PendingSharedLinkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingSharedLinkStore.swift; sourceTree = "<group>"; };
 		2FEC5E8543BD6BF4F183C617 /* CameraPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPicker.swift; sourceTree = "<group>"; };
 		30369EF50639AA58432D5AF7 /* TripSharingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripSharingSheet.swift; sourceTree = "<group>"; };
@@ -186,33 +190,15 @@
 		53BB9A7A7A9CAACCFB318A18 /* Lattice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lattice.swift; sourceTree = "<group>"; };
 		568CDA9C5FBB8809E84F9E65 /* MapLibreTodayMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLibreTodayMap.swift; sourceTree = "<group>"; };
 		5B69CCD3DE0E2E85F11528FB /* CardDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDetailView.swift; sourceTree = "<group>"; };
+		5B9E3AF4C0C9F9A3D0483E60 /* dest-bali.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-bali.jpg"; sourceTree = "<group>"; };
 		5E71023CBDA0960AF76B17AE /* CardImageURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardImageURL.swift; sourceTree = "<group>"; };
 		5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoListEditor.swift; sourceTree = "<group>"; };
 		62DAD9C5EC9DFA223D8FC48E /* Web.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Web.swift; sourceTree = "<group>"; };
 		6313551B5AD4BD2AA24AE80E /* ExpenseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseModels.swift; sourceTree = "<group>"; };
 		660F4C444ECFE128677DA7F2 /* TravelCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TravelCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = AgentIconSprite.png; sourceTree = "<group>"; };
-		9BF0B5A27BD004F2EE144939 /* dest-amalfi.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-amalfi.jpg; sourceTree = "<group>"; };
-		9615FB38970BA4CCB9DAEB41 /* dest-bali.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-bali.jpg; sourceTree = "<group>"; };
-		5DB3831B3CA3ECEBADF64C46 /* dest-cappadocia.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-cappadocia.jpg; sourceTree = "<group>"; };
-		D435F39EEA722D977623B5D6 /* dest-chiangmai.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-chiangmai.jpg; sourceTree = "<group>"; };
-		9B473092E42FB173A5F3A87E /* dest-dali.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-dali.jpg; sourceTree = "<group>"; };
-		560C82A03DD686B27C02392F /* dest-hokkaido.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-hokkaido.jpg; sourceTree = "<group>"; };
-		3B6AC046421C5235DF729DB9 /* dest-iceland.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-iceland.jpg; sourceTree = "<group>"; };
-		FA89AB790974468228C37ED3 /* dest-kanas.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-kanas.jpg; sourceTree = "<group>"; };
-		7DF4F6F9906FFD20D7FBD712 /* dest-komodo.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-komodo.jpg; sourceTree = "<group>"; };
-		4B6A4523A2188FA16A38F689 /* dest-kyoto.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-kyoto.jpg; sourceTree = "<group>"; };
-		A445A5B1EBDA43B0350FA32F /* dest-machupicchu.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-machupicchu.jpg; sourceTree = "<group>"; };
-		CAB3E96503422541CEDB14F1 /* dest-masai-mara.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-masai-mara.jpg; sourceTree = "<group>"; };
-		B1BDDF3EFEFAC2D88B71B206 /* dest-morocco.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-morocco.jpg; sourceTree = "<group>"; };
-		38CD2215E5DD2AD0013793CE /* dest-newzealand.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-newzealand.jpg; sourceTree = "<group>"; };
-		DEC9807DD21E63C6E164DEBA /* dest-norway.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-norway.jpg; sourceTree = "<group>"; };
-		7384FE214E9CFA0E7EC8D8E6 /* dest-palau.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-palau.jpg; sourceTree = "<group>"; };
-		9229F02DE9D8B57E4FC1A5E8 /* dest-sahara.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-sahara.jpg; sourceTree = "<group>"; };
-		3D4488EE3C86BC8A9E69879C /* dest-santorini.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-santorini.jpg; sourceTree = "<group>"; };
-		F66A0003C1524A85DF99CBC5 /* dest-switzerland.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-switzerland.jpg; sourceTree = "<group>"; };
-		5C2F600E41D7891DB843DD06 /* dest-tuscany.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = dest-tuscany.jpg; sourceTree = "<group>"; };
 		6B026B0199CFA746CE1293EA /* MemoAssistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistSheet.swift; sourceTree = "<group>"; };
+		6C85157919257E369CF275CF /* dest-santorini.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-santorini.jpg"; sourceTree = "<group>"; };
 		6F8031EBAF1C17305F75B7FC /* MapLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLinkHandler.swift; sourceTree = "<group>"; };
 		70E0EAF4D452EE0A5994419F /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
 		72EAFDA83E7A9A0A19462E9B /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
@@ -228,13 +214,16 @@
 		7D5BEF8FBB530519A885CB28 /* JournalMediaSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalMediaSupport.swift; sourceTree = "<group>"; };
 		80DE9C428D21C35C4F57930C /* MemoAssistModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistModels.swift; sourceTree = "<group>"; };
 		81143AC25FD597D5D0AC83EC /* Morph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Morph.swift; sourceTree = "<group>"; };
+		827A0A71D6521A7A5118B40E /* dest-hokkaido.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-hokkaido.jpg"; sourceTree = "<group>"; };
 		8A86FDF07921274643C9DA1E /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
 		8CB83218A06E8F8F9F34CA62 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
 		8CC408791A5A460E700D9B0F /* Presets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presets.swift; sourceTree = "<group>"; };
 		8CD253A87557EF495F2A1BAD /* AgentV2Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2Models.swift; sourceTree = "<group>"; };
+		8D722F6F187773B4853CEB21 /* dest-komodo.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-komodo.jpg"; sourceTree = "<group>"; };
 		8EC63787CDAF3EC5433776D5 /* ThinkingOrb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkingOrb.swift; sourceTree = "<group>"; };
 		91BDC9F2AD77F8654907C219 /* Core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core.swift; sourceTree = "<group>"; };
 		93705EA523BBFC35E34367CD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		95454C75C59E6639A370A997 /* dest-sahara.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-sahara.jpg"; sourceTree = "<group>"; };
 		971BB2C1553DAD49063C4934 /* MapsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapsTests.swift; sourceTree = "<group>"; };
 		9746A2C28B5596C5570E34B3 /* WalletModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletModels.swift; sourceTree = "<group>"; };
 		976F92479D074458A64539B8 /* WalletCardArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCardArtwork.swift; sourceTree = "<group>"; };
@@ -245,32 +234,43 @@
 		A4C82FBF8EC96938C50799C4 /* AgentHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHomeView.swift; sourceTree = "<group>"; };
 		A762EA2F77A29FFD875DA223 /* MemoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoSection.swift; sourceTree = "<group>"; };
 		AAB30A60EBABC73ACC172EF1 /* RouteCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteCache.swift; sourceTree = "<group>"; };
+		AAD49C5C3B4E16308824191C /* dest-palau.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-palau.jpg"; sourceTree = "<group>"; };
 		AB5337983395B60705321FDC /* NeonTodayMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeonTodayMap.swift; sourceTree = "<group>"; };
 		ACA45728502C29E3F4C3B71A /* WalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTests.swift; sourceTree = "<group>"; };
 		ADD71E8A9B4EB9071A9830E8 /* WalletCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletCrypto.swift; sourceTree = "<group>"; };
 		AF2ACD9659CCEDB76209CDA2 /* Strands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Strands.swift; sourceTree = "<group>"; };
 		AFBD21BBCF210B3C99799519 /* AIItinerarySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIItinerarySheet.swift; sourceTree = "<group>"; };
+		B1311ED5F2D3E486E99533DE /* dest-amalfi.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-amalfi.jpg"; sourceTree = "<group>"; };
 		B3DDFDEC94E6775C44F5D240 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B95FD9D2869CEB2C744FF926 /* dest-switzerland.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-switzerland.jpg"; sourceTree = "<group>"; };
 		B9631F4B29F35CB686EA9442 /* ReminderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderStore.swift; sourceTree = "<group>"; };
+		BA8772A41F4EEC4677CAC4C7 /* dest-kyoto.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-kyoto.jpg"; sourceTree = "<group>"; };
 		BC5E9B3D8C17EA8A30BEF503 /* AlarmScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmScheduler.swift; sourceTree = "<group>"; };
+		BED3D72600B0E86DF8EA08B3 /* dest-norway.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-norway.jpg"; sourceTree = "<group>"; };
 		C6D69475DDA7AAD5F6096456 /* GooeyPinDemoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooeyPinDemoView.swift; sourceTree = "<group>"; };
 		CA1BEB845262F1A88B406861 /* CardEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardEditorView.swift; sourceTree = "<group>"; };
 		CC509B17BD5736DD641FE015 /* SharedModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedModels.swift; sourceTree = "<group>"; };
 		CFBECAF82E55FB6B69D455CE /* TravelCompanionShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TravelCompanionShareExtension.entitlements; sourceTree = "<group>"; };
 		D2257908B5B0D4672E0FD271 /* JournalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalModels.swift; sourceTree = "<group>"; };
+		D30BBB7050B746256BE6C8E4 /* dest-kanas.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-kanas.jpg"; sourceTree = "<group>"; };
 		DC53B5FAD8D6AFD665BEF072 /* DayEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayEditor.swift; sourceTree = "<group>"; };
+		DCAB7EA7071CB9D9F79E72A0 /* dest-iceland.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-iceland.jpg"; sourceTree = "<group>"; };
 		DEE7AC844A5A5929E9C18F8D /* ExpenseSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseSummaryView.swift; sourceTree = "<group>"; };
+		DF5242B14D747D3B7ECD454B /* dest-tuscany.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-tuscany.jpg"; sourceTree = "<group>"; };
 		E4153572CEB1B068748B76E6 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		E7AA87C1838CDBE2B00E5FCA /* dest-dali.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-dali.jpg"; sourceTree = "<group>"; };
 		E822F89152175BACCA023A3F /* TravelCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCardView.swift; sourceTree = "<group>"; };
 		ECA17FF91696BD112B2C29F4 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
 		ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		ED684774368336D41506574B /* TodayWeather.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayWeather.swift; sourceTree = "<group>"; };
+		ED7F8892933FEDE3D8AEE7CE /* dest-masai-mara.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-masai-mara.jpg"; sourceTree = "<group>"; };
 		F06077E1F953BE92E1D0733F /* TodayMapStyle.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = TodayMapStyle.json; sourceTree = "<group>"; };
 		F42D02E361B74E833454FBE1 /* AppleMapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMapService.swift; sourceTree = "<group>"; };
 		F6487F1A4A5B10200D6F17F0 /* CardLegEstimateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLegEstimateView.swift; sourceTree = "<group>"; };
 		F908BCA76A82FE0B98955362 /* TravelCompanionShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = TravelCompanionShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC967E42D0A71344B8A10BB4 /* TravelCardStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCardStyle.swift; sourceTree = "<group>"; };
 		FDFFF65364CA027FE09B695E /* PlaceSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceSearchView.swift; sourceTree = "<group>"; };
+		FF25A0CD6C39EB59465E4285 /* dest-machupicchu.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-machupicchu.jpg"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -433,42 +433,15 @@
 			path = UI;
 			sourceTree = "<group>";
 		};
-		D74B563C946657A49A7AB530 /* DestinationImages */ = {
-			isa = PBXGroup;
-			children = (
-				9BF0B5A27BD004F2EE144939 /* dest-amalfi.jpg */,
-				9615FB38970BA4CCB9DAEB41 /* dest-bali.jpg */,
-				5DB3831B3CA3ECEBADF64C46 /* dest-cappadocia.jpg */,
-				D435F39EEA722D977623B5D6 /* dest-chiangmai.jpg */,
-				9B473092E42FB173A5F3A87E /* dest-dali.jpg */,
-				560C82A03DD686B27C02392F /* dest-hokkaido.jpg */,
-				3B6AC046421C5235DF729DB9 /* dest-iceland.jpg */,
-				FA89AB790974468228C37ED3 /* dest-kanas.jpg */,
-				7DF4F6F9906FFD20D7FBD712 /* dest-komodo.jpg */,
-				4B6A4523A2188FA16A38F689 /* dest-kyoto.jpg */,
-				A445A5B1EBDA43B0350FA32F /* dest-machupicchu.jpg */,
-				CAB3E96503422541CEDB14F1 /* dest-masai-mara.jpg */,
-				B1BDDF3EFEFAC2D88B71B206 /* dest-morocco.jpg */,
-				38CD2215E5DD2AD0013793CE /* dest-newzealand.jpg */,
-				DEC9807DD21E63C6E164DEBA /* dest-norway.jpg */,
-				7384FE214E9CFA0E7EC8D8E6 /* dest-palau.jpg */,
-				9229F02DE9D8B57E4FC1A5E8 /* dest-sahara.jpg */,
-				3D4488EE3C86BC8A9E69879C /* dest-santorini.jpg */,
-				F66A0003C1524A85DF99CBC5 /* dest-switzerland.jpg */,
-				5C2F600E41D7891DB843DD06 /* dest-tuscany.jpg */,
-			);
-			path = DestinationImages;
-			sourceTree = "<group>";
-		};
 		8BEE30AA0F8517CAF6A84CDA /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
 				6937D4D7E145AF1C35DB6BA9 /* AgentIconSprite.png */,
-				D74B563C946657A49A7AB530 /* DestinationImages */,
 				7C998B1C01614DB76665E7C5 /* Info.plist */,
 				ECD386656D4ECB7D13F069D4 /* PrivacyInfo.xcprivacy */,
 				F06077E1F953BE92E1D0733F /* TodayMapStyle.json */,
 				520489DF3065E865856241C7 /* TravelCompanion.entitlements */,
+				E76E662314B6DFE65B03D5D8 /* DestinationImages */,
 			);
 			path = Supporting;
 			sourceTree = "<group>";
@@ -541,6 +514,33 @@
 				8E3B90568E90B78E40EBD17C /* ThinkingOrbsKit */,
 			);
 			path = Vendor;
+			sourceTree = "<group>";
+		};
+		E76E662314B6DFE65B03D5D8 /* DestinationImages */ = {
+			isa = PBXGroup;
+			children = (
+				B1311ED5F2D3E486E99533DE /* dest-amalfi.jpg */,
+				5B9E3AF4C0C9F9A3D0483E60 /* dest-bali.jpg */,
+				2419F9528A994039DCE14096 /* dest-cappadocia.jpg */,
+				1D6C87FED1E1BBBEA407FE8A /* dest-chiangmai.jpg */,
+				E7AA87C1838CDBE2B00E5FCA /* dest-dali.jpg */,
+				827A0A71D6521A7A5118B40E /* dest-hokkaido.jpg */,
+				DCAB7EA7071CB9D9F79E72A0 /* dest-iceland.jpg */,
+				D30BBB7050B746256BE6C8E4 /* dest-kanas.jpg */,
+				8D722F6F187773B4853CEB21 /* dest-komodo.jpg */,
+				BA8772A41F4EEC4677CAC4C7 /* dest-kyoto.jpg */,
+				FF25A0CD6C39EB59465E4285 /* dest-machupicchu.jpg */,
+				ED7F8892933FEDE3D8AEE7CE /* dest-masai-mara.jpg */,
+				09F5CB7948CE9E0D540F0968 /* dest-morocco.jpg */,
+				2E7E25765B4F1B662E95526D /* dest-newzealand.jpg */,
+				BED3D72600B0E86DF8EA08B3 /* dest-norway.jpg */,
+				AAD49C5C3B4E16308824191C /* dest-palau.jpg */,
+				95454C75C59E6639A370A997 /* dest-sahara.jpg */,
+				6C85157919257E369CF275CF /* dest-santorini.jpg */,
+				B95FD9D2869CEB2C744FF926 /* dest-switzerland.jpg */,
+				DF5242B14D747D3B7ECD454B /* dest-tuscany.jpg */,
+			);
+			path = DestinationImages;
 			sourceTree = "<group>";
 		};
 		F2C45ADCEC2C5101D8E819FC /* Expenses */ = {
@@ -625,6 +625,8 @@
 			dependencies = (
 			);
 			name = TravelCompanionShareExtension;
+			packageProductDependencies = (
+			);
 			productName = TravelCompanionShareExtension;
 			productReference = F908BCA76A82FE0B98955362 /* TravelCompanionShareExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -641,6 +643,8 @@
 				9D2267DDD9C9316B275DC5BE /* PBXTargetDependency */,
 			);
 			name = TravelCompanionTests;
+			packageProductDependencies = (
+			);
 			productName = TravelCompanionTests;
 			productReference = 18A9E15E3BBFAF43F73168C0 /* TravelCompanionTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -663,7 +667,6 @@
 				};
 			};
 			buildConfigurationList = 2D12571D7BF728CDEE1E18FC /* Build configuration list for PBXProject "TravelCompanion" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -671,9 +674,12 @@
 				en,
 			);
 			mainGroup = F8B89361BE22204F07EF412B;
+			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				3C69DCC02E419C1E9294ADFA /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 9C00F592F723C700D8D27F28 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -690,29 +696,29 @@
 			buildActionMask = 2147483647;
 			files = (
 				A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */,
-				A84150ACA89F0A6C9183D624 /* dest-amalfi.jpg in Resources */,
-				7EA1FF52D436EF663F046788 /* dest-bali.jpg in Resources */,
-				7BCA5CAC1EEE23822A90B572 /* dest-cappadocia.jpg in Resources */,
-				4333C802AC369F48FCBBB66D /* dest-chiangmai.jpg in Resources */,
-				0602CE36E74B2AF854B7C4F9 /* dest-dali.jpg in Resources */,
-				E3796F112BED816E626B09A1 /* dest-hokkaido.jpg in Resources */,
-				0AF3A321F4A9E4A6BEF4DF47 /* dest-iceland.jpg in Resources */,
-				F9B7AA8035FE2DD3A37A6F15 /* dest-kanas.jpg in Resources */,
-				5702B4DF7F6BFFDEED9614E8 /* dest-komodo.jpg in Resources */,
-				07CB4C91ABE6C4C8BBCFAE62 /* dest-kyoto.jpg in Resources */,
-				2FA9FE2A8369D4E47D5DF413 /* dest-machupicchu.jpg in Resources */,
-				D6A4FC3ACEFF5BE8E19B3A32 /* dest-masai-mara.jpg in Resources */,
-				2E61A5549E88E36987DBB81B /* dest-morocco.jpg in Resources */,
-				9C5CC5CFC64EB50600E5656F /* dest-newzealand.jpg in Resources */,
-				7275B1D90773974C059B71F5 /* dest-norway.jpg in Resources */,
-				A81CDCD24391AAC0D11FD7F1 /* dest-palau.jpg in Resources */,
-				A4D02FF4D312A50590E1C37B /* dest-sahara.jpg in Resources */,
-				FD092EE47A419F19F45496DC /* dest-santorini.jpg in Resources */,
-				FCB752E134A366FB027FA181 /* dest-switzerland.jpg in Resources */,
-				4E5C2923828CF6FD47B8F71E /* dest-tuscany.jpg in Resources */,
 				F9259F0C412752FC39352154 /* Assets.xcassets in Resources */,
 				460CDC18128838A78852D316 /* PrivacyInfo.xcprivacy in Resources */,
 				7CAAC9F78ACB912B7166C2E2 /* TodayMapStyle.json in Resources */,
+				10A3C51B1F9936E6B43124DE /* dest-amalfi.jpg in Resources */,
+				D9020D2EEECB91EA4764FD4C /* dest-bali.jpg in Resources */,
+				900F439268FC16352F8E6C8A /* dest-cappadocia.jpg in Resources */,
+				29A6CA508A4F7D53EBB11DA8 /* dest-chiangmai.jpg in Resources */,
+				101BED30744E1125916D7697 /* dest-dali.jpg in Resources */,
+				3094FD9F017B127E0BD1C2DF /* dest-hokkaido.jpg in Resources */,
+				E567E2AC95E490F55DAF38CB /* dest-iceland.jpg in Resources */,
+				C53748E9CF0A79C892630C02 /* dest-kanas.jpg in Resources */,
+				28E5ACC8D4C0E70949A38049 /* dest-komodo.jpg in Resources */,
+				941AA799DE490BCB371DF5BE /* dest-kyoto.jpg in Resources */,
+				F266D3A546F04A27C6D45B66 /* dest-machupicchu.jpg in Resources */,
+				A4C42CA74D01CB0DF3146407 /* dest-masai-mara.jpg in Resources */,
+				80BE8E92A343EE44EBAFE4A6 /* dest-morocco.jpg in Resources */,
+				8152E070FC4290235E29B350 /* dest-newzealand.jpg in Resources */,
+				055028DF0C808F7DAE1B21E4 /* dest-norway.jpg in Resources */,
+				FF195222AD7FFB936A73F028 /* dest-palau.jpg in Resources */,
+				B36392744E730C463F8AB645 /* dest-sahara.jpg in Resources */,
+				98E6AE4DD2268C952EF68176 /* dest-santorini.jpg in Resources */,
+				4F03C5D8E2845809ED318040 /* dest-switzerland.jpg in Resources */,
+				7B1C0716E519F5959745E51F /* dest-tuscany.jpg in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -922,7 +928,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 50;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -934,7 +940,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 0.2.7;
+				MARKETING_VERSION = 0.4.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -950,7 +956,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Sources/TravelCompanion/Supporting/TravelCompanion.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Distribution";
+				CODE_SIGN_IDENTITY = A3E24240093D0924BC17227C32EFE18210630E32;
 				CODE_SIGN_STYLE = Manual;
 				DEVELOPMENT_TEAM = 9Z29478796;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -972,7 +978,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Sources/TravelCompanionShareExtension/TravelCompanionShareExtension.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Distribution";
+				CODE_SIGN_IDENTITY = A3E24240093D0924BC17227C32EFE18210630E32;
 				CODE_SIGN_STYLE = Manual;
 				DEVELOPMENT_TEAM = 9Z29478796;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -1025,7 +1031,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 50;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1043,7 +1049,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 0.2.7;
+				MARKETING_VERSION = 0.4.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

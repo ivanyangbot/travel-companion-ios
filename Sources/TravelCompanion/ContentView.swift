@@ -20,7 +20,6 @@ struct ContentView: View {
     /// 首页当前展示的就是 AgentHomeView（无生效行程的欢迎页）时隐藏 tab 栏
     /// 右侧的 Agent 按钮——页面本身就是 Agent，入口重复；回到地图后恢复。
     @State private var agentHomeActive = false
-    @State private var showsGooeyPinDemo = false
     @State private var agentInitialMessage: String?
     @State private var selectedSection: MainSection = .journey
     @State private var navigationDragTranslation: CGFloat = 0
@@ -31,14 +30,12 @@ struct ContentView: View {
         case journey
         case expenses
         case notes
-        case settings
 
         var title: String {
             switch self {
             case .journey: "旅程"
             case .expenses: "账本"
             case .notes: "手书"
-            case .settings: "设置"
             }
         }
 
@@ -47,7 +44,6 @@ struct ContentView: View {
             case .journey: "icon-trip-outline"
             case .expenses: "icon-money-outline"
             case .notes: "icon-note-outline"
-            case .settings: "icon-setting-outline"
             }
         }
     }
@@ -102,6 +98,7 @@ struct ContentView: View {
                 if let syncEngine {
                     AgentWorkbenchView(
                         syncEngine: syncEngine,
+                        appleSignIn: appleSignIn,
                         initialMessage: agentInitialMessage,
                         onInitialMessageSubmitted: {
                             sharedLinkStore.markDelivered()
@@ -112,9 +109,6 @@ struct ContentView: View {
                     ProgressView("正在准备 Agent…")
                 }
             }
-        }
-        .sheet(isPresented: $showsGooeyPinDemo) {
-            GooeyPinDemoView()
         }
         .task {
             guard syncEngine == nil else { return }
@@ -217,10 +211,6 @@ struct ContentView: View {
         } else {
             sectionLoadingPlaceholder("正在准备手书…")
         }
-        case .settings:
-            // The settings tab is a visual placeholder for now and is not
-            // selectable. Keep this branch exhaustive for future activation.
-            EmptyView()
         }
     }
 
@@ -269,7 +259,7 @@ struct ContentView: View {
         .accessibilityRepresentation {
             HStack {
                 ForEach(MainSection.allCases, id: \.self) { section in
-                    Button(section == .settings ? "打开 Pin Gooey Demo" : section.title) {
+                    Button(section.title) {
                         selectSection(section)
                     }
                     .accessibilityValue(section == selectedSection ? "已选择" : "")
@@ -346,13 +336,6 @@ struct ContentView: View {
     }
 
     private func selectSection(_ section: MainSection) {
-        guard section != .settings else {
-            showsGooeyPinDemo = true
-            withAnimation(.snappy(duration: 0.25)) {
-                navigationDragTranslation = 0
-            }
-            return
-        }
         withAnimation(.snappy(duration: 0.25)) {
             selectedSection = section
             navigationDragTranslation = 0

@@ -7,8 +7,11 @@ import UIKit
 /// “今日”页：全屏地图按时间顺序连线今日 POI，底部 swiper 横滑切换并点击查看详情。
 struct TodayView: View {
     @ObservedObject var syncEngine: SyncEngine
+    @ObservedObject var appleSignIn: AppleSignInStore
     @Binding var section: JourneyView.Section
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var agentSessionStore: AgentV2SessionStore
+    @EnvironmentObject private var agentRunState: AgentV2RunState
     @StateObject private var linkHandler = ExternalLinkHandler()
     @State private var selectedPOIIndex = 0
     @State private var cameraFocus: CLLocationCoordinate2D?
@@ -20,6 +23,17 @@ struct TodayView: View {
     @State private var selectedDayIndex: Int?
     @State private var weatherEntries: [TodayWeatherEntry] = []
     @State private var isPOIOverlayExpanded = true
+    // Restored from the original home-page quick-action drawer. The current
+    // down button now collapses the POI overlay and opens this menu in one tap.
+    @State private var activeQuickAction: TodayQuickAction?
+    @State private var showsSharingSheet = false
+    @State private var showsTripPicker = false
+    @State private var tripBeingSelectedID: Int?
+    @State private var isStartingNewTrip = false
+    @State private var isPlanningNewTrip = false
+    @State private var showsSignOutConfirmation = false
+    @State private var signOutErrorMessage: String?
+    @State private var isReloading = false
     @State private var expandedPOICardID: UUID?
     @State private var poiExpansionProgress: CGFloat = 0
     @State private var poiSwipeStartIndex: Int?
@@ -32,7 +46,9 @@ struct TodayView: View {
 
     var body: some View {
         Group {
-            if let trip = syncEngine.trip, trip.isConfigured {
+            if isPlanningNewTrip {
+                newTripAgentHome
+            } else if let trip = syncEngine.trip, trip.isConfigured {
                 let sorted = sortedDays(in: trip)
                 if sorted.isEmpty {
                     agentHome
@@ -62,6 +78,63 @@ struct TodayView: View {
         .sheet(item: $detailCard) { card in
             TodayCardDetailSheet(card: card, linkHandler: linkHandler)
         }
+        .fullScreenCover(isPresented: Binding(
+            get: { showsSharingSheet },
+            set: {
+                showsSharingSheet = $0
+                if !$0 { clearQuickAction(.addCompanion) }
+            }
+        )) {
+            TripSharingSheet(syncEngine: syncEngine)
+        }
+        .sheet(isPresented: Binding(
+            get: { showsTripPicker },
+            set: {
+                showsTripPicker = $0
+                if !$0 {
+                    clearQuickAction(.tripSelection)
+                    withAnimation(.snappy(duration: 0.28)) {
+                        isPOIOverlayExpanded = true
+                    }
+                }
+            }
+        )) {
+            TodayTripPickerSheet(
+                trips: syncEngine.trips,
+                selectedTripID: syncEngine.selectedTripID,
+                tripBeingSelectedID: tripBeingSelectedID,
+                isStartingNewTrip: isStartingNewTrip,
+                onSelect: selectTripFromPicker,
+                onCreate: startNewTripFromPicker,
+                onDismiss: { showsTripPicker = false }
+            )
+            .presentationBackground(.clear)
+            .interactiveDismissDisabled(tripBeingSelectedID != nil || isStartingNewTrip)
+        }
+        .alert("退出登录？", isPresented: Binding(
+            get: { showsSignOutConfirmation },
+            set: {
+                showsSignOutConfirmation = $0
+                if !$0 { clearQuickAction(.signOut) }
+            }
+        )) {
+            Button("退出登录", role: .destructive) {
+                if !appleSignIn.signOut() {
+                    signOutErrorMessage = appleSignIn.errorMessage ?? "请稍后重试。"
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("退出后将停止云端同步，仍可继续使用本地模式。")
+        }
+        .alert("无法退出登录", isPresented: Binding(
+            get: { signOutErrorMessage != nil },
+            set: { if !$0 { signOutErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { signOutErrorMessage = nil }
+        } message: {
+            Text(signOutErrorMessage ?? "")
+        }
         .sheet(isPresented: Binding(
             get: { linkHandler.browserURL != nil },
             set: { if !$0 { linkHandler.browserURL = nil } }
@@ -85,7 +158,19 @@ struct TodayView: View {
     /// Agent 工作台可单独调整），让用户直接开始对话规划。悬浮导航栏的
     /// 底部预留由 AgentHomeView 按欢迎页/对话页状态自行控制。
     private var agentHome: some View {
-        AgentHomeView(syncEngine: syncEngine)
+        AgentHomeView(syncEngine: syncEngine, appleSignIn: appleSignIn)
+    }
+
+    /// “新建一段旅行”进入的临时规划模式。当前旅行暂时保留，方便用户随时
+    /// 返回；Agent 请求强制按 plan_new 发送，确认创建后才切换选中旅行。
+    private var newTripAgentHome: some View {
+        AgentHomeView(
+            syncEngine: syncEngine,
+            appleSignIn: appleSignIn,
+            plansNewTrip: true,
+            onCancelNewTripPlanning: cancelNewTripPlanning,
+            onNewTripCreated: finishNewTripPlanning
+        )
     }
 
     @ViewBuilder
@@ -94,7 +179,7 @@ struct TodayView: View {
         let pois = poiCards(in: day)
         let showsPOISwiper = !pois.isEmpty && isPOIOverlayExpanded
         let showsTimeline = pois.isEmpty || isPOIOverlayExpanded
-        ZStack {
+        ZStack(alignment: .top) {
             MapLibreTodayMapCanvas(
                 points: mapPoints(pois: pois),
                 // A selected map marker is the visual counterpart of the
@@ -213,7 +298,7 @@ struct TodayView: View {
         currentIndex: Int,
         baseIndex: Int
     ) -> some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Text(mapHeaderTitle(for: day, currentIndex: currentIndex, baseIndex: baseIndex))
                 .font(.system(size: 20, weight: .semibold))
                 .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 48)
@@ -221,13 +306,18 @@ struct TodayView: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(daySwipeGesture(days: days, currentIndex: currentIndex))
 
-            HStack(spacing: 0) {
-                TodayPOIOverlayToggleButton(isExpanded: $isPOIOverlayExpanded) { isExpanded in
-                    guard isExpanded else { return }
-                    fitAll(pois: pois)
-                }
-                .disabled(pois.isEmpty)
-                .opacity(pois.isEmpty ? 0.45 : 1)
+            HStack(alignment: .top, spacing: 0) {
+                TodayHomeDropdownMenu(
+                    isPOIOverlayExpanded: $isPOIOverlayExpanded,
+                    activeAction: activeQuickAction,
+                    isReloading: isReloading,
+                    isAuthenticated: appleSignIn.isAuthenticated,
+                    onAction: { action in handleQuickAction(action, pois: pois) },
+                    onOverlayExpansionChanged: { isExpanded in
+                        guard isExpanded else { return }
+                        fitAll(pois: pois)
+                    }
+                )
 
                 Spacer(minLength: 0)
 
@@ -260,6 +350,95 @@ struct TodayView: View {
             }
         }
         .padding(.horizontal, 20)
+    }
+
+    private func handleQuickAction(_ action: TodayQuickAction, pois: [TravelCardSnapshot]) {
+        switch action {
+        case .addCompanion:
+            activeQuickAction = .addCompanion
+            showsSharingSheet = true
+        case .tripSelection:
+            activeQuickAction = .tripSelection
+            showsTripPicker = true
+        case .reload:
+            guard !isReloading else { return }
+            activeQuickAction = .reload
+            isReloading = true
+            Task {
+                async let retry: Void = syncEngine.retry()
+                // Preserve the old drawer's visible full-turn reload animation.
+                try? await Task.sleep(for: .seconds(0.75))
+                await retry
+                fitAll(pois: pois)
+                isReloading = false
+                clearQuickAction(.reload)
+            }
+        case .signOut:
+            guard appleSignIn.isAuthenticated else { return }
+            activeQuickAction = .signOut
+            showsSignOutConfirmation = true
+        }
+    }
+
+    private func clearQuickAction(_ action: TodayQuickAction) {
+        guard activeQuickAction == action else { return }
+        activeQuickAction = nil
+    }
+
+    /// Switches trips without dismissing the picker prematurely, so the selected
+    /// row can provide immediate progress feedback while cached/network state loads.
+    private func selectTripFromPicker(_ summary: TripSummary) {
+        guard tripBeingSelectedID == nil, !isStartingNewTrip else { return }
+        guard summary.id != syncEngine.selectedTripID else {
+            showsTripPicker = false
+            return
+        }
+        tripBeingSelectedID = summary.id
+        resetMapSelection()
+        Task {
+            await syncEngine.selectTrip(summary.id)
+            tripBeingSelectedID = nil
+            showsTripPicker = false
+        }
+    }
+
+    /// Starts a new planning context while retaining the selected trip until
+    /// creation succeeds, allowing the user to return to the current map.
+    private func startNewTripFromPicker() {
+        guard tripBeingSelectedID == nil, !isStartingNewTrip else { return }
+        isStartingNewTrip = true
+        resetMapSelection()
+        agentRunState.clearTransientState()
+        agentSessionStore.startNewSession()
+        withAnimation(.snappy(duration: 0.32)) {
+            isPlanningNewTrip = true
+            showsTripPicker = false
+        }
+        isStartingNewTrip = false
+    }
+
+    private func cancelNewTripPlanning() {
+        agentRunState.clearTransientState()
+        agentSessionStore.startNewSession()
+        withAnimation(.snappy(duration: 0.32)) {
+            isPlanningNewTrip = false
+        }
+    }
+
+    private func finishNewTripPlanning() {
+        withAnimation(.snappy(duration: 0.32)) {
+            isPlanningNewTrip = false
+        }
+    }
+
+    private func resetMapSelection() {
+        selectedDayIndex = nil
+        selectedPOIIndex = 0
+        cameraFocus = nil
+        cameraFocusPointID = nil
+        weatherEntries = []
+        expandedPOICardID = nil
+        poiExpansionProgress = 0
     }
 
     private func mapHeaderTitle(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> String {
@@ -673,17 +852,93 @@ struct TodayView: View {
     }()
 }
 
-private struct TodayPOIOverlayToggleButton: View {
-    @Binding var isExpanded: Bool
-    let onExpansionChanged: (Bool) -> Void
+/// Original animated home quick-action drawer, coupled to the current POI
+/// overlay toggle so one tap collapses the cards and reveals the menu.
+private enum TodayQuickAction: String, CaseIterable {
+    case addCompanion
+    case tripSelection
+    case reload
+    case signOut
+
+    var iconName: String {
+        switch self {
+        case .addCompanion: "icon-adduser-outline"
+        case .tripSelection: "icon-plan-outline"
+        case .reload: "icon-reload-outline"
+        case .signOut: "rectangle.portrait.and.arrow.right"
+        }
+    }
+
+    var usesSystemImage: Bool { self == .signOut }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .addCompanion: "邀请同行人"
+        case .tripSelection: "切换旅行"
+        case .reload: "重新同步"
+        case .signOut: "退出登录"
+        }
+    }
+}
+
+private struct TodayHomeDropdownMenu: View {
+    @Binding var isPOIOverlayExpanded: Bool
+    let activeAction: TodayQuickAction?
+    let isReloading: Bool
+    let isAuthenticated: Bool
+    let onAction: (TodayQuickAction) -> Void
+    let onOverlayExpansionChanged: (Bool) -> Void
+
+    private var isMenuExpanded: Bool { !isPOIOverlayExpanded }
+    private var visibleActions: [TodayQuickAction] {
+        TodayQuickAction.allCases.filter { $0 != .signOut || isAuthenticated }
+    }
+
+    private var expandedHeight: CGFloat {
+        48 + 8 + CGFloat(visibleActions.count * 40) + CGFloat(max(0, visibleActions.count - 1) * 12) + 4
+    }
 
     var body: some View {
-        Button {
-            let willExpand = !isExpanded
-            withAnimation(.snappy(duration: 0.3)) {
-                isExpanded = willExpand
+        VStack(spacing: isMenuExpanded ? 8 : 0) {
+            expandButton
+
+            VStack(spacing: 12) {
+                ForEach(visibleActions, id: \.self) { action in
+                    actionButton(action)
+                }
             }
-            onExpansionChanged(willExpand)
+            .padding(.bottom, 4)
+            .allowsHitTesting(isMenuExpanded)
+            .accessibilityHidden(!isMenuExpanded)
+        }
+        .frame(width: 48, height: isMenuExpanded ? expandedHeight : 48, alignment: .top)
+        // Keep action icons mounted and reveal them with the expanding frame.
+        // This couples their movement to the glass drawer instead of fading the
+        // entire stack in and out after the drawer animation has begun.
+        .clipped()
+        .background {
+            TodayGlassBackdrop()
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+                }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .animation(.snappy(duration: 0.3), value: isMenuExpanded)
+        .shadow(
+            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+            radius: 12,
+            y: 12
+        )
+    }
+
+    private var expandButton: some View {
+        Button {
+            let willExpandOverlay = !isPOIOverlayExpanded
+            withAnimation(.snappy(duration: 0.3)) {
+                isPOIOverlayExpanded = willExpandOverlay
+            }
+            onOverlayExpansionChanged(willExpandOverlay)
         } label: {
             Image("icon-dropdown-outline")
                 .resizable()
@@ -691,27 +946,296 @@ private struct TodayPOIOverlayToggleButton: View {
                 .scaledToFit()
                 .foregroundStyle(.white)
                 .frame(width: 24, height: 24)
-                .rotationEffect(.degrees(isExpanded ? 0 : 180))
+                .rotationEffect(.degrees(isMenuExpanded ? 180 : 0))
                 .frame(width: 40, height: 40)
+                .background(
+                    isMenuExpanded ? Color.white.opacity(0.32) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .frame(width: 48, height: 48)
-        .background { TodayGlassBackdrop() }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+        .zIndex(1)
+        .accessibilityLabel(isMenuExpanded ? "收起功能菜单并展开地点卡片" : "展开功能菜单并收起地点卡片")
+        .accessibilityValue(isMenuExpanded ? "已展开" : "已收起")
+    }
+
+    private func actionButton(_ action: TodayQuickAction) -> some View {
+        Button {
+            guard action != .reload || !isReloading else { return }
+            onAction(action)
+        } label: {
+            Group {
+                if action.usesSystemImage {
+                    Image(systemName: action.iconName)
+                        .font(.system(size: 18, weight: .medium))
+                        .symbolRenderingMode(.monochrome)
+                } else {
+                    Image(action.iconName)
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(width: 24, height: 24)
+            .rotationEffect(.degrees(action == .reload && isReloading ? 360 : 0))
+            .animation(
+                action == .reload && isReloading
+                    ? .linear(duration: 0.75).repeatForever(autoreverses: false)
+                    : .easeOut(duration: 0.2),
+                value: isReloading
+            )
+            .frame(width: 40, height: 40)
+            .background(
+                Circle()
+                    .fill(PrimaryTabPalette.accent)
+                    .opacity(activeAction == action ? 1 : 0)
+            )
+            .animation(.easeInOut(duration: 0.2), value: activeAction)
+            .contentShape(Circle())
         }
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(
-            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
-            radius: 12,
-            y: 12
-        )
-        .animation(.snappy(duration: 0.3), value: isExpanded)
-        .accessibilityLabel(isExpanded ? "收起时间轴与地点卡片" : "展开时间轴与地点卡片")
-        .accessibilityValue(isExpanded ? "已展开" : "已收起")
+        .buttonStyle(.plain)
+        .frame(width: 40, height: 40)
+        .accessibilityLabel(action.accessibilityLabel)
+        .accessibilityAddTraits(activeAction == action ? .isSelected : [])
+    }
+}
+
+/// Dark custom trip picker used by the home-page dropdown. It replaces the
+/// system confirmation dialog with richer trip context and explicit progress.
+private struct TodayTripPickerSheet: View {
+    let trips: [TripSummary]
+    let selectedTripID: Int?
+    let tripBeingSelectedID: Int?
+    let isStartingNewTrip: Bool
+    let onSelect: (TripSummary) -> Void
+    let onCreate: () -> Void
+    let onDismiss: () -> Void
+
+    private var isBusy: Bool { tripBeingSelectedID != nil || isStartingNewTrip }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                // The upper half remains visually open so the map stays visible;
+                // it only acts as a tap target for dismissing the bottom panel.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !isBusy else { return }
+                        onDismiss()
+                    }
+
+                VStack(spacing: 0) {
+                    header
+
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            createTripButton
+
+                            if !trips.isEmpty {
+                                HStack(spacing: 10) {
+                                    Rectangle()
+                                        .fill(.white.opacity(0.12))
+                                        .frame(height: 1)
+                                    Text("已有旅行")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                        .fixedSize()
+                                    Rectangle()
+                                        .fill(.white.opacity(0.12))
+                                        .frame(height: 1)
+                                }
+                                .padding(.vertical, 4)
+
+                                ForEach(trips) { trip in
+                                    tripRow(trip)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20 + geometry.safeAreaInsets.bottom)
+                    }
+                    .scrollIndicators(.hidden)
+                }
+                .frame(
+                    width: geometry.size.width,
+                    height: min(geometry.size.height, max(360, geometry.size.height * 0.5)),
+                    alignment: .top
+                )
+                .background(PrimaryTabPalette.background)
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 28,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 28,
+                        style: .continuous
+                    )
+                )
+                .overlay(alignment: .top) {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 28,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 28,
+                        style: .continuous
+                    )
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .ignoresSafeArea()
+        .preferredColorScheme(.dark)
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("切换旅行")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                Text("选择首页要显示的旅行")
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(PrimaryTabPalette.elevatedSurface, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isBusy)
+            .accessibilityLabel("关闭")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 18)
+    }
+
+    private var createTripButton: some View {
+        Button(action: onCreate) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.white.opacity(0.18))
+                    if isStartingNewTrip {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: 44, height: 44)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("新建一段旅行")
+                        .font(.body.weight(.bold))
+                    Text("和豆奶 Agent 一起从灵感开始规划")
+                        .font(.caption)
+                        .opacity(0.78)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 14, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .padding(14)
+            .background(
+                LinearGradient(
+                    colors: [PrimaryTabPalette.accent, PrimaryTabPalette.accent.opacity(0.72)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(.white.opacity(0.18), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .opacity(isBusy && !isStartingNewTrip ? 0.55 : 1)
+        .accessibilityHint("打开 Agent 新旅行规划，返回时仍保留当前旅行")
+    }
+
+    private func tripRow(_ trip: TripSummary) -> some View {
+        let isSelected = trip.id == selectedTripID
+        let isLoading = trip.id == tripBeingSelectedID
+
+        return Button { onSelect(trip) } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isSelected ? PrimaryTabPalette.accent : .white.opacity(0.72))
+                    .frame(width: 38, height: 38)
+                    .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(trip.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if let dateRange = dateRange(for: trip) {
+                        Text(dateRange)
+                            .font(.caption)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(PrimaryTabPalette.accent)
+                } else if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(PrimaryTabPalette.accent)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 64)
+            .background(
+                isSelected ? PrimaryTabPalette.accent.opacity(0.12) : PrimaryTabPalette.surface,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? PrimaryTabPalette.accent.opacity(0.55) : .white.opacity(0.08), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .opacity(isBusy && !isLoading ? 0.55 : 1)
+        .accessibilityValue(isSelected ? "当前旅行" : "")
+    }
+
+    private func dateRange(for trip: TripSummary) -> String? {
+        let start = trip.startDate?.replacingOccurrences(of: "-", with: ".")
+        let end = trip.endDate?.replacingOccurrences(of: "-", with: ".")
+        return switch (start, end) {
+        case let (start?, end?): "\(start) — \(end)"
+        case let (start?, nil): start
+        case let (nil, end?): end
+        case (nil, nil): nil
+        }
     }
 }
 

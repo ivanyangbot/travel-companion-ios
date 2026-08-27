@@ -40,7 +40,7 @@ struct JourneyView: View {
     var body: some View {
         switch section {
         case .today:
-            TodayView(syncEngine: syncEngine, section: $section)
+            TodayView(syncEngine: syncEngine, appleSignIn: appleSignIn, section: $section)
         case .itinerary:
             ItineraryView(
                 syncEngine: syncEngine,
