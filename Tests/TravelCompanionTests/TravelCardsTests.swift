@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftData
 import UIKit
@@ -916,6 +917,48 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertTrue(try repository.cachedTrips().contains { $0.id == -1 })
         XCTAssertFalse(migrationStore.hasPendingMigration)
         XCTAssertFalse(migrationStore.isInitialImportBatchActive)
+    }
+
+    @MainActor
+    func testExplicitTripDeselectionKeepsForegroundRefreshSilent() async throws {
+        FirstLoginMigrationURLProtocol.reset()
+        FirstLoginMigrationURLProtocol.tripVersion = 3
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FirstLoginMigrationURLProtocol.self]
+        let client = APIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test")),
+            session: URLSession(configuration: configuration),
+            tokenProvider: { "test-token" }
+        )
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let suiteName = "ExplicitTripDeselectionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let engine = SyncEngine(
+            repository: SharedTripRepository(modelContext: ModelContext(container)),
+            apiClient: client,
+            localMigrationStore: LocalTripMigrationStore(defaults: defaults),
+            authenticatedOverride: true
+        )
+
+        await engine.bootstrap()
+        XCTAssertEqual(engine.selectedTripID, 42)
+
+        await engine.clearSelectedTrip()
+        var publishedStatuses: [SyncEngine.Status] = []
+        let observation = engine.$status.dropFirst().sink { publishedStatuses.append($0) }
+
+        await engine.refresh()
+        withExtendedLifetime(observation) {}
+
+        XCTAssertTrue(engine.hasExplicitlyDeselectedTrip)
+        XCTAssertNil(engine.selectedTripID)
+        XCTAssertNil(engine.trip)
+        XCTAssertEqual(engine.status, .synced)
+        XCTAssertFalse(publishedStatuses.contains(.syncing))
     }
 }
 

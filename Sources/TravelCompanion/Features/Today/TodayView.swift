@@ -56,6 +56,10 @@ struct TodayView: View {
                     let currentIndex = clampedDayIndex(sorted: sorted, baseIndex: baseIndex)
                     mapContent(days: sorted, currentIndex: currentIndex, baseIndex: baseIndex)
                 }
+            } else if syncEngine.hasExplicitlyDeselectedTrip {
+                // “暂不选择行程”是稳定的用户选择。后台仍可每五秒刷新
+                // 行程列表，但不能用瞬时 `.syncing` 覆盖 Agent 首页。
+                agentHome
             } else if syncEngine.trip == nil {
                 switch syncEngine.status {
                 case .failed(let message):

@@ -105,7 +105,14 @@ final class SyncEngine: ObservableObject {
 
     func refresh() async {
         guard !localOnly else { status = .localOnly; return }
-        status = .syncing
+        // Foreground polling still refreshes the trip list after the user has
+        // explicitly chosen “no trip”, but it must not turn the no-trip home
+        // into a loading screen every five seconds. Keep that refresh silent;
+        // selecting a trip restores the normal visible syncing state.
+        let refreshesDeselectedTripList = hasExplicitlyDeselectedTrip && selectedTripID == nil
+        if !refreshesDeselectedTripList {
+            status = .syncing
+        }
         do {
             var summaries = try await apiClient.fetchTrips()
             let accountStartedEmpty = summaries.isEmpty
@@ -363,6 +370,7 @@ final class SyncEngine: ObservableObject {
         selectedTripID = nil
         trip = nil
         hasExplicitlyDeselectedTrip = true
+        status = localOnly ? .localOnly : .synced
         await apiClient.setActiveTripID(nil)
     }
 

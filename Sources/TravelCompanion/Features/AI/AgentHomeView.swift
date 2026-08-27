@@ -266,9 +266,11 @@ struct AgentHomeView: View {
                 // 左上角共用返回键：抽签流程中返回上一步（第一问时退出流程）；
                 // 欢迎页输入条展开时收起，回到双方块入口；对话页返回则归档
                 // 当前对话并完全复位到首页初始状态（双方块入口）。
-                if lotteryStepIndex != nil || isComposerExpanded || !isWelcomeState || onCancelNewTripPlanning != nil {
+                if showsBackButton {
                     Button {
-                        if let onCancelNewTripPlanning,
+                        if showsDeselectedTripBackButton {
+                            isShowingTripPicker = true
+                        } else if let onCancelNewTripPlanning,
                            lotteryStepIndex == nil,
                            !isComposerExpanded,
                            isWelcomeState {
@@ -291,7 +293,11 @@ struct AgentHomeView: View {
                     .padding(.leading, 16)
                     .padding(.top, 8)
                     .transition(.opacity)
-                    .accessibilityLabel(Text("agent.backA11y"))
+                    .accessibilityLabel(Text(
+                        showsDeselectedTripBackButton
+                            ? String(localized: "agent.switchTripA11y")
+                            : String(localized: "agent.backA11y")
+                    ))
                 }
             }
             .overlay(alignment: .topTrailing) {
@@ -495,6 +501,26 @@ struct AgentHomeView: View {
     private var tripTitle: String {
         guard let trip = syncEngine.trip, trip.isConfigured else { return String(localized: "agent.noTripTitle") }
         return trip.destination ?? String(localized: "agent.currentTripTitle")
+    }
+
+    /// 首页根欢迎态通常没有“返回”语义；但从工作台明确选择“暂不选择
+    /// 行程”后，返回键是恢复已有行程的唯一就近入口，因此打开行程选择器。
+    private var showsDeselectedTripBackButton: Bool {
+        presentation == .home
+            && syncEngine.hasExplicitlyDeselectedTrip
+            && !syncEngine.trips.isEmpty
+            && lotteryStepIndex == nil
+            && !isComposerExpanded
+            && isWelcomeState
+            && onCancelNewTripPlanning == nil
+    }
+
+    private var showsBackButton: Bool {
+        showsDeselectedTripBackButton
+            || lotteryStepIndex != nil
+            || isComposerExpanded
+            || !isWelcomeState
+            || onCancelNewTripPlanning != nil
     }
 
     /// 悬浮 Agent 的欢迎态头部保留行程切换、历史和新建入口；发送首条消息后
