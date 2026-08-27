@@ -140,6 +140,23 @@ if [[ "${TRAVEL_COMPANION_RELEASE_REEXECUTED:-0}" != "1" ]]; then
 fi
 unset TRAVEL_COMPANION_RELEASE_REEXECUTED
 
+for required_command in git awk basename xcodebuild codesign xcrun ruby tee; do
+    if ! command -v "$required_command" >/dev/null 2>&1; then
+        echo "Missing required command: $required_command" >&2
+        exit 1
+    fi
+done
+for required_tool in /usr/bin/grep /usr/bin/sed /usr/libexec/PlistBuddy; do
+    if [[ ! -x "$required_tool" ]]; then
+        echo "Missing required tool: $required_tool" >&2
+        exit 1
+    fi
+done
+if ! xcrun --find altool >/dev/null 2>&1; then
+    echo "Could not find altool in the selected Xcode installation." >&2
+    exit 1
+fi
+
 current_version="$(awk '/^[[:space:]]*MARKETING_VERSION:/ { print $2; exit }' "$PROJECT_YML")"
 current_build="$(awk '/^[[:space:]]*CURRENT_PROJECT_VERSION:/ { print $2; exit }' "$PROJECT_YML")"
 
@@ -213,13 +230,13 @@ echo "Preparing TravelCompanion $TARGET_VERSION ($TARGET_BUILD)"
     "s/(CURRENT_PROJECT_VERSION = )[^;]+;/\\1$TARGET_BUILD;/g" \
     "$PBXPROJ"
 
-if ! rg -q "MARKETING_VERSION: $TARGET_VERSION" "$PROJECT_YML" || \
-   ! rg -q "CURRENT_PROJECT_VERSION: $TARGET_BUILD" "$PROJECT_YML"; then
+if ! /usr/bin/grep -Fq "MARKETING_VERSION: $TARGET_VERSION" "$PROJECT_YML" || \
+   ! /usr/bin/grep -Fq "CURRENT_PROJECT_VERSION: $TARGET_BUILD" "$PROJECT_YML"; then
     echo "Version update verification failed for project.yml." >&2
     exit 1
 fi
-if [[ "$(rg -c "MARKETING_VERSION = $TARGET_VERSION;" "$PBXPROJ")" -ne 2 ]] || \
-   [[ "$(rg -c "CURRENT_PROJECT_VERSION = $TARGET_BUILD;" "$PBXPROJ")" -ne 2 ]]; then
+if [[ "$(/usr/bin/grep -Fc "MARKETING_VERSION = $TARGET_VERSION;" "$PBXPROJ")" -ne 2 ]] || \
+   [[ "$(/usr/bin/grep -Fc "CURRENT_PROJECT_VERSION = $TARGET_BUILD;" "$PBXPROJ")" -ne 2 ]]; then
     echo "Version update verification failed for project.pbxproj." >&2
     exit 1
 fi
