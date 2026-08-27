@@ -318,6 +318,20 @@ struct AgentHomeView: View {
                     .accessibilityHint("打开 Sign in with Apple")
                 }
             }
+            .overlay {
+                if isShowingPhotoPicker {
+                    // PHPicker may invoke Face ID for protected albums. Let the
+                    // presenting view remain live while the scene resigns and
+                    // becomes active again; a local scrim provides stable
+                    // dimming without UIKit replacing the upper sheet backdrop
+                    // with an opaque black view after authentication.
+                    Color.black.opacity(0.24)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture {}
+                        .accessibilityHidden(true)
+                }
+            }
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
@@ -394,7 +408,8 @@ struct AgentHomeView: View {
                 .presentationDetents([.fraction(0.58)])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(32)
-                .presentationBackground(.black)
+                .presentationBackground(Color(uiColor: .secondarySystemBackground))
+                .presentationBackgroundInteraction(.enabled)
             }
             .sheet(isPresented: $isShowingCameraPicker) {
                 AgentCameraSheet(isPresented: $isShowingCameraPicker) { image in
