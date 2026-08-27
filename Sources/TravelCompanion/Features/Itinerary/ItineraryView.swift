@@ -935,25 +935,27 @@ struct ItineraryView: View {
         index: Int,
         showsTimeAccent: Bool
     ) -> some View {
-        if card.showLargeImage, CardImageURL.resolve(card.images?.first) != nil {
-            itineraryLargeImageCardContent(
-                card,
-                index: index,
-                showsTimeAccent: showsTimeAccent
-            )
-        } else {
-            itineraryOrdinaryCardContent(
-                card,
-                index: index,
-                showsTimeAccent: showsTimeAccent
-            )
+        ZStack(alignment: .leading) {
+            if showsTimeAccent {
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .fill(PrimaryTabPalette.accent)
+            }
+
+            Group {
+                if card.showLargeImage, CardImageURL.resolve(card.images?.first) != nil {
+                    itineraryLargeImageCardContent(card, index: index)
+                } else {
+                    itineraryOrdinaryCardContent(card, index: index)
+                }
+            }
+            .padding(.leading, showsTimeAccent ? 6 : 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func itineraryOrdinaryCardContent(
         _ card: TravelCardSnapshot,
-        index: Int,
-        showsTimeAccent: Bool
+        index: Int
     ) -> some View {
         let summary = ItineraryListPresentation.cardSummary(for: card)
         let price = compactCardPrice(for: card)
@@ -1028,22 +1030,13 @@ struct ItineraryView: View {
                 JourneyPalette.cardSurface,
                 in: RoundedRectangle(cornerRadius: 15, style: .continuous)
             )
-            .overlay(alignment: .leading) {
-                if showsTimeAccent {
-                    Capsule()
-                        .fill(Color(red: 1, green: 110 / 255, blue: 0))
-                        .frame(width: 4)
-                        .padding(.vertical, 12)
-                }
-            }
         }
         .buttonStyle(ItineraryCardNoFadeButtonStyle())
     }
 
     private func itineraryLargeImageCardContent(
         _ card: TravelCardSnapshot,
-        index: Int,
-        showsTimeAccent: Bool
+        index: Int
     ) -> some View {
         let summary = ItineraryListPresentation.cardSummary(for: card)
         let price = compactCardPrice(for: card)
@@ -1114,15 +1107,6 @@ struct ItineraryView: View {
                 JourneyPalette.cardSurface,
                 in: RoundedRectangle(cornerRadius: 15, style: .continuous)
             )
-            .overlay(alignment: .leading) {
-                if showsTimeAccent {
-                    Capsule()
-                        .fill(Color(red: 1, green: 110 / 255, blue: 0))
-                        .frame(width: 4)
-                        .padding(.leading, ItineraryLargeImageCardLayout.outerPadding)
-                        .padding(.vertical, ItineraryLargeImageCardLayout.outerPadding)
-                }
-            }
         }
         .buttonStyle(ItineraryCardNoFadeButtonStyle())
     }
