@@ -36,7 +36,7 @@ final class AlarmScheduler: ObservableObject {
             errorMessage = String(format: String(localized: "alarm.timePassed"), Self.timeFormatter.string(from: fireDate))
             return false
         }
-        let stopButton = AlarmButton(text: String(localized: "alarm.stop"), textColor: .white, systemImageName: "stop.fill")
+        let stopButton = AlarmButton(text: "alarm.stop", textColor: .white, systemImageName: "stop.fill")
         let alert = AlarmPresentation.Alert(
             title: LocalizedStringResource(stringLiteral: title),
             stopButton: stopButton,

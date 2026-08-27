@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA0000000000000000000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000001 /* Localizable.strings */; };
+		AA0000000000000000000002 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000002 /* InfoPlist.strings */; };
+		AA0000000000000000000003 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000003 /* Localizable.strings */; };
+		AA0000000000000000000004 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000004 /* InfoPlist.strings */; };
 		00A7C447CE5B49298348A1F0 /* AgentAttachmentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00A7C447CE5B49298348A1F1 /* AgentAttachmentSupport.swift */; };
 		01CF842454052FCA56C9E53F /* MemoListEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECBD028C00496A4F92B0032 /* MemoListEditor.swift */; };
 		031F69F3FAA8CCDE6D3B1751 /* TripSharingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30369EF50639AA58432D5AF7 /* TripSharingSheet.swift */; };
@@ -154,6 +158,22 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AD0000000000000000000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		AD0000000000000000000002 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		AD0000000000000000000003 /* zh-Hant-HK */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant-HK"; path = "zh-Hant-HK.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		AD0000000000000000000004 /* zh-Hant-TW */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant-TW"; path = "zh-Hant-TW.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		AD0000000000000000000005 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		AD0000000000000000000006 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		AD0000000000000000000007 /* zh-Hant-HK */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant-HK"; path = "zh-Hant-HK.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		AD0000000000000000000008 /* zh-Hant-TW */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant-TW"; path = "zh-Hant-TW.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		AD0000000000000000000009 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		AD000000000000000000000A /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		AD000000000000000000000B /* zh-Hant-HK */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant-HK"; path = "zh-Hant-HK.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		AD000000000000000000000C /* zh-Hant-TW */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant-TW"; path = "zh-Hant-TW.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		AD000000000000000000000D /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		AD000000000000000000000E /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		AD000000000000000000000F /* zh-Hant-HK */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant-HK"; path = "zh-Hant-HK.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		AD0000000000000000000010 /* zh-Hant-TW */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant-TW"; path = "zh-Hant-TW.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		00A7C447CE5B49298348A1F1 /* AgentAttachmentSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAttachmentSupport.swift; sourceTree = "<group>"; };
 		052363166F7B2BC56DBDB352 /* MemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoTests.swift; sourceTree = "<group>"; };
 		07EC18374E8F4516FD09F006 /* ExternalLinkHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalLinkHandler.swift; sourceTree = "<group>"; };
@@ -339,6 +359,7 @@
 			children = (
 				B3DDFDEC94E6775C44F5D240 /* Info.plist */,
 				93705EA523BBFC35E34367CD /* PrivacyInfo.xcprivacy */,
+				AC0000000000000000000002 /* Resources */,
 				E4153572CEB1B068748B76E6 /* ShareViewController.swift */,
 				CFBECAF82E55FB6B69D455CE /* TravelCompanionShareExtension.entitlements */,
 			);
@@ -392,6 +413,7 @@
 				86BD21652F3728620DE4EAEC /* Core */,
 				C131E07A73E5E44B66B13FC8 /* Data */,
 				1A2C7BE5B5420E79A864ADF3 /* Features */,
+				AC0000000000000000000001 /* Resources */,
 				8BEE30AA0F8517CAF6A84CDA /* Supporting */,
 				89DE6AA88B89D2C3843D93ED /* UI */,
 				C1AA7AB96111070BCDF52494 /* Vendor */,
@@ -409,6 +431,24 @@
 				78BAC71530FADC8EED9D35C0 /* RouteSheet.swift */,
 			);
 			path = Maps;
+			sourceTree = "<group>";
+		};
+		AC0000000000000000000001 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AB0000000000000000000002 /* InfoPlist.strings */,
+				AB0000000000000000000001 /* Localizable.strings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AC0000000000000000000002 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AB0000000000000000000004 /* InfoPlist.strings */,
+				AB0000000000000000000003 /* Localizable.strings */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		86BD21652F3728620DE4EAEC /* Core */ = {
@@ -675,6 +715,9 @@
 			knownRegions = (
 				Base,
 				en,
+				"zh-Hans",
+				"zh-Hant-HK",
+				"zh-Hant-TW",
 			);
 			mainGroup = F8B89361BE22204F07EF412B;
 			minimizedProjectReferenceProxies = 1;
@@ -698,6 +741,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA0000000000000000000002 /* InfoPlist.strings in Resources */,
+				AA0000000000000000000001 /* Localizable.strings in Resources */,
 				A78D11EA1531F246423696D7 /* AgentIconSprite.png in Resources */,
 				F9259F0C412752FC39352154 /* Assets.xcassets in Resources */,
 				460CDC18128838A78852D316 /* PrivacyInfo.xcprivacy in Resources */,
@@ -729,6 +774,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA0000000000000000000004 /* InfoPlist.strings in Resources */,
+				AA0000000000000000000003 /* Localizable.strings in Resources */,
 				EF0349F2BF435F2B71099A4A /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -844,6 +891,53 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		AB0000000000000000000001 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AD0000000000000000000001 /* en */,
+				AD0000000000000000000002 /* zh-Hans */,
+				AD0000000000000000000003 /* zh-Hant-HK */,
+				AD0000000000000000000004 /* zh-Hant-TW */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+		AB0000000000000000000002 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AD0000000000000000000005 /* en */,
+				AD0000000000000000000006 /* zh-Hans */,
+				AD0000000000000000000007 /* zh-Hant-HK */,
+				AD0000000000000000000008 /* zh-Hant-TW */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+		AB0000000000000000000003 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AD0000000000000000000009 /* en */,
+				AD000000000000000000000A /* zh-Hans */,
+				AD000000000000000000000B /* zh-Hant-HK */,
+				AD000000000000000000000C /* zh-Hant-TW */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+		AB0000000000000000000004 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AD000000000000000000000D /* en */,
+				AD000000000000000000000E /* zh-Hans */,
+				AD000000000000000000000F /* zh-Hant-HK */,
+				AD0000000000000000000010 /* zh-Hant-TW */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin PBXTargetDependency section */
 		2F3593782C0C64EC9ACC9A8D /* PBXTargetDependency */ = {

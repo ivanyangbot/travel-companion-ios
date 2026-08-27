@@ -573,7 +573,10 @@ final class AgentV2SessionStoreTests: XCTestCase {
         XCTAssertEqual(state.streamingReply, "你好")
 
         state.appendStreamingReply("，世界")
-        try await Task.sleep(for: .milliseconds(100))
+        for _ in 0 ..< 20 where state.streamingReply != "你好，世界" {
+            await Task.yield()
+            try await Task.sleep(for: .milliseconds(25))
+        }
         XCTAssertEqual(state.streamingReply, "你好，世界")
 
         state.appendStreamingReply("不应泄漏")
