@@ -54,6 +54,18 @@ final class AgentV2StreamParserTests: XCTestCase {
         }
     }
 
+    func testStreamRetryPolicyRetriesTransientFailuresAndLocalizesExhaustion() {
+        XCTAssertTrue(AgentV2StreamRetryPolicy.shouldRetry(AgentV2IncompleteStreamError()))
+        XCTAssertTrue(AgentV2StreamRetryPolicy.shouldRetry(URLError(.networkConnectionLost)))
+        XCTAssertTrue(AgentV2StreamRetryPolicy.shouldRetry(APIResponseError(statusCode: 502)))
+        XCTAssertFalse(AgentV2StreamRetryPolicy.shouldRetry(URLError(.badURL)))
+        XCTAssertFalse(AgentV2StreamRetryPolicy.shouldRetry(APIResponseError(statusCode: 400)))
+
+        let message = AgentV2StreamRetryPolicy.userMessage(for: URLError(.networkConnectionLost))
+        XCTAssertTrue(message.contains("网络连接不稳定"))
+        XCTAssertFalse(message.localizedCaseInsensitiveContains("connection lost"))
+    }
+
     func testUnscheduledCandidateWithNullScheduleDoesNotAbortStream() throws {
         // 纯 POI 询问卡的 date/startAt 为 null：必须解码为未排期候选而不是
         // 让整条流在 candidate_upsert 处中断。

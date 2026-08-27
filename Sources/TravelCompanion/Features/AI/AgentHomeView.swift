@@ -1856,47 +1856,83 @@ struct AgentHomeView: View {
         let client = APIClient()
         let generationID = runState.beginGeneration()
         let task = Task {
-            do {
-                let stream = try await client.agentV2Stream(request, tripID: tripID)
-                for try await event in stream {
-                    switch event {
-                    case .status(let text): state.status = text
-                    case .reasoningSummary(let text): state.reasoningSummary += text
-                    case .assistantDelta(let text):
-                        state.status = nil
-                        state.appendStreamingReply(text)
-                    case .cardBegin(let id, let index):
-                        if !state.liveCards.contains(where: { $0.id == id }) { state.liveCards.append(.init(id: id, index: index)) }
-                    case .cardFieldDelta(let id, let field, let value):
-                        guard let index = state.liveCards.firstIndex(where: { $0.id == id }) else { break }
-                        state.liveCards[index].fields[field] = value
-                    case .question(let text): sessionStore.append(.init(id: UUID(), role: "assistant", content: text, createdAt: .now))
-                    case .summary(let summary):
-                        state.stagedSummaryText = summary.text
-                        sessionStore.apply(event)
-                    case .candidateUpsert: 
-                        sessionStore.apply(event)
-                    case .fliggySearchStarted(let start):
-                        state.fliggySearchStarted(start)
-                    case .fliggySearchCompleted(let completion):
-                        state.fliggySearchCompleted(completion)
-                    case .done:
-                        state.flushStreamingReply()
-                        let completedReply = state.streamingReply.isEmpty ? state.stagedSummaryText : state.streamingReply
-                        if !completedReply.isEmpty {
-                            sessionStore.append(.init(id: UUID(), role: "assistant", content: completedReply, createdAt: .now))
-                            state.streamingReply = ""
-                        }
-                        sessionStore.completeTurn()
-                        sessionStore.clearAttachments()
-                        state.liveCards = []
-                    default: sessionStore.apply(event)
+            var reconnectAttempt = 0
+            var didComplete = false
+
+            while !Task.isCancelled, !didComplete {
+                if reconnectAttempt > 0 {
+                    sessionStore.discardTurn()
+                    sessionStore.beginTurn()
+                    state.prepareForReconnect(
+                        attempt: reconnectAttempt,
+                        maximumAttempts: AgentV2StreamRetryPolicy.maximumReconnectAttempts
+                    )
+                    do {
+                        try await Task.sleep(for: .milliseconds(Int64(500 * reconnectAttempt)))
+                    } catch {
+                        break
                     }
                 }
-            } catch is CancellationError {
-                // The persisted draft, input context and attachments remain retryable.
-            } catch {
-                state.error = error.localizedDescription
+
+                var pendingQuestions: [String] = []
+                do {
+                    let stream = try await client.agentV2Stream(request, tripID: tripID)
+                    for try await event in stream {
+                        switch event {
+                        case .status(let text): state.status = text
+                        case .reasoningSummary(let text): state.reasoningSummary += text
+                        case .assistantDelta(let text):
+                            state.status = nil
+                            state.appendStreamingReply(text)
+                        case .cardBegin(let id, let index):
+                            if !state.liveCards.contains(where: { $0.id == id }) { state.liveCards.append(.init(id: id, index: index)) }
+                        case .cardFieldDelta(let id, let field, let value):
+                            guard let index = state.liveCards.firstIndex(where: { $0.id == id }) else { break }
+                            state.liveCards[index].fields[field] = value
+                        case .question(let text):
+                            pendingQuestions.append(text)
+                        case .summary(let summary):
+                            state.stagedSummaryText = summary.text
+                            sessionStore.apply(event)
+                        case .candidateUpsert:
+                            sessionStore.apply(event)
+                        case .fliggySearchStarted(let start):
+                            state.fliggySearchStarted(start)
+                        case .fliggySearchCompleted(let completion):
+                            state.fliggySearchCompleted(completion)
+                        case .done:
+                            state.flushStreamingReply()
+                            for question in pendingQuestions {
+                                sessionStore.append(.init(id: UUID(), role: "assistant", content: question, createdAt: .now))
+                            }
+                            let completedReply = state.streamingReply.isEmpty ? state.stagedSummaryText : state.streamingReply
+                            if !completedReply.isEmpty {
+                                sessionStore.append(.init(id: UUID(), role: "assistant", content: completedReply, createdAt: .now))
+                                state.streamingReply = ""
+                            }
+                            sessionStore.completeTurn()
+                            sessionStore.clearAttachments()
+                            state.liveCards = []
+                            didComplete = true
+                        default: sessionStore.apply(event)
+                        }
+                        if didComplete { break }
+                    }
+
+                    if !didComplete, !Task.isCancelled {
+                        throw AgentV2IncompleteStreamError()
+                    }
+                } catch is CancellationError {
+                    break
+                } catch {
+                    guard AgentV2StreamRetryPolicy.shouldRetry(error),
+                          reconnectAttempt < AgentV2StreamRetryPolicy.maximumReconnectAttempts else {
+                        state.discardPartialResponse()
+                        state.error = AgentV2StreamRetryPolicy.userMessage(for: error)
+                        break
+                    }
+                    reconnectAttempt += 1
+                }
             }
             sessionStore.discardTurn()
             state.liveCards = []

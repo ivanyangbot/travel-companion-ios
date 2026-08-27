@@ -660,6 +660,40 @@ struct AgentV2IncompleteStreamError: LocalizedError, Equatable, Sendable {
     }
 }
 
+enum AgentV2StreamRetryPolicy {
+    static let maximumReconnectAttempts = 2
+
+    static func shouldRetry(_ error: Error) -> Bool {
+        if error is AgentV2IncompleteStreamError { return true }
+        if let problem = error as? APIProblem { return !problem.isPermanentClientFailure }
+        if let response = error as? APIResponseError {
+            return response.statusCode == 408
+                || response.statusCode == 429
+                || (500 ... 599).contains(response.statusCode)
+        }
+        guard let urlError = error as? URLError else { return false }
+        return [
+            .timedOut,
+            .cannotFindHost,
+            .cannotConnectToHost,
+            .networkConnectionLost,
+            .dnsLookupFailed,
+            .notConnectedToInternet,
+            .internationalRoamingOff,
+            .callIsActive,
+            .dataNotAllowed,
+            .resourceUnavailable,
+        ].contains(urlError.code)
+    }
+
+    static func userMessage(for error: Error) -> String {
+        if shouldRetry(error) {
+            return "网络连接不稳定，本轮没有完整结束。你的输入和附件已保留，请稍后重试。"
+        }
+        return error.localizedDescription
+    }
+}
+
 enum APIConfigurationError: LocalizedError {
     case missingBaseURL
 
