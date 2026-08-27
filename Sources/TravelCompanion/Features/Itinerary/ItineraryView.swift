@@ -631,7 +631,7 @@ struct ItineraryView: View {
         days: [TripDaySnapshot]
     ) -> some View {
         let cards = orderedListCards(for: day)
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             if cards.isEmpty {
                 Button {
                     activeCardEditor = .create(day)
@@ -647,7 +647,7 @@ struct ItineraryView: View {
                 .buttonStyle(.plain)
             } else {
                 ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
-                    VStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 10) {
                         itineraryCompactCard(
                             card,
                             index: index,
@@ -893,6 +893,7 @@ struct ItineraryView: View {
                 )
                 .offset(x: swipeOffset)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .clipped()
         .contentShape(Rectangle())
         .gesture(
