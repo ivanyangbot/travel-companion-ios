@@ -159,6 +159,9 @@ struct AgentHomeView: View {
     /// 对话滚动区的内容宽度（屏幕宽 − 32pt 边距）：计算下拉 peek 的首页
     /// 尺寸目标用（首页地球 = 内容宽 × 0.7、方形区块边长 = 内容宽）。
     @State private var contentWidth: CGFloat = 0
+    /// 豆奶工作台滚动区的实时可用高度。Sheet 在 80% 与全屏间切换时，
+    /// 欢迎页地球据此同步缩放，给标题、行程卡与建议保留足够空间。
+    @State private var workbenchViewportHeight: CGFloat = 0
     /// 锁定态下解除所需的向上滚动偏移（pt）。
     private static let welcomePeekUnlockOffset: Double = 24
     private static let maximumAttachmentCount = 3
@@ -456,6 +459,13 @@ struct AgentHomeView: View {
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { _, height in
+            guard presentation == .workbench,
+                  abs(height - workbenchViewportHeight) > 0.5 else { return }
+            workbenchViewportHeight = height
+        }
         .contentShape(Rectangle())
         .simultaneousGesture(
             TapGesture().onEnded {
@@ -517,37 +527,15 @@ struct AgentHomeView: View {
         lotteryStepIndex.map { lotterySteps[$0].question } ?? "告诉豆奶你想去哪里。"
     }
 
+    /// Sheet 为 80% 高度时让欢迎页保持紧凑；扩展到全屏时逐步放大地球。
+    /// 上限避免地球挤掉下方的行程摘要和三条建议。
+    private var workbenchGlobeAreaHeight: CGFloat {
+        min(250, max(150, workbenchViewportHeight * 0.32))
+    }
+
     private var welcomeView: some View {
         VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 14 : 24) {
-        // 工作台欢迎页压缩英雄区的上下留白，同时保持地球视觉尺寸接近首页。
-        GeometryReader { proxy in
-        let globe = min(proxy.size.width, proxy.size.height) * (usesCompactWorkbenchWelcomeLayout ? 0.78 : 0.7)
-        ZStack {
-        // 与地球同心的圆形橙色光晕，位于下层：字符叠在光晕之上，不会被糊住。
-        Circle()
-        .fill(
-            RadialGradient(
-                colors: [PrimaryTabPalette.accent.opacity(0.5), PrimaryTabPalette.accent.opacity(0)],
-                center: .center,
-                startRadius: globe * 0.14,
-                endRadius: globe * 0.62
-            )
-        )
-        .frame(width: globe * 1.25, height: globe * 1.25)
-        .blur(radius: globe * 0.12)
-        .allowsHitTesting(false)
-        AgentIntroGlobeView(diameter: globe, spin: globeSpin)
-            .matchedGeometryEffect(id: "hero-globe", in: heroMotion)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        // 键盘唤起时整体压扁（宽高比变宽），把下方的标题完整让出到
-        // 键盘/输入框之上；收起键盘后恢复正方形地球。
-        .aspectRatio(
-            isComposerFocused ? 2.4 : (usesCompactWorkbenchWelcomeLayout ? 1.15 : 1),
-            contentMode: .fit
-        )
-        .padding(.top, usesCompactWorkbenchWelcomeLayout ? 6 : 12)
+            welcomeGlobe
 
             VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 0 : 12) {
                 // 抽签流程中标题切换为当前问题，文案渐入渐出。滚动区边距为
@@ -582,6 +570,47 @@ struct AgentHomeView: View {
         // 键盘唤起/收起时，地球压扁与标题上移/回落作为同一整体参与动画，
         // 标题不会瞬移。
         .animation(.easeInOut(duration: 0.3), value: isComposerFocused)
+    }
+
+    @ViewBuilder
+    private var welcomeGlobe: some View {
+        if usesCompactWorkbenchWelcomeLayout {
+            welcomeGlobeCanvas
+                .frame(height: workbenchGlobeAreaHeight)
+        } else {
+            welcomeGlobeCanvas
+                // 键盘唤起时整体压扁（宽高比变宽），把下方的标题完整让出到
+                // 键盘/输入框之上；收起键盘后恢复正方形地球。
+                .aspectRatio(isComposerFocused ? 2.4 : 1, contentMode: .fit)
+        }
+    }
+
+    private var welcomeGlobeCanvas: some View {
+        GeometryReader { proxy in
+            let globe = usesCompactWorkbenchWelcomeLayout
+                ? min(proxy.size.width * 0.68, proxy.size.height * 0.9)
+                : min(proxy.size.width, proxy.size.height) * 0.7
+
+            ZStack {
+                // 与地球同心的圆形橙色光晕，位于下层：字符叠在光晕之上，不会被糊住。
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [PrimaryTabPalette.accent.opacity(0.5), PrimaryTabPalette.accent.opacity(0)],
+                            center: .center,
+                            startRadius: globe * 0.14,
+                            endRadius: globe * 0.62
+                        )
+                    )
+                    .frame(width: globe * 1.25, height: globe * 1.25)
+                    .blur(radius: globe * 0.12)
+                    .allowsHitTesting(false)
+                AgentIntroGlobeView(diameter: globe, spin: globeSpin)
+                    .matchedGeometryEffect(id: "hero-globe", in: heroMotion)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.top, usesCompactWorkbenchWelcomeLayout ? 6 : 12)
     }
 
     private var tripContextCard: some View {
