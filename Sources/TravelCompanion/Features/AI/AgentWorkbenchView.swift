@@ -250,6 +250,7 @@ AgentIntroGlobeView(diameter: 208)
             ForEach(Array(store.session.messages.enumerated()), id: \.element.id) { index, item in
                 ChatMessageView(
                     message: item,
+                    attachments: store.session.sentAttachments(for: item.id),
                     showsAvatar: item.role == "user" || index == 0 || store.session.messages[index - 1].role == "user"
                 )
             }
@@ -716,7 +717,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
         let tripID = syncEngine.trip?.id
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: message, createdAt: .now)
         store.beginTurn()
-        store.append(userMessage)
+        store.append(userMessage, consumingAttachments: request.attachments)
         acknowledgeInitialMessageSubmissionIfNeeded(userMessage.content)
         message = ""
         runState.prepareForTurn()
@@ -967,6 +968,7 @@ private struct AgentHistorySheet: View {
 
 private struct ChatMessageView: View {
     let message: AgentV2TurnRequest.Message
+    let attachments: [AgentV2TurnRequest.Attachment]
     /// 是否在这条助手消息旁显示橘色头像（每个助手回合只显示一次）。
     var showsAvatar: Bool = true
 
@@ -974,11 +976,18 @@ private struct ChatMessageView: View {
         if message.role == "user" {
             HStack {
                 Spacer(minLength: 54)
-                Text(message.content)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 15)
-                    .padding(.vertical, 11)
-                    .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                VStack(alignment: .trailing, spacing: 8) {
+                    if !attachments.isEmpty {
+                        AgentSentAttachmentStrip(attachments: attachments)
+                    }
+                    if !message.content.isEmpty {
+                        Text(message.content)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 11)
+                            .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    }
+                }
             }
         } else {
             AssistantMessageContainer(showsAvatar: showsAvatar) {

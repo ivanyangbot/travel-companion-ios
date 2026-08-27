@@ -156,6 +156,57 @@ struct AgentAttachmentPreviewCard: View {
     }
 }
 
+/// Read-only attachment gallery rendered above a submitted user bubble. It
+/// deliberately has no remove affordance: after send, the images are part of
+/// the conversation rather than editable composer state.
+struct AgentSentAttachmentStrip: View {
+    let attachments: [AgentV2TurnRequest.Attachment]
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(attachments) { attachment in
+                    AgentSentAttachmentCard(attachment: attachment)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled(false)
+    }
+}
+
+private struct AgentSentAttachmentCard: View {
+    let attachment: AgentV2TurnRequest.Attachment
+
+    @ViewBuilder
+    var body: some View {
+        if attachment.mediaType.hasPrefix("image/"),
+           let data = attachment.decodedData,
+           let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 76, height: 76)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(.white.opacity(0.16), lineWidth: 0.5)
+                )
+        } else {
+            Image(systemName: "doc.fill")
+                .font(.title3)
+                .foregroundStyle(PrimaryTabPalette.accent)
+                .frame(width: 76, height: 76)
+                .background(PrimaryTabPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(.white.opacity(0.12), lineWidth: 0.5)
+                )
+                .accessibilityLabel(attachment.fileName ?? String(localized: "attachment.fileFallback"))
+        }
+    }
+}
+
 private extension AgentV2TurnRequest.Attachment {
     var decodedData: Data? {
         guard let commaIndex = dataURI.firstIndex(of: ",") else { return nil }

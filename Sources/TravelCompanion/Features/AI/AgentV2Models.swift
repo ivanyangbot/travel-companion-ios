@@ -372,6 +372,17 @@ struct AgentV2CommitResult: Codable, Sendable {
     let committedCandidateIds: [UUID]
 }
 
+/// Attachments that have left the composer and now belong to one persisted
+/// chat message. Keeping this local-only avoids adding UI data to the server's
+/// `history` contract while allowing restored conversations to show what the
+/// user actually sent.
+struct AgentV2MessageAttachmentGroup: Codable, Identifiable {
+    let messageID: UUID
+    let attachments: [AgentV2TurnRequest.Attachment]
+
+    var id: UUID { messageID }
+}
+
 struct AgentV2LocalSession: Codable, Identifiable {
     var id: UUID
     var updatedAt: Date
@@ -388,6 +399,13 @@ struct AgentV2LocalSession: Codable, Identifiable {
     /// plan_new 会话中待用户确认的旅程提案；确认创建旅程后清除。Optional so
     /// sessions persisted by older builds decode cleanly.
     var pendingProposal: AgentV2TripProposal? = nil
+    /// Optional for backward-compatible decoding of sessions written before
+    /// sent attachments were associated with their user message.
+    var messageAttachmentGroups: [AgentV2MessageAttachmentGroup]? = nil
+
+    func sentAttachments(for messageID: UUID) -> [AgentV2TurnRequest.Attachment] {
+        messageAttachmentGroups?.first(where: { $0.messageID == messageID })?.attachments ?? []
+    }
 
     static let empty = AgentV2LocalSession(id: UUID(), updatedAt: .now, preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], allowUnverifiedRecommendations: true), messages: [], attachments: [], draft: nil, summary: nil)
 }

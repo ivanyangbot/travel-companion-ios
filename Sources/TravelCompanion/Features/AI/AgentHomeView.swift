@@ -83,6 +83,9 @@ struct AgentHomeView: View {
     /// 附件预览条的实测高度：输入区渐变遮罩按它向上延伸，
     /// 避免写死数值与实际内容对不上。
     @State private var attachmentStripHeight: CGFloat = 0
+    /// 输入区附件条两端的连续遮罩强度；由实际滚动距离计算，抵达边缘时
+    /// 平滑衰减为零，不做布尔状态的突然切换。
+    @State private var attachmentEdgeFade = AgentAttachmentEdgeFade.hidden
     /// 「拈签定缘」抽签流程：nil 表示未在流程中，否则为当前问题的下标。
     @State private var lotteryStepIndex: Int?
     /// 折叠方块与展开输入条之间做连续变形动画（matchedGeometryEffect）的命名空间。
@@ -911,7 +914,10 @@ struct AgentHomeView: View {
 
             // 消息列表：用户消息为右侧橙色气泡，助手消息通栏靠左展示。
             ForEach(Array(store.session.messages.enumerated()), id: \.element.id) { _, item in
-                ChatMessageView(message: item)
+                ChatMessageView(
+                    message: item,
+                    attachments: store.session.sentAttachments(for: item.id)
+                )
             }
 
             // 思考指示只在思考进行中（status 非空）可见：正文开始流出即整体
@@ -1417,13 +1423,41 @@ struct AgentHomeView: View {
             .padding(.top, 8)
         }
         .scrollIndicators(.hidden)
+        .onScrollGeometryChange(for: AgentAttachmentEdgeFade.self) { geometry in
+            AgentAttachmentEdgeFade.resolve(
+                offset: geometry.contentOffset.x + geometry.contentInsets.leading,
+                contentWidth: geometry.contentSize.width,
+                containerWidth: geometry.containerSize.width
+            )
+        } action: { _, fade in
+            attachmentEdgeFade = fade
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            attachmentEdgeGradient(startPoint: .leading, endPoint: .trailing)
+                .opacity(attachmentEdgeFade.leading)
+        }
+        .overlay(alignment: .trailing) {
+            attachmentEdgeGradient(startPoint: .trailing, endPoint: .leading)
+                .opacity(attachmentEdgeFade.trailing)
+        }
         // 实测附件条高度（含顶部内边距），供渐变遮罩按需向上延伸。
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { _, height in
             attachmentStripHeight = height
         }
+    }
+
+    private func attachmentEdgeGradient(startPoint: UnitPoint, endPoint: UnitPoint) -> some View {
+        LinearGradient(
+            colors: [PrimaryTabPalette.background, PrimaryTabPalette.background.opacity(0)],
+            startPoint: startPoint,
+            endPoint: endPoint
+        )
+        .frame(width: AgentAttachmentEdgeFade.maskWidth)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     /// 展开态：完整输入条（图片、文本框、发送键）。背景与「+」控件和折叠态
@@ -2131,8 +2165,8 @@ struct AgentHomeView: View {
         // plan_new（无生效旅程或「暂不选择行程」）时 tripID 为 nil，服务端不强制本接口的旅程鉴权。
         let tripID = syncEngine.trip?.id
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: submittedMessage, createdAt: .now)
-        store.beginTurn() 
-        store.append(userMessage)
+        store.beginTurn()
+        store.append(userMessage, consumingAttachments: request.attachments)
         acknowledgeInitialMessageSubmissionIfNeeded(userMessage.content)
         message = "" 
         runState.prepareForTurn()
@@ -2197,7 +2231,6 @@ struct AgentHomeView: View {
                                 state.streamingReply = ""
                             }
                             sessionStore.completeTurn()
-                            sessionStore.clearAttachments()
                             state.liveCards = []
                             didComplete = true
                         default: sessionStore.apply(event)
@@ -2619,16 +2652,24 @@ enum AgentHistoryRelativeTime {
 
 private struct ChatMessageView: View {
     let message: AgentV2TurnRequest.Message
+    let attachments: [AgentV2TurnRequest.Attachment]
 
     var body: some View {
         if message.role == "user" {
             HStack {
                 Spacer(minLength: 54)
-                Text(message.content)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 15)
-                    .padding(.vertical, 11)
-                    .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                VStack(alignment: .trailing, spacing: 8) {
+                    if !attachments.isEmpty {
+                        AgentSentAttachmentStrip(attachments: attachments)
+                    }
+                    if !message.content.isEmpty {
+                        Text(message.content)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 11)
+                            .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    }
+                }
             }
         } else {
             AssistantMessageContainer {
@@ -2637,6 +2678,37 @@ private struct ChatMessageView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+}
+
+/// Continuous edge-mask state for the composer attachment scroller. The
+/// smoothstep curve gives both ends zero velocity, so masks ease in/out during
+/// the final few points of a drag instead of popping at an edge threshold.
+struct AgentAttachmentEdgeFade: Equatable {
+    static let maskWidth: CGFloat = 34
+    static let hidden = AgentAttachmentEdgeFade(leading: 0, trailing: 0)
+
+    let leading: CGFloat
+    let trailing: CGFloat
+
+    static func resolve(
+        offset: CGFloat,
+        contentWidth: CGFloat,
+        containerWidth: CGFloat,
+        easingDistance: CGFloat = maskWidth
+    ) -> AgentAttachmentEdgeFade {
+        let maximumOffset = max(0, contentWidth - containerWidth)
+        guard maximumOffset > 0.5, easingDistance > 0 else { return .hidden }
+
+        return AgentAttachmentEdgeFade(
+            leading: smoothstep(max(0, offset) / easingDistance),
+            trailing: smoothstep(max(0, maximumOffset - offset) / easingDistance)
+        )
+    }
+
+    private static func smoothstep(_ value: CGFloat) -> CGFloat {
+        let t = min(1, max(0, value))
+        return t * t * (3 - 2 * t)
     }
 }
 

@@ -317,6 +317,27 @@ final class AgentV2SessionStore: ObservableObject {
         save()
     }
 
+    /// Appends a user message and atomically transfers the attachments used by
+    /// its request out of the composer. Once submitted, those attachments are
+    /// message content even while the assistant is still streaming or if the
+    /// request is later cancelled.
+    func append(_ message: AgentV2TurnRequest.Message, consumingAttachments attachments: [AgentV2TurnRequest.Attachment]) {
+        session.messages.append(message)
+        guard !attachments.isEmpty else {
+            save()
+            return
+        }
+
+        var groups = session.messageAttachmentGroups ?? []
+        groups.removeAll { $0.messageID == message.id }
+        groups.append(.init(messageID: message.id, attachments: attachments))
+        session.messageAttachmentGroups = groups
+
+        let submittedIDs = Set(attachments.map(\.id))
+        session.attachments.removeAll { submittedIDs.contains($0.id) }
+        save()
+    }
+
     /// Starts an in-memory transaction for a streamed turn. Durable session
     /// state is left untouched until the server emits `done`.
     func beginTurn() {

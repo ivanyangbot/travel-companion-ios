@@ -3,6 +3,44 @@ import XCTest
 @testable import TravelCompanion
 
 final class AgentV2SessionStoreTests: XCTestCase {
+    @MainActor
+    func testSendingAttachmentsMovesThemFromComposerToPersistedUserMessage() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+        let attachments = [
+            AgentV2TurnRequest.Attachment(id: UUID(), mediaType: "image/jpeg", dataURI: "data:image/jpeg;base64,AAAA"),
+            AgentV2TurnRequest.Attachment(id: UUID(), mediaType: "image/png", dataURI: "data:image/png;base64,BBBB")
+        ]
+        attachments.forEach(store.addAttachment)
+        let message = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "这是本轮图片", createdAt: .now)
+
+        store.append(message, consumingAttachments: attachments)
+
+        XCTAssertTrue(store.session.attachments.isEmpty)
+        XCTAssertEqual(store.session.sentAttachments(for: message.id).map(\.id), attachments.map(\.id))
+
+        let persistedData = try XCTUnwrap(defaults.data(forKey: sessionKey))
+        let persisted = try decoder.decode(AgentV2LocalSession.self, from: persistedData)
+        XCTAssertTrue(persisted.attachments.isEmpty)
+        XCTAssertEqual(persisted.sentAttachments(for: message.id).map(\.id), attachments.map(\.id))
+    }
+
+    func testAttachmentEdgeFadeEasesAtBothScrollEdges() {
+        let width = AgentAttachmentEdgeFade.maskWidth
+        let start = AgentAttachmentEdgeFade.resolve(offset: 0, contentWidth: 300, containerWidth: 100)
+        let halfwayFromStart = AgentAttachmentEdgeFade.resolve(offset: width / 2, contentWidth: 300, containerWidth: 100)
+        let end = AgentAttachmentEdgeFade.resolve(offset: 200, contentWidth: 300, containerWidth: 100)
+        let contentFits = AgentAttachmentEdgeFade.resolve(offset: 0, contentWidth: 100, containerWidth: 100)
+
+        XCTAssertEqual(start.leading, 0, accuracy: 0.001)
+        XCTAssertEqual(start.trailing, 1, accuracy: 0.001)
+        XCTAssertEqual(halfwayFromStart.leading, 0.5, accuracy: 0.001)
+        XCTAssertEqual(end.leading, 1, accuracy: 0.001)
+        XCTAssertEqual(end.trailing, 0, accuracy: 0.001)
+        XCTAssertEqual(contentFits, .hidden)
+    }
+
     func testHistoryRelativeTimeUsesSingleChineseUnit() {
         let now = Date(timeIntervalSinceReferenceDate: 10_000_000)
 
