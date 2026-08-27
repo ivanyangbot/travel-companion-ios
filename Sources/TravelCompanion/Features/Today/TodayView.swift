@@ -326,6 +326,7 @@ struct TodayView: View {
                     isPOIOverlayExpanded: $isPOIOverlayExpanded,
                     activeAction: activeQuickAction,
                     isReloading: isReloading,
+                    actions: TodayQuickAction.visibleActions(isAuthenticated: appleSignIn.isAuthenticated),
                     onAction: { action in handleQuickAction(action, pois: pois) },
                     onOverlayExpansionChanged: { isExpanded in
                         guard isExpanded else { return }
@@ -873,9 +874,9 @@ struct TodayView: View {
     }()
 }
 
-/// Original animated home quick-action drawer, coupled to the current POI
-/// overlay toggle so one tap collapses the cards and reveals the menu.
-private enum TodayQuickAction: String, CaseIterable {
+/// Shared animated home quick-action drawer. The map couples it to the POI
+/// overlay; AgentHome supplies an independent inverse collapsed state.
+enum TodayQuickAction: String, CaseIterable {
     case addCompanion
     case tripSelection
     case reload
@@ -900,23 +901,26 @@ private enum TodayQuickAction: String, CaseIterable {
         case .settings: String(localized: "today.settingsA11y")
         }
     }
+
+    /// Sharing requires a signed-in server identity. All remaining actions
+    /// continue to work against the existing local-first trip store.
+    static func visibleActions(isAuthenticated: Bool) -> [TodayQuickAction] {
+        allCases.filter { isAuthenticated || $0 != .addCompanion }
+    }
 }
 
-private struct TodayHomeDropdownMenu: View {
+struct TodayHomeDropdownMenu: View {
     @Binding var isPOIOverlayExpanded: Bool
     let activeAction: TodayQuickAction?
     let isReloading: Bool
+    var actions: [TodayQuickAction] = TodayQuickAction.allCases
     let onAction: (TodayQuickAction) -> Void
     let onOverlayExpansionChanged: (Bool) -> Void
 
     private var isMenuExpanded: Bool { !isPOIOverlayExpanded }
-    private var visibleActions: [TodayQuickAction] {
-        // 「设置」对所有用户可见；未登录时弹窗内再隐藏「退出登录」。
-        TodayQuickAction.allCases
-    }
 
     private var expandedHeight: CGFloat {
-        48 + 8 + CGFloat(visibleActions.count * 40) + CGFloat(max(0, visibleActions.count - 1) * 12) + 4
+        48 + 8 + CGFloat(actions.count * 40) + CGFloat(max(0, actions.count - 1) * 12) + 4
     }
 
     var body: some View {
@@ -924,7 +928,7 @@ private struct TodayHomeDropdownMenu: View {
             expandButton
 
             VStack(spacing: 12) {
-                ForEach(visibleActions, id: \.self) { action in
+                ForEach(actions, id: \.self) { action in
                     actionButton(action)
                 }
             }
@@ -1028,7 +1032,7 @@ private struct TodayHomeDropdownMenu: View {
 /// system confirmation dialog with richer trip context and explicit progress.
 /// 主页左上角「设置」的半屏弹窗：与「共享旅程」「切换旅行」同一套设计
 /// 语言（头部标题 + 关闭按钮、深色卡片行），提供语言、隐私政策与退出登录。
-private struct TodaySettingsSheet: View {
+struct TodaySettingsSheet: View {
     @ObservedObject var appleSignIn: AppleSignInStore
     let onDismiss: () -> Void
 
@@ -1036,6 +1040,7 @@ private struct TodaySettingsSheet: View {
     @AppStorage("preferredAppLanguage") private var preferredLanguage = "system"
     @State private var isLanguageExpanded = false
     @State private var showsPrivacyPolicy = false
+    @State private var showsSignIn = false
     @State private var showsSignOutConfirmation = false
     @State private var signOutErrorMessage: String?
 
@@ -1072,6 +1077,8 @@ private struct TodaySettingsSheet: View {
 
                     if appleSignIn.isAuthenticated {
                         signOutRow
+                    } else {
+                        signInRow
                     }
 
                     versionFooter
@@ -1092,6 +1099,11 @@ private struct TodaySettingsSheet: View {
                 .presentationCornerRadius(28)
                 .presentationBackground(PrimaryTabPalette.background)
                 .presentationContentInteraction(.scrolls)
+        }
+        .sheet(isPresented: $showsSignIn) {
+            AgentHomeSignInSheet(appleSignIn: appleSignIn)
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
         }
         .alert("settings.signOutConfirmTitle", isPresented: $showsSignOutConfirmation) {
             Button("settings.signOutConfirmButton", role: .destructive) {
@@ -1225,6 +1237,20 @@ private struct TodaySettingsSheet: View {
             titleColor: .red
         ) {
             showsSignOutConfirmation = true
+        } trailing: {
+            chevron
+        }
+    }
+
+    private var signInRow: some View {
+        rowCard(
+            icon: "person.crop.circle.badge.checkmark",
+            iconTint: PrimaryTabPalette.accent,
+            title: String(localized: "agent.signInButton"),
+            titleColor: PrimaryTabPalette.accent
+        ) {
+            appleSignIn.errorMessage = nil
+            showsSignIn = true
         } trailing: {
             chevron
         }

@@ -57,8 +57,14 @@ struct AgentHomeView: View {
     @State private var isProcessingAttachment = false
     @State private var isShowingContext = false
     @State private var isShowingHistory = false
-    @State private var isShowingSignIn = false
     @State private var isShowingTripPicker = false
+    @State private var isShowingTripSharing = false
+    @State private var isShowingSettings = false
+    /// The shared map-style menu expects the inverse “content expanded” state:
+    /// true means the drawer is closed, false means its actions are revealed.
+    @State private var isHomeMenuCollapsed = true
+    @State private var activeHomeQuickAction: TodayQuickAction?
+    @State private var isReloadingHome = false
     /// 「切换旅行」的「编辑」入口：等 picker 收起后再打开「旅行与偏好」，避免两张 sheet 抢占同一宿主。
     @State private var openContextAfterPickerDismiss = false
     /// 工作台内「暂不选择行程」：等 picker 收起后连同工作台 sheet 一起关闭，
@@ -266,14 +272,23 @@ struct AgentHomeView: View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                // 左上角共用返回键：抽签流程中返回上一步（第一问时退出流程）；
-                // 欢迎页输入条展开时收起，回到双方块入口；对话页返回则归档
-                // 当前对话并完全复位到首页初始状态（双方块入口）。
-                if showsBackButton {
+                // Agent 首页根欢迎态与地图模式共用下拉菜单。进入输入、抽签、
+                // 新建行程子流程或对话后，左上角恢复为有明确返回语义的按钮。
+                if showsHomeDropdownMenu {
+                    TodayHomeDropdownMenu(
+                        isPOIOverlayExpanded: $isHomeMenuCollapsed,
+                        activeAction: activeHomeQuickAction,
+                        isReloading: isReloadingHome,
+                        actions: TodayQuickAction.visibleActions(isAuthenticated: appleSignIn.isAuthenticated),
+                        onAction: handleHomeQuickAction,
+                        onOverlayExpansionChanged: { _ in }
+                    )
+                    .padding(.leading, 16)
+                    .padding(.top, 8)
+                    .transition(.opacity)
+                } else if showsBackButton {
                     Button {
-                        if showsTripRecoveryButton {
-                            isShowingTripPicker = true
-                        } else if let onCancelNewTripPlanning,
+                        if let onCancelNewTripPlanning,
                            lotteryStepIndex == nil,
                            !isComposerExpanded,
                            isWelcomeState {
@@ -296,35 +311,7 @@ struct AgentHomeView: View {
                     .padding(.leading, 16)
                     .padding(.top, 8)
                     .transition(.opacity)
-                    .accessibilityLabel(Text(
-                        showsTripRecoveryButton
-                            ? String(localized: "agent.switchTripA11y")
-                            : String(localized: "agent.backA11y")
-                    ))
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                if presentation == .home, !appleSignIn.isAuthenticated {
-                    Button {
-                        appleSignIn.errorMessage = nil
-                        isShowingSignIn = true
-                    } label: {
-                        Label("agent.signInButton", systemImage: "person.crop.circle")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .frame(height: 36)
-                            .background(PrimaryTabPalette.surface, in: Capsule())
-                            .overlay {
-                                Capsule()
-                                    .stroke(.white.opacity(0.14), lineWidth: 1)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 16)
-                    .padding(.top, 8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                    .accessibilityHint(Text("agent.signInHint"))
+                    .accessibilityLabel(Text("agent.backA11y"))
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -349,10 +336,31 @@ struct AgentHomeView: View {
                     .zIndex(100)
                 }
             }
-            .sheet(isPresented: $isShowingSignIn) {
-                AgentHomeSignInSheet(appleSignIn: appleSignIn)
-                    .presentationDetents([.height(300)])
-                    .presentationDragIndicator(.visible)
+            .sheet(isPresented: Binding(
+                get: { isShowingTripSharing },
+                set: {
+                    isShowingTripSharing = $0
+                    if !$0 { clearHomeQuickAction(.addCompanion) }
+                }
+            )) {
+                TripSharingSheet(syncEngine: syncEngine)
+            }
+            .sheet(isPresented: Binding(
+                get: { isShowingSettings },
+                set: {
+                    isShowingSettings = $0
+                    if !$0 { clearHomeQuickAction(.settings) }
+                }
+            )) {
+                TodaySettingsSheet(
+                    appleSignIn: appleSignIn,
+                    onDismiss: { isShowingSettings = false }
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(28)
+                .presentationBackground(PrimaryTabPalette.background)
+                .presentationContentInteraction(.scrolls)
             }
             .sheet(isPresented: $isShowingContext) {
                 AgentContextSheet(syncEngine: syncEngine, store: store)
@@ -365,6 +373,7 @@ struct AgentHomeView: View {
                 }
             }
             .sheet(isPresented: $isShowingTripPicker, onDismiss: {
+                clearHomeQuickAction(.tripSelection)
                 // 「编辑」先关掉本弹窗，待其完全收起后再弹出「旅行与偏好」。
                 if openContextAfterPickerDismiss {
                     openContextAfterPickerDismiss = false
@@ -477,6 +486,11 @@ struct AgentHomeView: View {
                 // orb——上滑恢复的只有地球，icon 停在状态行。
                 if isGenerating { didDockDuringGeneration = isGlobeDocked }
             }
+            .onChange(of: showsHomeDropdownMenu) { _, isVisible in
+                guard !isVisible else { return }
+                isHomeMenuCollapsed = true
+                activeHomeQuickAction = nil
+            }
             .onChange(of: initialMessage) { _, newValue in
                 guard newValue != nil else { return }
                 didConsumeInitialMessage = false
@@ -506,14 +520,8 @@ struct AgentHomeView: View {
         return trip.destination ?? String(localized: "agent.currentTripTitle")
     }
 
-    /// 首页根欢迎态通常没有“返回”语义；但只要账号已有行程而当前未选中
-    /// 行程，返回键就是恢复/切换行程的唯一就近入口。这里必须使用已发布的
-    /// 真实选择状态，不能依赖仅在本次进程里设置的“主动取消选择”标记：
-    /// 冷启动、缓存恢复或账号同步都可能产生相同的合法未选择状态。
-    private var showsTripRecoveryButton: Bool {
+    private var showsHomeDropdownMenu: Bool {
         presentation == .home
-            && syncEngine.selectedTripID == nil
-            && !syncEngine.trips.isEmpty
             && lotteryStepIndex == nil
             && !isComposerExpanded
             && isWelcomeState
@@ -521,11 +529,40 @@ struct AgentHomeView: View {
     }
 
     private var showsBackButton: Bool {
-        showsTripRecoveryButton
-            || lotteryStepIndex != nil
+        lotteryStepIndex != nil
             || isComposerExpanded
             || !isWelcomeState
             || onCancelNewTripPlanning != nil
+    }
+
+    private func handleHomeQuickAction(_ action: TodayQuickAction) {
+        switch action {
+        case .addCompanion:
+            activeHomeQuickAction = .addCompanion
+            isShowingTripSharing = true
+        case .tripSelection:
+            activeHomeQuickAction = .tripSelection
+            isShowingTripPicker = true
+        case .reload:
+            guard !isReloadingHome else { return }
+            activeHomeQuickAction = .reload
+            isReloadingHome = true
+            Task {
+                async let retry: Void = syncEngine.retry()
+                try? await Task.sleep(for: .seconds(0.75))
+                await retry
+                isReloadingHome = false
+                clearHomeQuickAction(.reload)
+            }
+        case .settings:
+            activeHomeQuickAction = .settings
+            isShowingSettings = true
+        }
+    }
+
+    private func clearHomeQuickAction(_ action: TodayQuickAction) {
+        guard activeHomeQuickAction == action else { return }
+        activeHomeQuickAction = nil
     }
 
     /// 悬浮 Agent 的欢迎态头部保留行程切换、历史和新建入口；发送首条消息后
@@ -3559,9 +3596,9 @@ private struct AgentContextSheet: View {
     }
 }
 
-/// 首页 Agent 右上角登录入口的轻量弹窗。原生 Apple 登录按钮在授权期间
+/// 首页设置中的轻量登录弹窗。原生 Apple 登录按钮在授权期间
 /// 始终保留在视图层级中，确保系统凭证能正常回传给 AppleSignInStore。
-private struct AgentHomeSignInSheet: View {
+struct AgentHomeSignInSheet: View {
     @ObservedObject var appleSignIn: AppleSignInStore
     @Environment(\.dismiss) private var dismiss
 

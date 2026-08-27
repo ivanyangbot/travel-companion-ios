@@ -6,6 +6,17 @@ import XCTest
 @testable import TravelCompanion
 
 final class TravelCardsTests: XCTestCase {
+    func testTodayQuickActionsHideSharingOnlyWhenSignedOut() {
+        XCTAssertEqual(
+            TodayQuickAction.visibleActions(isAuthenticated: false),
+            [.tripSelection, .reload, .settings]
+        )
+        XCTAssertEqual(
+            TodayQuickAction.visibleActions(isAuthenticated: true),
+            TodayQuickAction.allCases
+        )
+    }
+
     func testItineraryListFormatsDateRailAndDayHeaderConsistently() {
         let day = TripDaySnapshot(date: "2026-09-12", position: 0)
 
