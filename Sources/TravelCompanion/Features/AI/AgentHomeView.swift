@@ -1874,7 +1874,7 @@ struct AgentHomeView: View {
                     case .summary(let summary):
                         state.stagedSummaryText = summary.text
                         sessionStore.apply(event)
-                    case .candidateUpsert:
+                    case .candidateUpsert: 
                         sessionStore.apply(event)
                     case .fliggySearchStarted(let start):
                         state.fliggySearchStarted(start)
