@@ -441,7 +441,7 @@ struct AgentHomeView: View {
         }
         .frame(height: 48)
         .padding(.horizontal, 20)
-        .padding(.top, presentation == .workbench ? 12 : 2)
+        .padding(.top, presentation == .workbench ? 18 : 2)
     }
 
     /// 欢迎页/对话页共用的滚动区：承载地球、消息与流式内容；从 body 拆出
