@@ -649,7 +649,8 @@ struct AgentHomeView: View {
     }
 
     private var welcomeView: some View {
-        VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 14 : 24) {
+        // 工作台欢迎态地球与标题之间多留一点呼吸空间；首页保持沉浸式原间距。
+        VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 20 : 24) {
             welcomeGlobe
 
             VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 0 : 12) {

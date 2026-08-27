@@ -1372,8 +1372,8 @@ private struct TodayPrivacyPolicySheet: View {
 }
 
 /// 「切换旅行」弹窗：主页左上角菜单与 Agent 工作台共用同一实现。
-/// 行程行左滑出编辑/删除（仅 owner 可操作）；工作台通过可选参数启用
-/// Agent 语境——副标题、「暂不选择行程」行、编辑改开「旅行与偏好」。
+/// 行程区使用原生 List + swipeActions 提供左滑编辑/删除（仅 owner 可操作）；
+/// 工作台通过可选参数启用 Agent 语境——副标题、「暂不选择行程」行、编辑改开「旅行与偏好」。
 struct TodayTripPickerSheet: View {
     let trips: [TripSummary]
     let selectedTripID: Int?
@@ -1392,8 +1392,6 @@ struct TodayTripPickerSheet: View {
     let onDelete: (TripSummary) -> Void
     let onDismiss: () -> Void
 
-    /// 当前左滑展开操作按钮的行程；同一时间只展开一行。
-    @State private var revealedTripID: Int?
     @State private var editingTrip: TripSummary?
     @State private var tripPendingDeletion: TripSummary?
 
@@ -1403,8 +1401,10 @@ struct TodayTripPickerSheet: View {
         VStack(spacing: 0) {
             header
 
-            ScrollView {
-                LazyVStack(spacing: 10) {
+            // 原生 List + swipeActions 提供左滑编辑/删除；行背景与分隔线
+            // 全部隐藏，保持自定义卡片外观。
+            List {
+                Group {
                     createTripButton
 
                     if let onClear {
@@ -1412,29 +1412,44 @@ struct TodayTripPickerSheet: View {
                     }
 
                     if !trips.isEmpty {
-                        HStack(spacing: 10) {
-                            Rectangle()
-                                .fill(.white.opacity(0.12))
-                                .frame(height: 1)
-                            Text("tripswitch.existing")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(PrimaryTabPalette.secondaryText)
-                                .fixedSize()
-                            Rectangle()
-                                .fill(.white.opacity(0.12))
-                                .frame(height: 1)
-                        }
-                        .padding(.vertical, 4)
-
-                        ForEach(trips) { trip in
-                            tripRow(trip)
-                        }
+                        existingTripsDivider
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
+
+                ForEach(trips) { trip in
+                    tripRowContent(trip)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if trip.role == "owner" {
+                                Button(role: .destructive) {
+                                    tripPendingDeletion = trip
+                                } label: {
+                                    Label("tripswitch.deleteA11y", systemImage: "trash")
+                                }
+                            }
+
+                            Button {
+                                if let onEditTrip {
+                                    onEditTrip(trip)
+                                } else {
+                                    editingTrip = trip
+                                }
+                            } label: {
+                                Label("tripswitch.editA11y", systemImage: "pencil")
+                            }
+                            .tint(PrimaryTabPalette.accent)
+                        }
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
+            .contentMargins(.bottom, 20, for: .scrollContent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(PrimaryTabPalette.background.ignoresSafeArea())
@@ -1461,7 +1476,6 @@ struct TodayTripPickerSheet: View {
             }
             Button("common.delete", role: .destructive) {
                 tripPendingDeletion = nil
-                revealedTripID = nil
                 onDelete(summary)
             }
         } message: { summary in
@@ -1496,6 +1510,22 @@ struct TodayTripPickerSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .padding(.bottom, 18)
+    }
+
+    private var existingTripsDivider: some View {
+        HStack(spacing: 10) {
+            Rectangle()
+                .fill(.white.opacity(0.12))
+                .frame(height: 1)
+            Text("tripswitch.existing")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .fixedSize()
+            Rectangle()
+                .fill(.white.opacity(0.12))
+                .frame(height: 1)
+        }
+        .padding(.vertical, 4)
     }
 
     private var createTripButton: some View {
@@ -1549,7 +1579,6 @@ struct TodayTripPickerSheet: View {
         let isSelected = selectedTripID == nil
 
         return Button {
-            revealedTripID = nil
             action()
             onDismiss()
         } label: {
@@ -1595,179 +1624,61 @@ struct TodayTripPickerSheet: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func tripRow(_ trip: TripSummary) -> some View {
-        TodayTripRow(
-            trip: trip,
-            isSelected: trip.id == selectedTripID,
-            isLoading: trip.id == tripBeingSelectedID,
-            isBusy: isBusy,
-            isRevealed: revealedTripID == trip.id,
-            onReveal: { revealed in
-                withAnimation(.snappy(duration: 0.25)) {
-                    revealedTripID = revealed ? trip.id : nil
+    /// 行程行卡片：List 行内的内容视图，左滑编辑/删除由原生 swipeActions 提供。
+    private func tripRowContent(_ trip: TripSummary) -> some View {
+        let isSelected = trip.id == selectedTripID
+        let isLoading = trip.id == tripBeingSelectedID
+
+        return Button { onSelect(trip) } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isSelected ? PrimaryTabPalette.accent : .white.opacity(0.72))
+                    .frame(width: 38, height: 38)
+                    .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(trip.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if let dateRange = dateRange(for: trip) {
+                        Text(dateRange)
+                            .font(.caption)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
                 }
-            },
-            onSelect: { onSelect(trip) },
-            onEdit: {
-                revealedTripID = nil
-                if let onEditTrip {
-                    onEditTrip(trip)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(PrimaryTabPalette.accent)
+                } else if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(PrimaryTabPalette.accent)
                 } else {
-                    editingTrip = trip
-                }
-            },
-            onDelete: {
-                tripPendingDeletion = trip
-            }
-        )
-    }
-}
-
-/// 主页「切换旅行」弹窗的行程行。弹窗是 ScrollView + LazyVStack 而非 List，
-/// 原生 swipeActions 不可用，这里自定义左滑展开「编辑/删除」，交互对齐
-/// Agent 工作台的切换旅行弹窗（仅 owner 可操作）。
-private struct TodayTripRow: View {
-    let trip: TripSummary
-    let isSelected: Bool
-    let isLoading: Bool
-    let isBusy: Bool
-    let isRevealed: Bool
-    let onReveal: (Bool) -> Void
-    let onSelect: () -> Void
-    let onEdit: () -> Void
-    let onDelete: () -> Void
-
-    /// 拖动中的横向偏移；松手后归零，由 isRevealed 决定最终位置。
-    @State private var dragTranslation: CGFloat = 0
-    /// 操作区宽度：48×2 按钮 + 8 间距 + 8 右侧留白。
-    private static let revealWidth: CGFloat = 112
-
-    private var canManage: Bool { trip.role == "owner" }
-
-    /// 以展开状态为基准叠加本次拖动，并夹在 [完全展开, 完全收起] 之间。
-    private var rowOffset: CGFloat {
-        let base: CGFloat = isRevealed ? -Self.revealWidth : 0
-        return min(0, max(-Self.revealWidth, base + dragTranslation))
-    }
-
-    var body: some View {
-        ZStack(alignment: .trailing) {
-            if canManage {
-                actionButtons
-            }
-
-            Button {
-                // 已展开时点按行先收起操作区，不触发选择。
-                if isRevealed {
-                    onReveal(false)
-                } else {
-                    onSelect()
-                }
-            } label: {
-                rowContent
-            }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-            .opacity(isBusy && !isLoading ? 0.55 : 1)
-            .offset(x: rowOffset)
-            .accessibilityValue(isSelected ? Text("tripswitch.currentValue") : Text(verbatim: ""))
-        }
-        .gesture(canManage ? swipeGesture : nil)
-    }
-
-    private var actionButtons: some View {
-        HStack(spacing: 8) {
-            Button {
-                onDelete()
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 52)
-                    .background(.red, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("tripswitch.deleteA11y"))
-
-            Button {
-                onEdit()
-            } label: {
-                Image(systemName: "pencil")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 52)
-                    .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("tripswitch.editA11y"))
-        }
-        .padding(.trailing, 8)
-    }
-
-    /// 只响应横向为主的拖动，竖向让位给外层 ScrollView。
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 18, coordinateSpace: .local)
-            .onChanged { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else {
-                    dragTranslation = 0
-                    return
-                }
-                dragTranslation = value.translation.width
-            }
-            .onEnded { value in
-                let horizontal = abs(value.translation.width) > abs(value.translation.height)
-                let total = (isRevealed ? -Self.revealWidth : 0) + value.translation.width
-                dragTranslation = 0
-                guard horizontal else { return }
-                onReveal(total < -Self.revealWidth * 0.5)
-            }
-    }
-
-    private var rowContent: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "location.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(isSelected ? PrimaryTabPalette.accent : .white.opacity(0.72))
-                .frame(width: 38, height: 38)
-                .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(trip.displayName)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                if let dateRange = dateRange(for: trip) {
-                    Text(dateRange)
-                        .font(.caption)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(PrimaryTabPalette.accent)
-            } else if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(PrimaryTabPalette.accent)
-            } else {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 64)
+            .background(
+                isSelected ? PrimaryTabPalette.accent.opacity(0.12) : PrimaryTabPalette.surface,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? PrimaryTabPalette.accent.opacity(0.55) : .white.opacity(0.08), lineWidth: 1)
             }
         }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 64)
-        .background(
-            isSelected ? PrimaryTabPalette.accent.opacity(0.12) : PrimaryTabPalette.surface,
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(isSelected ? PrimaryTabPalette.accent.opacity(0.55) : .white.opacity(0.08), lineWidth: 1)
-        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .opacity(isBusy && !isLoading ? 0.55 : 1)
+        .accessibilityValue(isSelected ? Text("tripswitch.currentValue") : Text(verbatim: ""))
     }
 
     private func dateRange(for trip: TripSummary) -> String? {
