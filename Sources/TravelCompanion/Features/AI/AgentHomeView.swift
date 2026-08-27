@@ -594,7 +594,17 @@ struct AgentHomeView: View {
             .animation(.spring(response: 0.5, dampingFraction: 0.86), value: isWelcomeState)
         }
         .scrollIndicators(.hidden)
-        .scrollDismissesKeyboard(.interactively)
+        // 对话一开始滚动就收起键盘，避免交互式收起仍占着半屏、遮挡用户
+        // 查看上方消息；程序触发的自动滚动不会经过 tracking/interacting。
+        .scrollDismissesKeyboard(.immediately)
+        .onScrollPhaseChange { _, phase in
+            switch phase {
+            case .tracking, .interacting:
+                if isComposerFocused { isComposerFocused = false }
+            default:
+                break
+            }
+        }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { _, height in
@@ -1358,8 +1368,8 @@ struct AgentHomeView: View {
         // 过渡避免生硬的横切线。欢迎页玻璃方块需透出 ASCII 底纹，不加遮罩。
         // 遮罩条件与展开输入条的出现条件保持一致：工作台欢迎态键盘收起时
         // 输入条常驻，遮罩也不消失。
-        // 附件条出现时按实测高度（附件条 + 间距）向上延伸，渐变过渡正好
-        // 覆盖缩略图背后，不多出一截。
+        // 无附件时也向输入框上方延伸一段，避免消息从控件缝隙透出；附件条
+        // 出现后再按实测高度扩展。遮罩只负责绘制，绝不拦截滚动手势。
         .background {
             Group {
                 if presentation == .workbench || isComposerExpanded || !isWelcomeState {
@@ -1373,10 +1383,12 @@ struct AgentHomeView: View {
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .padding(.top, store.session.attachments.isEmpty ? 0 : -(attachmentStripHeight + 8))
+                    .padding(.top, -composerBackdropTopExtension)
                     .ignoresSafeArea(edges: .bottom)
                 }
             }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
             .animation(.easeInOut(duration: 0.3), value: isWelcomeState)
             .animation(.easeInOut(duration: 0.25), value: store.session.attachments.isEmpty)
         }
@@ -1396,6 +1408,15 @@ struct AgentHomeView: View {
             let range = budgetRange(forDays: Int(days))
             lotteryBudgetAmount = min(max(lotteryBudgetAmount, range.lowerBound), range.upperBound)
         }
+    }
+
+    /// The backdrop always starts above the text field. Attachments raise its
+    /// fade origin further so both the tray and the empty composer receive the
+    /// same readable, touch-through treatment.
+    private var composerBackdropTopExtension: CGFloat {
+        let emptyComposerExtension: CGFloat = 54
+        guard !store.session.attachments.isEmpty else { return emptyComposerExtension }
+        return max(emptyComposerExtension, attachmentStripHeight + 24)
     }
 
     /// ChatGPT-style attachment tray: selected images/files sit directly
