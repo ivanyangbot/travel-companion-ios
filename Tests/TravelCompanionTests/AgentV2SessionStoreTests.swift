@@ -42,7 +42,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         let session = AgentV2LocalSession(
             id: UUID(),
             updatedAt: .now,
-            preferences: .init(pace: "packed", companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: "packed", companions: nil, budget: nil, interests: []),
             messages: messages,
             attachments: attachments,
             draft: AgentV2Draft(candidates: [failed, explicitFailed, allowedRecommendation, missingCoordinates, missingAddress, blankAddress, verified, flight], changes: changes),
@@ -77,7 +77,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         let oldChange = AgentV2Change(id: UUID(), operation: .add, candidateId: old.id, targetCardId: nil, targetDraftId: nil, summary: "旧变更", impact: nil)
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [old], changes: [oldChange]),
             summary: AgentV2Summary(text: "旧摘要", coveredDates: [], pending: [])
@@ -127,7 +127,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         let keptChange = AgentV2Change(id: UUID(), operation: .add, candidateId: kept.id, targetCardId: nil, targetDraftId: nil, summary: "新增保留景点", impact: nil)
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [kept], changes: [keptChange]),
             summary: AgentV2Summary(text: "旧摘要", coveredDates: [], pending: [])
@@ -167,7 +167,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         )
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [removed, kept], changes: [
                 AgentV2Change(id: UUID(), operation: .add, candidateId: removed.id, targetCardId: nil, targetDraftId: nil, summary: "新增删除景点", impact: nil),
@@ -199,7 +199,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         )
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [old], changes: []),
             summary: AgentV2Summary(text: "旧摘要", coveredDates: [], pending: [])
@@ -228,7 +228,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         )
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [old], changes: []), summary: nil
         )
@@ -258,7 +258,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         let removal = AgentV2Change(id: UUID(), operation: .remove, candidateId: nil, targetCardId: 42, targetDraftId: nil, summary: "移除第 1 天重复卡", impact: nil)
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [unselected], changes: [removal]), summary: nil
         )
@@ -282,7 +282,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         )
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [removed], changes: []), summary: nil
         )
@@ -347,7 +347,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         unselected.selected = false
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [selected, unselected], changes: []), summary: nil
         )
@@ -374,7 +374,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         let oldSummary = AgentV2Summary(text: "上一轮可用结果", coveredDates: ["2026-09-22"], pending: [])
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [old], changes: []), summary: oldSummary
         )
@@ -409,7 +409,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         second.selected = false
         let session = AgentV2LocalSession(
             id: UUID(), updatedAt: .now,
-            preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil),
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
             draft: AgentV2Draft(candidates: [first, second], changes: []), summary: nil
         )

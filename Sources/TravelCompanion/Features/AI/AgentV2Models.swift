@@ -30,7 +30,6 @@ struct AgentV2TurnRequest: Codable, Sendable {
         var companions: String?
         var budget: String?
         var interests: [String]
-        var scope: String?
         var allowUnverifiedRecommendations: Bool? = nil
 
         var retainsUnverifiedRecommendations: Bool {
@@ -357,5 +356,5 @@ struct AgentV2LocalSession: Codable, Identifiable {
     /// sessions persisted by older builds decode cleanly.
     var pendingProposal: AgentV2TripProposal? = nil
 
-    static let empty = AgentV2LocalSession(id: UUID(), updatedAt: .now, preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], scope: nil, allowUnverifiedRecommendations: true), messages: [], attachments: [], draft: nil, summary: nil)
+    static let empty = AgentV2LocalSession(id: UUID(), updatedAt: .now, preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], allowUnverifiedRecommendations: true), messages: [], attachments: [], draft: nil, summary: nil)
 }

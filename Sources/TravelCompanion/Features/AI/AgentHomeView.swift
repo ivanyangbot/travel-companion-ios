@@ -342,11 +342,8 @@ struct AgentHomeView: View {
     /// 悬浮 Agent 的欢迎态头部保留行程切换、历史和新建入口；发送首条消息后
     /// 它随欢迎态退场，后续界面与 AgentHomeView 的对话态完全一致。
     private var workbenchHeader: some View {
+        GeometryReader { proxy in
         ZStack {
-            Text("旅行 Agent")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-
             HStack(spacing: 12) {
                 Menu {
                     Button {
@@ -385,13 +382,15 @@ struct AgentHomeView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(minWidth: 0)
                         Image(systemName: "chevron.down")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
                 }
                 .buttonStyle(.glass)
-                .frame(maxWidth: 170, alignment: .leading)
+                .frame(maxWidth: proxy.size.width * 0.5, alignment: .leading)
                 .accessibilityLabel("切换行程")
 
                 Spacer(minLength: 0)
@@ -409,6 +408,7 @@ struct AgentHomeView: View {
                 .disabled(isWelcomeState)
                 .accessibilityLabel("新建对话")
             }
+        }
         }
         .frame(height: 48)
         .padding(.horizontal, 20)
@@ -688,7 +688,6 @@ struct AgentHomeView: View {
                 pace: preferences.pace,
                 companions: preferences.companions,
                 budget: preferences.budget,
-                scope: preferences.scope,
                 interests: preferences.interests.isEmpty ? nil : preferences.interests
             ),
             existingItinerary: hasActiveTrip ? syncEngine.existingItinerarySnapshot() : nil
@@ -2211,7 +2210,6 @@ private struct AgentContextSheet: View {
                     if let trip = syncEngine.trip, trip.isConfigured {
                         LabeledContent("目的地", value: trip.destination ?? "待设置")
                         LabeledContent("日期", value: "\(trip.startDate ?? "") – \(trip.endDate ?? "")")
-                        LabeledContent("时区", value: TimeZone.current.identifier)
                     } else {
                         ContentUnavailableView("请先完成旅行设置", systemImage: "calendar.badge.exclamationmark", description: Text("Agent 需要目的地、日期和币种来检查地点与冲突。"))
                     }
@@ -2227,7 +2225,6 @@ private struct AgentContextSheet: View {
                     Picker("预算", selection: binding(\.budget)) {
                         Text("未设置").tag(""); Text("省钱").tag("value"); Text("适中").tag("balanced"); Text("品质优先").tag("premium")
                     }
-                    TextField("本轮范围，例如第二天下午", text: binding(\.scope))
                 }
 
                 Section {

@@ -389,7 +389,6 @@ struct Preferences: Encodable, Sendable {
 let pace: String?
 let companions: String?
 let budget: String?
-let scope: String?
 let interests: [String]?
 }
 /// 建议模式：`nil`（即服务端默认 itinerary）表示围绕已有行程出建议；
