@@ -716,7 +716,7 @@ struct TodayView: View {
     }
 
     private func sortedDays(in trip: SharedTripSnapshot) -> [TripDaySnapshot] {
-        trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+        trip.sortedDaysInDateRange
     }
 
     /// “今日”基准：精确匹配今天，否则取最近的一天。
@@ -1053,6 +1053,8 @@ struct TodaySettingsSheet: View {
         [
             LanguageOption(code: "system", name: String(localized: "settings.languageSystem")),
             LanguageOption(code: "zh-Hans", name: String(localized: "settings.languageZH")),
+            LanguageOption(code: "zh-Hant-TW", name: String(localized: "settings.languageZHTW")),
+            LanguageOption(code: "zh-Hant-HK", name: String(localized: "settings.languageZHHK")),
             LanguageOption(code: "en", name: String(localized: "settings.languageEN"))
         ]
     }
@@ -1161,7 +1163,7 @@ struct TodaySettingsSheet: View {
                 isLanguageExpanded.toggle()
             }
         } trailing: {
-            Image(systemName: "chevron.down")
+            Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
                 .rotationEffect(.degrees(isLanguageExpanded ? 90 : 0))

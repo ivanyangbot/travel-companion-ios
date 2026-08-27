@@ -103,6 +103,8 @@
 "settings.language" = "Language";
 "settings.languageSystem" = "Follow System";
 "settings.languageZH" = "简体中文";
+"settings.languageZHTW" = "繁體中文（台灣）";
+"settings.languageZHHK" = "繁體中文（香港）";
 "settings.languageEN" = "English";
 "settings.languageNote" = "Restart the app for the new language to take effect.";
 "settings.privacy" = "Privacy Policy";

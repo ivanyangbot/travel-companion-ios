@@ -201,6 +201,15 @@ final class AgentV2SessionStore: ObservableObject {
     private let defaults: UserDefaults
     private let key = "agent.v2.local.session"
     private let archivesKey = "agent.v2.local.archives"
+    /// 每个旅程一套「旅行与偏好」规划条件：切换行程时把当前偏好存回旧旅程
+    /// 的槽位，再载入新旅程的槽位。无生效行程（plan_new / 暂不选择行程）
+    /// 使用独立槽位，同样不与其他旅程互通。
+    private let tripPreferencesKey = "agent.v2.trip.preferences"
+    private let activeTripKeyStorageKey = "agent.v2.trip.preferences.active"
+    private var tripPreferences: [String: AgentV2TurnRequest.Preferences] = [:]
+    private var activeTripKey: String?
+    /// “暂不选择行程”对应的偏好槽位。
+    private static let noTripPreferencesKey = "none"
     /// How many past conversations are kept on-device.
     static let archiveLimit = 20
     private var isReceivingNewTurn = false
@@ -219,6 +228,11 @@ final class AgentV2SessionStore: ObservableObject {
            let decodedArchives = try? JSONDecoder.agentV2.decode([AgentV2LocalSession].self, from: data) {
             archives = decodedArchives
         }
+        if let data = defaults.data(forKey: tripPreferencesKey),
+           let decodedMap = try? JSONDecoder.agentV2.decode([String: AgentV2TurnRequest.Preferences].self, from: data) {
+            tripPreferences = decodedMap
+        }
+        activeTripKey = defaults.string(forKey: activeTripKeyStorageKey)
         if let data = defaults.data(forKey: key), var decoded = try? JSONDecoder.agentV2.decode(AgentV2LocalSession.self, from: data) {
             decoded.preferences.allowUnverifiedRecommendations = true
             let originalDraft = decoded.draft
@@ -530,6 +544,33 @@ final class AgentV2SessionStore: ObservableObject {
     func clearPendingProposal() {
         session.pendingProposal = nil
         save()
+    }
+
+    /// 切换生效旅程时隔离「旅行与偏好」规划条件：当前偏好存回原旅程槽位，
+    /// 载入目标旅程的槽位（首次使用该旅程时为全新默认值）。相同旅程重复
+    /// 调用是幂等的。
+    func activateTripPreferences(forTripID tripID: Int?) {
+        let key = tripID.map(String.init) ?? Self.noTripPreferencesKey
+        let previousKey = activeTripKey
+        guard key != previousKey else { return }
+        if let previousKey {
+            tripPreferences[previousKey] = session.preferences
+        }
+        activeTripKey = key
+        // 首次建立激活槽位（升级/重装后的第一次调用）时保留会话中现有偏好，
+        // 避免一次性的设置丢失；此后每次切换都严格来自目标槽位。
+        let fallback = previousKey == nil
+            ? session.preferences
+            : AgentV2TurnRequest.Preferences(pace: nil, companions: nil, budget: nil, interests: [])
+        session.preferences = tripPreferences[key] ?? fallback
+        persistTripPreferences()
+        save()
+    }
+
+    private func persistTripPreferences() {
+        defaults.set(activeTripKey, forKey: activeTripKeyStorageKey)
+        guard let data = try? JSONEncoder.agentV2.encode(tripPreferences) else { return }
+        defaults.set(data, forKey: tripPreferencesKey)
     }
 
     func updatePreference(_ keyPath: WritableKeyPath<AgentV2TurnRequest.Preferences, String?>, value: String?) {

@@ -722,6 +722,49 @@ final class AgentV2SessionStoreTests: XCTestCase {
         XCTAssertTrue(secondLaunch.session.messages.isEmpty)
     }
 
+    @MainActor
+    func testPreferencesAreIsolatedPerTrip() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        // 旅程 A：配置自己的规划条件后切换到旅程 B。
+        store.activateTripPreferences(forTripID: 11)
+        store.updatePreference(\.pace, value: "packed")
+        store.toggleInterest("美食")
+
+        // 旅程 B 首次使用：得到全新默认值，而不是 A 的配置。
+        store.activateTripPreferences(forTripID: 22)
+        XCTAssertNil(store.session.preferences.pace)
+        XCTAssertTrue(store.session.preferences.interests.isEmpty)
+        store.updatePreference(\.budget, value: "luxury")
+        store.updatePreference(\.companions, value: "family")
+
+        // 切回旅程 A：恢复 A 自己的配置。
+        store.activateTripPreferences(forTripID: 11)
+        XCTAssertEqual(store.session.preferences.pace, "packed")
+        XCTAssertEqual(store.session.preferences.interests, ["美食"])
+        XCTAssertNil(store.session.preferences.budget)
+
+        // 再切回旅程 B：B 的配置原样保留。
+        store.activateTripPreferences(forTripID: 22)
+        XCTAssertEqual(store.session.preferences.budget, "luxury")
+        XCTAssertEqual(store.session.preferences.companions, "family")
+        XCTAssertNil(store.session.preferences.pace)
+
+        // 无生效旅程使用独立槽位，同样不与其他旅程互通。
+        store.activateTripPreferences(forTripID: nil)
+        XCTAssertNil(store.session.preferences.pace)
+        XCTAssertTrue(store.session.preferences.interests.isEmpty)
+
+        // 槽位随 UserDefaults 持久化，重启后依旧隔离。
+        let restored = AgentV2SessionStore(defaults: defaults)
+        restored.activateTripPreferences(forTripID: 11)
+        XCTAssertEqual(restored.session.preferences.pace, "packed")
+        restored.activateTripPreferences(forTripID: 22)
+        XCTAssertEqual(restored.session.preferences.budget, "luxury")
+    }
+
     private let defaultsSuite = "AgentV2SessionStoreTests"
     private let sessionKey = "agent.v2.local.session"
 

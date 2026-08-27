@@ -44,6 +44,18 @@ struct SharedTripSnapshot: Codable, Sendable, Equatable {
     }
 }
 
+extension SharedTripSnapshot {
+    /// 行程日按 (date, position) 排序，并裁剪到旅程起止日期内。修改旅行日期
+    /// 缩短范围后，服务端仍保留超出范围的天（重新拉长日期可恢复），首页的
+    /// 地图/列表模式不应再展示它们。ISO "yyyy-MM-dd" 字符串的字典序即时间序。
+    var sortedDaysInDateRange: [TripDaySnapshot] {
+        let sorted = days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+        guard let start = startDate, !start.isEmpty,
+              let end = endDate, !end.isEmpty else { return sorted }
+        return sorted.filter { $0.date >= start && $0.date <= end }
+    }
+}
+
 struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
     /// Local identity lets an offline record render before the server assigns an integer ID.
     let id: UUID

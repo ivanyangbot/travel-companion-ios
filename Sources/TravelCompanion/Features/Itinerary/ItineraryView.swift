@@ -263,7 +263,7 @@ struct ItineraryView: View {
     }
 
     private func detailedItinerary(_ trip: SharedTripSnapshot) -> some View {
-        let days = trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+        let days = trip.sortedDaysInDateRange
         let todayIndex = ItineraryListPresentation.todayIndex(in: days)
         let selectedIndex = ItineraryListPresentation.selectedIndex(
             date: selectedListDate,
@@ -1053,36 +1053,41 @@ struct ItineraryView: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: ItineraryLargeImageCardLayout.contentSpacing) {
-                ZStack(alignment: .bottomLeading) {
-                    itineraryCardCover(card)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .clipped()
+                GeometryReader { proxy in
+                    ZStack(alignment: .bottomLeading) {
+                        // 竖版等 scaledToFill 图片的布局尺寸可能远大于可见卡面，
+                        // 会把卡片撑宽。先按可见边界硬约束再叠层（与今日页
+                        // POI 卡封面同一处理），使图片不再参与 ZStack 的取尺布局。
+                        itineraryCardCover(card)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .clipped()
 
-                    LinearGradient(
-                        colors: [.clear, .black.opacity(0.12), .black.opacity(0.88)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.12), .black.opacity(0.88)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
 
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(String(format: String(localized: "itinerary.cardTitle"), index + 1, card.title))
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.76)
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(String(format: String(localized: "itinerary.cardTitle"), index + 1, card.title))
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.76)
 
-                        HStack(spacing: 14) {
-                            compactCardMetadata(
-                                icon: "icon-pin-outline",
-                                text: ItineraryListPresentation.timeRange(for: card)
-                            )
-                            if let price {
-                                compactCardMetadata(icon: "icon-ticket-outline", text: price)
+                            HStack(spacing: 14) {
+                                compactCardMetadata(
+                                    icon: "icon-pin-outline",
+                                    text: ItineraryListPresentation.timeRange(for: card)
+                                )
+                                if let price {
+                                    compactCardMetadata(icon: "icon-ticket-outline", text: price)
+                                }
                             }
                         }
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 13)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 13)
                 }
                 .frame(maxWidth: .infinity)
                 .aspectRatio(ItineraryLargeImageCardLayout.imageAspectRatio, contentMode: .fit)
@@ -1626,7 +1631,7 @@ struct ItineraryView: View {
     private func refreshDragDestinationForCurrentScroll() {
         guard let draggedListCard,
               let trip = syncEngine.trip else { return }
-        let days = trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+        let days = trip.sortedDaysInDateRange
         guard let sourceDay = days.first(where: { $0.id == draggedListCard.dayID }),
               let card = sourceDay.cards.first(where: { $0.id == draggedListCard.cardID }) else { return }
         refreshDragDestination(card: card, sourceDay: sourceDay, days: days)
@@ -1997,7 +2002,7 @@ struct ItineraryView: View {
                         .overlay { Capsule().stroke(JourneyPalette.actionBlue.opacity(0.75), lineWidth: 1) }
                         .buttonStyle(.plain)
                 }
-                let days = trip.days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+                let days = trip.sortedDaysInDateRange
                 ForEach(days, id: \.id) { day in
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {

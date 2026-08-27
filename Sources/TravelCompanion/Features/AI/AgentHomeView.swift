@@ -474,8 +474,14 @@ struct AgentHomeView: View {
                 Button("agent.gotIt", role: .cancel) {}
             } message: { Text(runState.error ?? "") }
             .onAppear {
+                store.activateTripPreferences(forTripID: syncEngine.selectedTripID)
                 consumeInitialMessageIfNeeded()
                 loadSuggestionsIfNeeded()
+            }
+            // 「旅行与偏好」的规划条件按旅程隔离：切换生效旅程时把当前偏好
+            // 存回原旅程的槽位，载入新旅程自己的槽位（无行程用独立槽位）。
+            .onChange(of: syncEngine.selectedTripID) { _, newTripID in
+                store.activateTripPreferences(forTripID: newTripID)
             }
             .onChange(of: syncEngine.trip?.id) { _, _ in loadSuggestionsIfNeeded() }
             .onChange(of: syncEngine.trip?.isConfigured) { _, _ in loadSuggestionsIfNeeded() }
