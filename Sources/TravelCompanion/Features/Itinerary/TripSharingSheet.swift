@@ -18,69 +18,51 @@ struct TripSharingSheet: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard !isCreatingInvite else { return }
-                        dismiss()
+        VStack(spacing: 0) {
+            header
+
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    if canInvite {
+                        inviteButton
                     }
 
-                VStack(spacing: 0) {
-                    header
+                    memberSectionHeader
 
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            if canInvite {
-                                inviteButton
-                            }
-
-                            memberSectionHeader
-
-                            if isLoading && members.isEmpty {
-                                loadingCard
-                            } else if members.isEmpty {
-                                emptyCard
-                            } else {
-                                ForEach(orderedMembers) { member in
-                                    memberRow(member)
-                                }
-                            }
-
-                            if let errorMessage, !members.isEmpty {
-                                errorCard(errorMessage)
-                            }
-
-                            Text("共享成员可以共同编辑行程、支出和手书内容。")
-                                .font(.caption)
-                                .foregroundStyle(PrimaryTabPalette.secondaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, 4)
+                    if isLoading && members.isEmpty {
+                        loadingCard
+                    } else if members.isEmpty {
+                        emptyCard
+                    } else {
+                        ForEach(orderedMembers) { member in
+                            memberRow(member)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20 + geometry.safeAreaInsets.bottom)
                     }
-                    .scrollIndicators(.hidden)
-                    .refreshable { await refreshMembers() }
+
+                    if let errorMessage, !members.isEmpty {
+                        errorCard(errorMessage)
+                    }
+
+                    Text("共享成员可以共同编辑行程、支出和手书内容。")
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
                 }
-                .frame(
-                    width: geometry.size.width,
-                    height: min(geometry.size.height, max(360, geometry.size.height * 0.5)),
-                    alignment: .top
-                )
-                .background(PrimaryTabPalette.background)
-                .clipShape(panelShape)
-                .overlay(alignment: .top) {
-                    panelShape
-                        .stroke(.white.opacity(0.12), lineWidth: 1)
-                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
+            .scrollIndicators(.hidden)
+            .refreshable { await refreshMembers() }
         }
-        .ignoresSafeArea()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(PrimaryTabPalette.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
-        .presentationBackground(.clear)
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.hidden)
+        .presentationCornerRadius(28)
+        .presentationBackground(PrimaryTabPalette.background)
+        .presentationContentInteraction(.scrolls)
         .interactiveDismissDisabled(isCreatingInvite)
         .accessibilityAddTraits(.isModal)
         .task { await refreshMembers() }
@@ -94,16 +76,6 @@ struct TripSharingSheet: View {
                     .presentationDragIndicator(.visible)
             }
         }
-    }
-
-    private var panelShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 28,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: 0,
-            topTrailingRadius: 28,
-            style: .continuous
-        )
     }
 
     private var header: some View {
