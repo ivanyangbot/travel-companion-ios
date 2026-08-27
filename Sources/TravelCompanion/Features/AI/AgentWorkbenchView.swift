@@ -538,7 +538,7 @@ AgentIntroGlobeView(diameter: 208)
                 .onChange(of: photo) { _, item in load(item) }
                 .accessibilityLabel("添加攻略图片")
 
-                TextField("告诉 Agent 你的想法", text: $message, axis: .vertical)
+                TextField("告诉豆奶你的旅游灵感", text: $message, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($isComposerFocused)
                     .foregroundStyle(.white)
@@ -810,7 +810,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
         formatter.dateFormat = "yyyy-MM-dd"
         guard let startDate = formatter.date(from: proposal.startDate),
               let endDate = formatter.date(from: proposal.endDate) else {
-            runState.error = "旅程提案的日期无法识别，请让 Agent 重新生成提案。"
+            runState.error = "旅程计划的日期无法识别，请让豆奶重新生成计划。"
             return
         }
         isCreatingTripFromProposal = true
@@ -1235,7 +1235,7 @@ private struct AgentContextSheet: View {
                         LabeledContent("目的地", value: trip.destination ?? "待设置")
                         LabeledContent("日期", value: "\(trip.startDate ?? "") – \(trip.endDate ?? "")")
                     } else {
-                        ContentUnavailableView("请先完成旅行设置", systemImage: "calendar.badge.exclamationmark", description: Text("Agent 需要目的地、日期和币种来检查地点与冲突。"))
+                        ContentUnavailableView("请先完成旅行设置", systemImage: "calendar.badge.exclamationmark", description: Text("豆奶需要目的地、日期等信息来检查地点与冲突。"))
                     }
                 }
 

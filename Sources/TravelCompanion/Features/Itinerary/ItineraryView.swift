@@ -827,7 +827,7 @@ struct ItineraryView: View {
                 slotFromTrailing: 1,
                 revealedWidth: revealedWidth
             ))
-            .accessibilityLabel("询问 Agent")
+            .accessibilityLabel("询问豆奶")
             .opacity(actionVisibility)
             .allowsHitTesting(actionsAreOpen)
 
@@ -914,7 +914,7 @@ struct ItineraryView: View {
             closeListCardActions()
             activeCardEditor = .edit(day, card)
         }
-        .accessibilityAction(named: "询问 Agent") {
+        .accessibilityAction(named: "询问豆奶") {
             openAgent(for: card, in: day)
         }
         .accessibilityAction(named: "删除") {

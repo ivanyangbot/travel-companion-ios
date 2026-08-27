@@ -106,7 +106,7 @@ struct ContentView: View {
                         }
                     )
                 } else {
-                    ProgressView("正在准备 Agent…")
+                    ProgressView("豆奶正在赶来...")
                 }
             }
         }
@@ -176,7 +176,7 @@ struct ContentView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("打开 Agent")
+        .accessibilityLabel("唤起豆奶")
     }
 
     private func presentSharedLinkInAgentIfPossible() {

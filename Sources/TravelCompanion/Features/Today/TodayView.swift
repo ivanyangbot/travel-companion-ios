@@ -78,7 +78,7 @@ struct TodayView: View {
         .sheet(item: $detailCard) { card in
             TodayCardDetailSheet(card: card, linkHandler: linkHandler)
         }
-        .fullScreenCover(isPresented: Binding(
+        .sheet(isPresented: Binding(
             get: { showsSharingSheet },
             set: {
                 showsSharingSheet = $0
@@ -1153,11 +1153,7 @@ private struct TodayTripPickerSheet: View {
             .foregroundStyle(.white)
             .padding(14)
             .background(
-                LinearGradient(
-                    colors: [PrimaryTabPalette.accent, PrimaryTabPalette.accent.opacity(0.72)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
+                PrimaryTabPalette.accent,
                 in: RoundedRectangle(cornerRadius: 18, style: .continuous)
             )
             .overlay {
@@ -1168,7 +1164,7 @@ private struct TodayTripPickerSheet: View {
         .buttonStyle(.plain)
         .disabled(isBusy)
         .opacity(isBusy && !isStartingNewTrip ? 0.55 : 1)
-        .accessibilityHint("打开 Agent 新旅行规划，返回时仍保留当前旅行")
+        .accessibilityHint("唤起豆奶进行新旅行规划，返回时仍保留当前旅行")
     }
 
     private func tripRow(_ trip: TripSummary) -> some View {
