@@ -3222,7 +3222,7 @@ private struct AgentCandidatePOIDetailSheet: View {
     }
 
     private var scheduleLine: String {
-        let time = [candidate.startAt, candidate.endAt].filter { !$0.isEmpty }.joined(separator: "–")
+        let time = [candidate.startAt, candidate.endAt ?? ""].filter { !$0.isEmpty }.joined(separator: "–")
         return [candidate.date, time].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 

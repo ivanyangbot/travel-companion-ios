@@ -212,7 +212,7 @@ struct AgentPhotoLibraryPicker: UIViewControllerRepresentable {
 
         init(onPick: @escaping ([PHPickerResult]) -> Void) { self.onPick = onPick }
 
-        func photoPicker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             onPick(results)
         }
     }
