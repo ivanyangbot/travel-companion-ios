@@ -8,6 +8,8 @@ PROJECT_FILE="$REPO_ROOT/TravelCompanion.xcodeproj"
 PROJECT_YML="$REPO_ROOT/project.yml"
 PBXPROJ="$PROJECT_FILE/project.pbxproj"
 EXPORT_OPTIONS="$REPO_ROOT/build/ExportOptions.plist"
+PROJECT_YML_REL="project.yml"
+PBXPROJ_REL="TravelCompanion.xcodeproj/project.pbxproj"
 
 SCHEME="${SCHEME:-TravelCompanion}"
 CONFIGURATION="${CONFIGURATION:-Release}"
@@ -38,7 +40,8 @@ Environment overrides:
   ASC_TIMEOUT_SECONDS, SCHEME, CONFIGURATION.
 
 The current branch is fast-forwarded from its configured upstream before
-the version is updated and the release build starts.
+the version is updated. The release version commit is pushed before testing
+and packaging, so a completed or interrupted run leaves the tree clean.
 EOF
 }
 
@@ -72,9 +75,37 @@ cd "$REPO_ROOT"
 
 dirty_status="$(git status --porcelain --untracked-files=all)"
 if [[ -n "$dirty_status" ]]; then
-    echo "Working tree must be clean before syncing and starting a release." >&2
-    echo "$dirty_status" >&2
-    exit 1
+    recoverable_version_state=1
+    while IFS= read -r status_line; do
+        case "$status_line" in
+            " M $PROJECT_YML_REL"|" M $PBXPROJ_REL") ;;
+            *) recoverable_version_state=0 ;;
+        esac
+    done <<< "$dirty_status"
+
+    unexpected_version_diff="$(
+        git diff --unified=0 -- "$PROJECT_YML_REL" "$PBXPROJ_REL" |
+            awk '
+                /^(---|\+\+\+|@@)/ { next }
+                /^[+-]/ {
+                    if ($0 !~ /^[+-][[:space:]]*(MARKETING_VERSION:|CURRENT_PROJECT_VERSION:|MARKETING_VERSION =|CURRENT_PROJECT_VERSION =)/) {
+                        print
+                    }
+                }
+            '
+    )"
+    if [[ -n "$unexpected_version_diff" ]]; then
+        recoverable_version_state=0
+    fi
+
+    if ((recoverable_version_state == 1)); then
+        echo "Recovering version files left by an interrupted release"
+        git restore --worktree -- "$PROJECT_YML_REL" "$PBXPROJ_REL"
+    else
+        echo "Working tree contains non-release changes; refusing to overwrite them." >&2
+        echo "$dirty_status" >&2
+        exit 1
+    fi
 fi
 
 current_branch="$(git symbolic-ref --quiet --short HEAD || true)"
@@ -188,6 +219,19 @@ if [[ "$(rg -c "MARKETING_VERSION = $TARGET_VERSION;" "$PBXPROJ")" -ne 2 ]] || \
 fi
 
 git diff --check
+
+echo "Committing and pushing release version $TARGET_VERSION ($TARGET_BUILD)"
+git add -- "$PROJECT_YML_REL" "$PBXPROJ_REL"
+git commit -m "chore: release $TARGET_VERSION ($TARGET_BUILD)"
+if ! git push; then
+    echo "Remote changed while preparing the release; rebasing the version commit."
+    if ! git pull --rebase; then
+        git rebase --abort || true
+        echo "Could not rebase the release version commit; release stopped before packaging." >&2
+        exit 1
+    fi
+    git push
+fi
 
 if ((SKIP_TESTS == 0)); then
     echo "Running AgentV2SessionStoreTests on $SIMULATOR_NAME"
