@@ -1,3 +1,5 @@
+@preconcurrency import AVFoundation
+import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
@@ -165,37 +167,402 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
-struct AgentCameraPicker: UIViewControllerRepresentable {
+struct AgentPhotoPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var selection: [PhotosPickerItem] = []
+
+    let maximumSelectionCount: Int
+    let totalAttachmentLimit: Int
+    let onPick: ([PhotosPickerItem]) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.white.opacity(0.1), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("取消选择照片")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("选择照片")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Text("本轮最多 \(totalAttachmentLimit) 个附件，当前还可选 \(maximumSelectionCount) 张")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.58))
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    let picked = selection
+                    dismiss()
+                    onPick(picked)
+                } label: {
+                    Text(selection.isEmpty ? "添加" : "添加 \(selection.count) 张")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(selection.isEmpty ? Color.white.opacity(0.42) : .white)
+                        .padding(.horizontal, 15)
+                        .frame(height: 40)
+                        .background(
+                            selection.isEmpty ? Color.white.opacity(0.08) : PrimaryTabPalette.accent,
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(selection.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+
+            PhotosPicker(
+                selection: $selection,
+                maxSelectionCount: maximumSelectionCount,
+                selectionBehavior: .ordered,
+                matching: .images
+            ) {
+                Label("从照片图库选择", systemImage: "photo.on.rectangle.angled")
+            }
+            .photosPickerStyle(.inline)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Color.black.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+    }
+}
+
+struct AgentCameraSheet: View {
     @Binding var isPresented: Bool
     let onCapture: (UIImage) -> Void
+    @StateObject private var camera = AgentCameraController()
 
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let controller = UIImagePickerController()
-        controller.sourceType = .camera
-        controller.cameraCaptureMode = .photo
-        controller.delegate = context.coordinator
-        return controller
+            if let errorMessage = camera.errorMessage {
+                VStack(spacing: 16) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 38, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.72))
+                    Text(errorMessage)
+                        .font(.body)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                    if camera.isPermissionDenied {
+                        Button("前往设置") {
+                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                            UIApplication.shared.open(url)
+                        }
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 20)
+                        .frame(height: 44)
+                        .background(.white, in: Capsule())
+                    }
+                }
+            } else {
+                VStack(spacing: 0) {
+                    AgentCameraPreview(session: camera.session, cameraPosition: camera.cameraPosition)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        .overlay {
+                            if !camera.isReady {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                        }
+
+                    cameraControls
+                        .frame(height: 118)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            camera.onCapture = { image in
+                isPresented = false
+                onCapture(image)
+            }
+            camera.start()
+        }
+        .onDisappear {
+            camera.stop()
+            camera.onCapture = nil
+        }
     }
 
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    private var cameraControls: some View {
+        HStack {
+            Button {
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 50, height: 50)
+                    .background(Color.white.opacity(0.12), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭相机")
 
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        let parent: AgentCameraPicker
+            Spacer()
 
-        init(parent: AgentCameraPicker) { self.parent = parent }
+            Button {
+                camera.capture()
+            } label: {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 72, height: 72)
+                    .overlay(Circle().stroke(.white.opacity(0.34), lineWidth: 5).padding(-7))
+            }
+            .buttonStyle(.plain)
+            .disabled(!camera.isReady || camera.isCapturing)
+            .opacity(camera.isCapturing ? 0.55 : 1)
+            .accessibilityLabel("拍照")
 
-        func imagePickerController(
-            _ picker: UIImagePickerController,
-            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-        ) {
-            parent.isPresented = false
-            if let image = info[.originalImage] as? UIImage { parent.onCapture(image) }
+            Spacer()
+
+            Button {
+                camera.switchCamera()
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath.camera")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 50, height: 50)
+                    .background(Color.white.opacity(0.12), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!camera.isReady || camera.isCapturing)
+            .accessibilityLabel("切换摄像头")
         }
+        .padding(.horizontal, 24)
+    }
+}
 
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            parent.isPresented = false
+final class AgentCameraController: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
+    static var isCameraAvailable: Bool {
+        AVCaptureDevice.default(for: .video) != nil
+    }
+
+    let session = AVCaptureSession()
+    @Published private(set) var isReady = false
+    @Published private(set) var isCapturing = false
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var isPermissionDenied = false
+    @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
+
+    var onCapture: ((UIImage) -> Void)?
+
+    private let sessionQueue = DispatchQueue(label: "com.indo.agent.camera-session", qos: .userInitiated)
+    private let photoOutput = AVCapturePhotoOutput()
+    private var isConfigured = false
+
+    func start() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            configureAndStart()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                guard let self else { return }
+                if granted {
+                    self.configureAndStart()
+                } else {
+                    self.publishPermissionDenied()
+                }
+            }
+        case .denied, .restricted:
+            publishPermissionDenied()
+        @unknown default:
+            publishError("无法访问相机，请稍后重试。")
+        }
+    }
+
+    func stop() {
+        sessionQueue.async { [weak self] in
+            guard let self, self.session.isRunning else { return }
+            self.session.stopRunning()
+            self.publishReady(false)
+        }
+    }
+
+    func capture() {
+        guard isReady, !isCapturing else { return }
+        isCapturing = true
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            let settings = AVCapturePhotoSettings()
+            settings.photoQualityPrioritization = self.photoOutput.maxPhotoQualityPrioritization
+            if let connection = self.photoOutput.connection(with: .video),
+               connection.isVideoRotationAngleSupported(90) {
+                connection.videoRotationAngle = 90
+            }
+            self.photoOutput.capturePhoto(with: settings, delegate: self)
+        }
+    }
+
+    func switchCamera() {
+        guard isReady, !isCapturing else { return }
+        publishReady(false)
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            let newPosition: AVCaptureDevice.Position = self.cameraPosition == .back ? .front : .back
+            do {
+                try self.replaceVideoInput(position: newPosition)
+                DispatchQueue.main.async {
+                    self.cameraPosition = newPosition
+                    self.isReady = true
+                }
+            } catch {
+                self.publishError("无法切换摄像头，请稍后重试。")
+            }
+        }
+    }
+
+    private func configureAndStart() {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                if !self.isConfigured {
+                    self.session.beginConfiguration()
+                    self.session.sessionPreset = .photo
+                    do {
+                        try self.addVideoInput(position: .back)
+                        guard self.session.canAddOutput(self.photoOutput) else {
+                            throw AgentCameraError.unavailable
+                        }
+                        self.session.addOutput(self.photoOutput)
+                        self.session.commitConfiguration()
+                        self.isConfigured = true
+                    } catch {
+                        self.session.commitConfiguration()
+                        throw error
+                    }
+                }
+                if !self.session.isRunning { self.session.startRunning() }
+                self.publishReady(true)
+            } catch {
+                self.publishError("当前设备无法启动相机。")
+            }
+        }
+    }
+
+    private func addVideoInput(position: AVCaptureDevice.Position) throws {
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
+            throw AgentCameraError.unavailable
+        }
+        let input = try AVCaptureDeviceInput(device: device)
+        guard session.canAddInput(input) else { throw AgentCameraError.unavailable }
+        session.addInput(input)
+    }
+
+    private func replaceVideoInput(position: AVCaptureDevice.Position) throws {
+        session.beginConfiguration()
+        defer { session.commitConfiguration() }
+        let oldInputs = session.inputs
+        for input in oldInputs { session.removeInput(input) }
+        do {
+            try addVideoInput(position: position)
+        } catch {
+            for input in oldInputs where session.canAddInput(input) {
+                session.addInput(input)
+            }
+            throw error
+        }
+    }
+
+    func photoOutput(
+        _ output: AVCapturePhotoOutput,
+        didFinishProcessingPhoto photo: AVCapturePhoto,
+        error: (any Error)?
+    ) {
+        guard error == nil,
+              let data = photo.fileDataRepresentation(),
+              let image = UIImage(data: data) else {
+            DispatchQueue.main.async {
+                self.isCapturing = false
+                self.errorMessage = "照片处理失败，请重新拍摄。"
+            }
+            return
+        }
+        DispatchQueue.main.async {
+            self.isCapturing = false
+            self.onCapture?(image)
+        }
+    }
+
+    private func publishReady(_ value: Bool) {
+        DispatchQueue.main.async { self.isReady = value }
+    }
+
+    private func publishPermissionDenied() {
+        DispatchQueue.main.async {
+            self.isReady = false
+            self.isPermissionDenied = true
+            self.errorMessage = "未获得相机权限，请在系统设置中允许 Indo 使用相机。"
+        }
+    }
+
+    private func publishError(_ message: String) {
+        DispatchQueue.main.async {
+            self.isReady = false
+            self.errorMessage = message
+        }
+    }
+
+    private enum AgentCameraError: Error {
+        case unavailable
+    }
+}
+
+private struct AgentCameraPreview: UIViewRepresentable {
+    let session: AVCaptureSession
+    let cameraPosition: AVCaptureDevice.Position
+
+    func makeUIView(context: Context) -> AgentCameraPreviewView {
+        let view = AgentCameraPreviewView()
+        view.previewLayer.session = session
+        view.previewLayer.videoGravity = .resizeAspectFill
+        return view
+    }
+
+    func updateUIView(_ uiView: AgentCameraPreviewView, context: Context) {
+        uiView.previewLayer.session = session
+        uiView.updateVideoOrientation(cameraPosition: cameraPosition)
+    }
+}
+
+private final class AgentCameraPreviewView: UIView {
+    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+
+    var previewLayer: AVCaptureVideoPreviewLayer {
+        layer as! AVCaptureVideoPreviewLayer
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateVideoOrientation(cameraPosition: .unspecified)
+    }
+
+    func updateVideoOrientation(cameraPosition: AVCaptureDevice.Position) {
+        guard let connection = previewLayer.connection else { return }
+        if connection.isVideoRotationAngleSupported(90) {
+            connection.videoRotationAngle = 90
+        }
+        if cameraPosition != .unspecified {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = cameraPosition == .front
         }
     }
 }
@@ -210,10 +577,15 @@ struct AgentDocumentPicker: UIViewControllerRepresentable {
         let controller = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
         controller.allowsMultipleSelection = true
         controller.delegate = context.coordinator
+        controller.overrideUserInterfaceStyle = .dark
+        controller.view.backgroundColor = .black
         return controller
     }
 
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {
+        uiViewController.overrideUserInterfaceStyle = .dark
+        uiViewController.view.backgroundColor = .black
+    }
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
         let parent: AgentDocumentPicker

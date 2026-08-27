@@ -48,7 +48,6 @@ struct AgentHomeView: View {
     @EnvironmentObject private var runState: AgentV2RunState
     @FocusState private var isComposerFocused: Bool
     @State private var message = ""
-    @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var isShowingPhotoPicker = false
     @State private var isShowingCameraPicker = false
     @State private var isShowingDocumentPicker = false
@@ -321,29 +320,36 @@ struct AgentHomeView: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
             }
-            .photosPicker(
-                isPresented: $isShowingPhotoPicker,
-                selection: $selectedPhotos,
-                maxSelectionCount: max(1, remainingAttachmentSlots),
-                matching: .images
-            )
-            .onChange(of: selectedPhotos) { _, items in
-                guard !items.isEmpty else { return }
-                load(items)
+            .sheet(isPresented: $isShowingPhotoPicker) {
+                AgentPhotoPickerSheet(
+                    maximumSelectionCount: max(1, remainingAttachmentSlots),
+                    totalAttachmentLimit: Self.maximumAttachmentCount
+                ) { items in
+                    load(items)
+                }
+                .presentationDetents([.fraction(0.58)])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(32)
+                .presentationBackground(.black)
             }
             .sheet(isPresented: $isShowingCameraPicker) {
-                AgentCameraPicker(isPresented: $isShowingCameraPicker) { image in
+                AgentCameraSheet(isPresented: $isShowingCameraPicker) { image in
                     loadCapturedImage(image)
                 }
-                .presentationDetents([.medium])
+                .presentationDetents([.fraction(0.68)])
                 .presentationDragIndicator(.visible)
+                .presentationCornerRadius(32)
+                .presentationBackground(.black)
             }
             .sheet(isPresented: $isShowingDocumentPicker) {
                 AgentDocumentPicker(isPresented: $isShowingDocumentPicker) { urls in
                     loadDocuments(urls)
                 }
+                .preferredColorScheme(.dark)
                 .presentationDetents([.fraction(0.9)])
                 .presentationDragIndicator(.visible)
+                .presentationCornerRadius(32)
+                .presentationBackground(.black)
             }
             .alert("无法完成操作", isPresented: Binding(get: { runState.error != nil }, set: { if !$0 { runState.error = nil } })) {
                 Button("知道了", role: .cancel) {}
@@ -1749,7 +1755,7 @@ struct AgentHomeView: View {
 
     private func presentCameraPicker() {
         guard reserveAttachmentSlot() else { return }
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+        guard AgentCameraController.isCameraAvailable else {
             runState.error = "当前设备无法使用相机。"
             return
         }
@@ -1779,16 +1785,10 @@ struct AgentHomeView: View {
 
     private func load(_ items: [PhotosPickerItem]) {
         let accepted = Array(items.prefix(remainingAttachmentSlots))
-        guard !accepted.isEmpty else {
-            selectedPhotos = []
-            return
-        }
+        guard !accepted.isEmpty else { return }
         isProcessingAttachment = true
         Task {
-            defer {
-                selectedPhotos = []
-                isProcessingAttachment = false
-            }
+            defer { isProcessingAttachment = false }
             for (index, item) in accepted.enumerated() {
                 do {
                     guard let data = try await item.loadTransferable(type: Data.self) else {
