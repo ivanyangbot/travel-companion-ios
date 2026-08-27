@@ -108,7 +108,11 @@ struct TodayView: View {
                 onCreate: startNewTripFromPicker,
                 onDismiss: { showsTripPicker = false }
             )
-            .presentationBackground(.clear)
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.hidden)
+            .presentationCornerRadius(28)
+            .presentationBackground(PrimaryTabPalette.background)
+            .presentationContentInteraction(.scrolls)
             .interactiveDismissDisabled(tripBeingSelectedID != nil || isStartingNewTrip)
         }
         .alert("退出登录？", isPresented: Binding(
@@ -1017,78 +1021,40 @@ private struct TodayTripPickerSheet: View {
     private var isBusy: Bool { tripBeingSelectedID != nil || isStartingNewTrip }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                // The upper half remains visually open so the map stays visible;
-                // it only acts as a tap target for dismissing the bottom panel.
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard !isBusy else { return }
-                        onDismiss()
-                    }
+        VStack(spacing: 0) {
+            header
 
-                VStack(spacing: 0) {
-                    header
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    createTripButton
 
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            createTripButton
-
-                            if !trips.isEmpty {
-                                HStack(spacing: 10) {
-                                    Rectangle()
-                                        .fill(.white.opacity(0.12))
-                                        .frame(height: 1)
-                                    Text("已有旅行")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                                        .fixedSize()
-                                    Rectangle()
-                                        .fill(.white.opacity(0.12))
-                                        .frame(height: 1)
-                                }
-                                .padding(.vertical, 4)
-
-                                ForEach(trips) { trip in
-                                    tripRow(trip)
-                                }
-                            }
+                    if !trips.isEmpty {
+                        HStack(spacing: 10) {
+                            Rectangle()
+                                .fill(.white.opacity(0.12))
+                                .frame(height: 1)
+                            Text("已有旅行")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .fixedSize()
+                            Rectangle()
+                                .fill(.white.opacity(0.12))
+                                .frame(height: 1)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20 + geometry.safeAreaInsets.bottom)
+                        .padding(.vertical, 4)
+
+                        ForEach(trips) { trip in
+                            tripRow(trip)
+                        }
                     }
-                    .scrollIndicators(.hidden)
                 }
-                .frame(
-                    width: geometry.size.width,
-                    height: min(geometry.size.height, max(360, geometry.size.height * 0.5)),
-                    alignment: .top
-                )
-                .background(PrimaryTabPalette.background)
-                .clipShape(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 28,
-                        bottomLeadingRadius: 0,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 28,
-                        style: .continuous
-                    )
-                )
-                .overlay(alignment: .top) {
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 28,
-                        bottomLeadingRadius: 0,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 28,
-                        style: .continuous
-                    )
-                    .stroke(.white.opacity(0.12), lineWidth: 1)
-                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
+            .scrollIndicators(.hidden)
         }
-        .ignoresSafeArea()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(PrimaryTabPalette.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .accessibilityAddTraits(.isModal)
     }
