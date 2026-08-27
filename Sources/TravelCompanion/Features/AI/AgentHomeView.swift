@@ -486,7 +486,7 @@ struct AgentHomeView: View {
         VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 14 : 24) {
         // 地球与同心光晕占内容区短边的 70%。
         GeometryReader { proxy in
-        let globe = min(proxy.size.width, proxy.size.height) * (usesCompactWorkbenchWelcomeLayout ? 0.9 : 0.7)
+        let globe = min(proxy.size.width, proxy.size.height) * 0.7
         ZStack {
         // 与地球同心的圆形橙色光晕，位于下层：字符叠在光晕之上，不会被糊住。
         Circle()
@@ -509,8 +509,7 @@ struct AgentHomeView: View {
         // 键盘唤起时整体压扁（宽高比变宽），把下方的标题完整让出到
         // 键盘/输入框之上；收起键盘后恢复正方形地球。
         .aspectRatio(isComposerFocused ? 2.4 : 1, contentMode: .fit)
-        .frame(height: usesCompactWorkbenchWelcomeLayout ? 148 : nil)
-        .padding(.top, usesCompactWorkbenchWelcomeLayout ? 0 : 12)
+        .padding(.top, 12)
 
             VStack(alignment: .leading, spacing: usesCompactWorkbenchWelcomeLayout ? 0 : 12) {
                 // 抽签流程中标题切换为当前问题，文案渐入渐出。滚动区边距为
