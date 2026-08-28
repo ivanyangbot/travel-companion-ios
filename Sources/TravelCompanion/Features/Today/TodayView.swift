@@ -32,6 +32,7 @@ struct TodayView: View {
     @State private var isStartingNewTrip = false
     @State private var isPlanningNewTrip = false
     @State private var showsSettings = false
+    @State private var showsSignIn = false
     @State private var isReloading = false
     @State private var expandedPOICardID: UUID?
     @State private var poiExpansionProgress: CGFloat = 0
@@ -149,6 +150,17 @@ struct TodayView: View {
             .presentationCornerRadius(28)
             .presentationBackground(PrimaryTabPalette.background)
             .presentationContentInteraction(.scrolls)
+        }
+        .sheet(isPresented: Binding(
+            get: { showsSignIn },
+            set: {
+                showsSignIn = $0
+                if !$0 { clearQuickAction(.signIn) }
+            }
+        )) {
+            AgentHomeSignInSheet(appleSignIn: appleSignIn)
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: Binding(
             get: { linkHandler.browserURL != nil },
@@ -391,6 +403,10 @@ struct TodayView: View {
         case .settings:
             activeQuickAction = .settings
             showsSettings = true
+        case .signIn:
+            activeQuickAction = .signIn
+            appleSignIn.errorMessage = nil
+            showsSignIn = true
         }
     }
 
@@ -881,6 +897,7 @@ enum TodayQuickAction: String, CaseIterable {
     case tripSelection
     case reload
     case settings
+    case signIn
 
     var iconName: String {
         switch self {
@@ -888,10 +905,11 @@ enum TodayQuickAction: String, CaseIterable {
         case .tripSelection: "icon-plan-outline"
         case .reload: "icon-reload-outline"
         case .settings: "gearshape"
+        case .signIn: "person.crop.circle"
         }
     }
 
-    var usesSystemImage: Bool { self == .settings }
+    var usesSystemImage: Bool { self == .settings || self == .signIn }
 
     var accessibilityLabel: String {
         switch self {
@@ -899,13 +917,25 @@ enum TodayQuickAction: String, CaseIterable {
         case .tripSelection: String(localized: "today.switchTripA11y")
         case .reload: String(localized: "today.resyncA11y")
         case .settings: String(localized: "today.settingsA11y")
+        case .signIn: String(localized: "agent.signInButton")
         }
     }
 
-    /// Sharing requires a signed-in server identity. All remaining actions
-    /// continue to work against the existing local-first trip store.
+    /// Sharing requires a signed-in server identity; signed-out users receive
+    /// a direct login action in its place. The remaining actions keep working
+    /// against the local-first trip store.
     static func visibleActions(isAuthenticated: Bool) -> [TodayQuickAction] {
-        allCases.filter { isAuthenticated || $0 != .addCompanion }
+        allCases.filter { action in
+            if action == .addCompanion { return isAuthenticated }
+            if action == .signIn { return !isAuthenticated }
+            return true
+        }
+    }
+
+    /// AgentHome has no map/POI canvas to resynchronise, so its drawer omits
+    /// the map-specific reload action while retaining all other valid actions.
+    static func agentHomeActions(isAuthenticated: Bool) -> [TodayQuickAction] {
+        visibleActions(isAuthenticated: isAuthenticated).filter { $0 != .reload }
     }
 }
 
@@ -913,7 +943,7 @@ struct TodayHomeDropdownMenu: View {
     @Binding var isPOIOverlayExpanded: Bool
     let activeAction: TodayQuickAction?
     let isReloading: Bool
-    var actions: [TodayQuickAction] = TodayQuickAction.allCases
+    let actions: [TodayQuickAction]
     let onAction: (TodayQuickAction) -> Void
     let onOverlayExpansionChanged: (Bool) -> Void
 

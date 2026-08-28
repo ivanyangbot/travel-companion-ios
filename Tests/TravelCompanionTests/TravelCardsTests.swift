@@ -6,14 +6,25 @@ import XCTest
 @testable import TravelCompanion
 
 final class TravelCardsTests: XCTestCase {
-    func testTodayQuickActionsHideSharingOnlyWhenSignedOut() {
+    func testTodayQuickActionsSwapSharingForSignInWhenSignedOut() {
         XCTAssertEqual(
             TodayQuickAction.visibleActions(isAuthenticated: false),
-            [.tripSelection, .reload, .settings]
+            [.tripSelection, .reload, .settings, .signIn]
         )
         XCTAssertEqual(
             TodayQuickAction.visibleActions(isAuthenticated: true),
-            TodayQuickAction.allCases
+            [.addCompanion, .tripSelection, .reload, .settings]
+        )
+    }
+
+    func testAgentHomeQuickActionsNeverContainReload() {
+        XCTAssertEqual(
+            TodayQuickAction.agentHomeActions(isAuthenticated: false),
+            [.tripSelection, .settings, .signIn]
+        )
+        XCTAssertEqual(
+            TodayQuickAction.agentHomeActions(isAuthenticated: true),
+            [.addCompanion, .tripSelection, .settings]
         )
     }
 

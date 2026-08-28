@@ -57,6 +57,7 @@ struct AgentHomeView: View {
     @State private var isProcessingAttachment = false
     @State private var isShowingContext = false
     @State private var isShowingHistory = false
+    @State private var isShowingSignIn = false
     @State private var isShowingTripPicker = false
     @State private var isShowingTripSharing = false
     @State private var isShowingSettings = false
@@ -279,7 +280,7 @@ struct AgentHomeView: View {
                         isPOIOverlayExpanded: $isHomeMenuCollapsed,
                         activeAction: activeHomeQuickAction,
                         isReloading: isReloadingHome,
-                        actions: TodayQuickAction.visibleActions(isAuthenticated: appleSignIn.isAuthenticated),
+                        actions: TodayQuickAction.agentHomeActions(isAuthenticated: appleSignIn.isAuthenticated),
                         onAction: handleHomeQuickAction,
                         onOverlayExpansionChanged: { _ in }
                     )
@@ -312,6 +313,28 @@ struct AgentHomeView: View {
                     .padding(.top, 8)
                     .transition(.opacity)
                     .accessibilityLabel(Text("agent.backA11y"))
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                // 未登录的 Agent 首页始终保留一个无需展开菜单即可触达的登录入口。
+                if presentation == .home, !appleSignIn.isAuthenticated {
+                    Button(action: presentSignIn) {
+                        Label("agent.signInButton", systemImage: "person.crop.circle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .background(PrimaryTabPalette.surface, in: Capsule())
+                            .overlay {
+                                Capsule()
+                                    .stroke(.white.opacity(0.14), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 16)
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    .accessibilityHint(Text("agent.signInHint"))
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -361,6 +384,17 @@ struct AgentHomeView: View {
                 .presentationCornerRadius(28)
                 .presentationBackground(PrimaryTabPalette.background)
                 .presentationContentInteraction(.scrolls)
+            }
+            .sheet(isPresented: Binding(
+                get: { isShowingSignIn },
+                set: {
+                    isShowingSignIn = $0
+                    if !$0 { clearHomeQuickAction(.signIn) }
+                }
+            )) {
+                AgentHomeSignInSheet(appleSignIn: appleSignIn)
+                    .presentationDetents([.height(300)])
+                    .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $isShowingContext) {
                 AgentContextSheet(syncEngine: syncEngine, store: store)
@@ -564,7 +598,15 @@ struct AgentHomeView: View {
         case .settings:
             activeHomeQuickAction = .settings
             isShowingSettings = true
+        case .signIn:
+            activeHomeQuickAction = .signIn
+            presentSignIn()
         }
+    }
+
+    private func presentSignIn() {
+        appleSignIn.errorMessage = nil
+        isShowingSignIn = true
     }
 
     private func clearHomeQuickAction(_ action: TodayQuickAction) {
