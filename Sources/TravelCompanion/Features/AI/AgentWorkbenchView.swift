@@ -377,6 +377,17 @@ AgentIntroGlobeView(diameter: 208)
                     }
                 }
 
+                if !draft.unresolvedCandidateChanges.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("agent.incompleteCandidates")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        ForEach(draft.unresolvedCandidateChanges) { change in
+                            AgentMissingCandidateCard(change: change)
+                        }
+                    }
+                }
+
                 if !draft.changes.isEmpty {
                     DisclosureGroup(String(format: String(localized: "agent.changeList"), draft.changes.count)) {
                         VStack(alignment: .leading, spacing: 10) {

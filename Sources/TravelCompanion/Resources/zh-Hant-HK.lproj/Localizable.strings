@@ -802,6 +802,19 @@
 "agent.xhsSourceLink" = "小紅書來源 · 打開原筆記";
 "agent.viewBooking" = "查看預訂";
 "agent.viewBookingA11y" = "喺飛豬睇預訂";
+"agent.flightDetails" = "航班詳情";
+"agent.flightNumberPending" = "航班號待確認";
+"agent.ticketPrice" = "票價";
+"agent.datePending" = "日期待確認";
+"agent.airportPending" = "機場待確認";
+"agent.timePending" = "時間待確認";
+"agent.flightNumber" = "航班號";
+"agent.flightDate" = "出行日期";
+"agent.departureTime" = "起飛時間";
+"agent.arrivalTime" = "抵達時間";
+"agent.needsConfirmation" = "需要確認";
+"agent.incompleteCandidates" = "候選卡唔完整";
+"agent.missingCandidateMessage" = "Agent 引用咗呢項變更，但冇傳回對應候選卡。問題會保留顯示，重新生成前無法確認。";
 
 /* ===== 靈感抽籤 ===== */
 "lottery.narrowQuestion" = "不如我哋收窄個範圍？";

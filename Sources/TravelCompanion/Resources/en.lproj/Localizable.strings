@@ -800,6 +800,19 @@
 "agent.xhsSourceLink" = "Xiaohongshu · open note";
 "agent.viewBooking" = "View Booking";
 "agent.viewBookingA11y" = "View booking on Fliggy";
+"agent.flightDetails" = "Flight details";
+"agent.flightNumberPending" = "Flight number pending";
+"agent.ticketPrice" = "Ticket";
+"agent.datePending" = "Date pending";
+"agent.airportPending" = "Airport pending";
+"agent.timePending" = "Time pending";
+"agent.flightNumber" = "Flight";
+"agent.flightDate" = "Date";
+"agent.departureTime" = "Departure";
+"agent.arrivalTime" = "Arrival";
+"agent.needsConfirmation" = "Needs confirmation";
+"agent.incompleteCandidates" = "Incomplete candidate cards";
+"agent.missingCandidateMessage" = "The Agent referenced this change without sending its candidate card. The issue remains visible and cannot be confirmed until regenerated.";
 
 /* ===== Inspiration Lottery ===== */
 "lottery.narrowQuestion" = "Maybe we can narrow it down?";

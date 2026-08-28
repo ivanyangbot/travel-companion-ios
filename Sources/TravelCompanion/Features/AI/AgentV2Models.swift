@@ -103,10 +103,23 @@ struct AgentV2Draft: Codable, Sendable, Equatable {
     func sanitizedForPersistence() -> AgentV2Draft {
         self
     }
+
+    /// A malformed backend turn may reference a card that never arrived.
+    /// Keep that inconsistency visible instead of making the change list look
+    /// complete while the corresponding candidate silently disappears.
+    var unresolvedCandidateChanges: [AgentV2Change] {
+        let candidateIDs = Set(candidates.map(\.id))
+        return changes.filter { change in
+            guard change.operation == .add || change.operation == .replace else { return false }
+            guard let candidateID = change.candidateId else { return true }
+            return !candidateIDs.contains(candidateID)
+        }
+    }
 }
 
 struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     enum PlaceStatus: String, Codable, Sendable { case verified, pending, failed, notRequired }
+    enum DateStatus: String, Codable, Sendable { case inRange, outOfRange, unscheduled, invalid }
     let id: UUID
     var kind: TravelCardSnapshot.Kind
     var title: String
@@ -114,6 +127,7 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var sourceText: String? = nil
     var allowsUnverifiedPlace: Bool? = nil
     var date: String
+    var dateStatus: DateStatus? = nil
     var startAt: String
     var endAt: String?
     var place: AIChatPlace?
@@ -168,7 +182,8 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
 
     var isCommitReady: Bool {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !date.isEmpty, !startAt.isEmpty else { return false }
+              !date.isEmpty, !startAt.isEmpty,
+              dateStatus != .outOfRange, dateStatus != .invalid else { return false }
         if kind == .activity || kind == .hotel {
             return hasConcreteVerifiedPlace || hasExplicitUnverifiedPlace || hasAllowedUnverifiedPlace
         }
@@ -191,6 +206,7 @@ extension AgentV2Candidate {
         sourceText = try container.decodeIfPresent(String.self, forKey: .sourceText)
         allowsUnverifiedPlace = try container.decodeIfPresent(Bool.self, forKey: .allowsUnverifiedPlace)
         date = try container.decodeIfPresent(String.self, forKey: .date) ?? ""
+        dateStatus = try container.decodeIfPresent(DateStatus.self, forKey: .dateStatus)
         startAt = try container.decodeIfPresent(String.self, forKey: .startAt) ?? ""
         endAt = try container.decodeIfPresent(String.self, forKey: .endAt)
         place = try container.decodeIfPresent(AIChatPlace.self, forKey: .place)

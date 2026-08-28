@@ -800,6 +800,19 @@
 "agent.xhsSourceLink" = "小红书来源 · 打开原笔记";
 "agent.viewBooking" = "查看预订";
 "agent.viewBookingA11y" = "在飞猪查看预订";
+"agent.flightDetails" = "航班详情";
+"agent.flightNumberPending" = "航班号待确认";
+"agent.ticketPrice" = "票价";
+"agent.datePending" = "日期待确认";
+"agent.airportPending" = "机场待确认";
+"agent.timePending" = "时间待确认";
+"agent.flightNumber" = "航班号";
+"agent.flightDate" = "出行日期";
+"agent.departureTime" = "起飞时间";
+"agent.arrivalTime" = "到达时间";
+"agent.needsConfirmation" = "需要确认";
+"agent.incompleteCandidates" = "候选卡不完整";
+"agent.missingCandidateMessage" = "Agent 引用了这项变更，但没有返回对应候选卡。问题会保留显示，重新生成前无法确认。";
 
 /* ===== 灵感抽签 ===== */
 "lottery.narrowQuestion" = "或许我们可以缩小一下范围？";

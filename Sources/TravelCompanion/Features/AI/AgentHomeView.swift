@@ -1295,6 +1295,17 @@ struct AgentHomeView: View {
                     }
                 }
 
+                if !draft.unresolvedCandidateChanges.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("agent.incompleteCandidates")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        ForEach(draft.unresolvedCandidateChanges) { change in
+                            AgentMissingCandidateCard(change: change)
+                        }
+                    }
+                }
+
                 if !draft.changes.isEmpty {
                     DisclosureGroup(String(format: String(localized: "agent.changeList"), draft.changes.count)) {
                         VStack(alignment: .leading, spacing: 10) {
@@ -2892,13 +2903,50 @@ private struct LiveCandidateCard: View {
     }
 }
 
+struct AgentMissingCandidateCard: View {
+    let change: AgentV2Change
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.orange)
+                .frame(width: 38, height: 38)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(change.summary)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("agent.missingCandidateMessage")
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color.orange.opacity(0.055), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.orange.opacity(0.28), lineWidth: 1) }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct AgentV2CandidateCard: View {
     let candidate: AgentV2Candidate
     let selection: (Bool) -> Void
     @State private var imageIndex = 0
     @State private var isShowingDetails = false
 
+    @ViewBuilder
     var body: some View {
+        if candidate.kind == .flight {
+            AgentFlightCandidateCard(candidate: candidate, selection: selection)
+        } else {
+            standardCard
+        }
+    }
+
+    private var standardCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !imageURLs.isEmpty {
                 AgentCandidateImagePager(urls: imageURLs, selection: $imageIndex, height: 174)
@@ -2965,6 +3013,13 @@ struct AgentV2CandidateCard: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .lineLimit(2)
+                }
+
+                if !candidate.missingFields.isEmpty {
+                    Label(candidate.missingFields.joined(separator: " · "), systemImage: "questionmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(3)
                 }
 
                 Divider().overlay(Color.white.opacity(0.08))
@@ -3050,6 +3105,376 @@ struct AgentV2CandidateCard: View {
 
     private var isRealtimePrice: Bool {
         candidate.priceMinor == nil && priceText != nil
+    }
+}
+
+private struct AgentFlightCandidateCard: View {
+    let candidate: AgentV2Candidate
+    let selection: (Bool) -> Void
+    @State private var isShowingDetails = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button { isShowingDetails = true } label: {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    route
+
+                    if !candidate.missingFields.isEmpty {
+                        Label(candidate.missingFields.joined(separator: " · "), systemImage: "exclamationmark.circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                            .lineLimit(3)
+                    } else if let reason = candidate.reason, !reason.isEmpty {
+                        Text(reason)
+                            .font(.footnote)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            .lineLimit(2)
+                    }
+                }
+                .padding(16)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            ticketDivider
+
+            HStack(spacing: 10) {
+                Button {
+                    selection(!candidate.selected)
+                } label: {
+                    Label(
+                        candidate.selected ? String(localized: "agent.selectedButton") : String(localized: "agent.joinTrip"),
+                        systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(candidate.selected ? .black : .white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(
+                        candidate.selected ? PrimaryTabPalette.accent : Color.white.opacity(0.09),
+                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button { isShowingDetails = true } label: {
+                    Label("agent.flightDetails", systemImage: "arrow.up.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(14)
+        }
+        .background {
+            LinearGradient(
+                colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(candidate.selected ? PrimaryTabPalette.accent.opacity(0.8) : Color.white.opacity(0.08), lineWidth: candidate.selected ? 1.5 : 1)
+        }
+        .shadow(color: .black.opacity(0.22), radius: 18, y: 9)
+        .animation(.snappy(duration: 0.28), value: candidate.selected)
+        .sheet(isPresented: $isShowingDetails) {
+            AgentFlightDetailSheet(candidate: candidate, selection: selection)
+                .presentationDetents([.fraction(0.72), .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(30)
+                .presentationBackground(PrimaryTabPalette.background)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "airplane")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.black)
+                    .frame(width: 32, height: 32)
+                    .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(candidate.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    Text(nonEmpty(candidate.bookingCode) ?? String(localized: "agent.flightNumberPending"))
+                        .font(.caption.monospaced().weight(.medium))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+            }
+            Spacer(minLength: 8)
+            if let price = candidate.agentPriceText {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("agent.ticketPrice")
+                        .font(.caption2)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    Text(price)
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+    }
+
+    private var route: some View {
+        HStack(alignment: .center, spacing: 12) {
+            airportBlock(code: airportCode(candidate.fromAirport), name: candidate.fromAirport, alignment: .leading)
+            VStack(spacing: 7) {
+                Image(systemName: "airplane")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                HStack(spacing: 4) {
+                    Circle().fill(Color.white.opacity(0.25)).frame(width: 4, height: 4)
+                    Rectangle().fill(Color.white.opacity(0.18)).frame(height: 1)
+                    Circle().fill(Color.white.opacity(0.25)).frame(width: 4, height: 4)
+                }
+                Text(candidate.date.isEmpty ? String(localized: "agent.datePending") : candidate.date)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            airportBlock(code: airportCode(candidate.toAirport), name: candidate.toAirport, alignment: .trailing)
+        }
+    }
+
+    private func airportBlock(code: String, name: String?, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 5) {
+            Text(code)
+                .font(.system(size: 29, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.8)
+            Text(nonEmpty(name) ?? String(localized: "agent.airportPending"))
+                .font(.caption2)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+            Text(alignment == .leading ? departureTime : arrivalTime)
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white.opacity(0.86))
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private var ticketDivider: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<20, id: \.self) { _ in
+                Capsule().fill(Color.white.opacity(0.10)).frame(maxWidth: .infinity).frame(height: 1)
+            }
+        }
+        .overlay(alignment: .leading) {
+            Circle().fill(PrimaryTabPalette.background).frame(width: 18, height: 18).offset(x: -9)
+        }
+        .overlay(alignment: .trailing) {
+            Circle().fill(PrimaryTabPalette.background).frame(width: 18, height: 18).offset(x: 9)
+        }
+    }
+
+    private var departureTime: String { candidate.startAt.isEmpty ? String(localized: "agent.timePending") : candidate.startAt }
+    private var arrivalTime: String { nonEmpty(candidate.endAt) ?? String(localized: "agent.timePending") }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
+    }
+
+    private func airportCode(_ value: String?) -> String {
+        guard let value else { return "—" }
+        if let code = value.split(whereSeparator: { $0.isWhitespace || $0 == "(" || $0 == ")" })
+            .map(String.init)
+            .last(where: { $0.count == 3 && $0.allSatisfy { $0.isLetter && $0.isASCII } }) {
+            return code.uppercased()
+        }
+        return "—"
+    }
+}
+
+private struct AgentFlightDetailSheet: View {
+    let candidate: AgentV2Candidate
+    let selection: (Bool) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                flightHero
+                infoGrid
+
+                if let reason = candidate.reason, !reason.isEmpty {
+                    section(title: String(localized: "agent.sectionReason"), icon: "sparkles") { Text(reason) }
+                }
+                if !candidate.tips.isEmpty {
+                    section(title: String(localized: "agent.sectionTips"), icon: "lightbulb.fill") {
+                        bulletList(candidate.tips, tint: PrimaryTabPalette.accent)
+                    }
+                }
+                if !candidate.risks.isEmpty {
+                    section(title: String(localized: "agent.sectionNotice"), icon: "exclamationmark.triangle.fill", tint: .orange) {
+                        bulletList(candidate.risks, tint: .orange)
+                    }
+                }
+                if !candidate.missingFields.isEmpty {
+                    section(title: String(localized: "agent.needsConfirmation"), icon: "questionmark.circle.fill", tint: .orange) {
+                        bulletList(candidate.missingFields, tint: .orange)
+                    }
+                }
+                if let notes = candidate.notes, !notes.isEmpty {
+                    section(title: String(localized: "agent.sectionExtra"), icon: "note.text") { Text(notes) }
+                }
+                if let bookingURL {
+                    Link(destination: bookingURL) {
+                        HStack {
+                            Label("agent.viewBooking", systemImage: "safari.fill")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                        }
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .padding(16)
+                        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 108)
+        }
+        .scrollIndicators(.hidden)
+        .background(PrimaryTabPalette.background.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider().overlay(Color.white.opacity(0.08))
+                Button { selection(!candidate.selected) } label: {
+                    Label(
+                        candidate.selected ? String(localized: "agent.selectedTapToCancel") : String(localized: "agent.selectForTrip"),
+                        systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill"
+                    )
+                    .font(.headline)
+                    .foregroundStyle(candidate.selected ? .black : .white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(candidate.selected ? Color.white : PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(12)
+            }
+            .background(.ultraThinMaterial)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(.black.opacity(0.58), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(18)
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var flightHero: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Label("agent.kind.flight", systemImage: "airplane")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background(PrimaryTabPalette.accent, in: Capsule())
+                Spacer()
+                if let price = candidate.agentPriceText {
+                    Text(price).font(.headline.monospacedDigit()).foregroundStyle(.white)
+                }
+            }
+            Text(candidate.title)
+                .font(.system(size: 27, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            HStack {
+                endpoint(candidate.fromAirport, icon: "airplane.departure", alignment: .leading)
+                Image(systemName: "arrow.right")
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                    .frame(maxWidth: .infinity)
+                endpoint(candidate.toAirport, icon: "airplane.arrival", alignment: .trailing)
+            }
+        }
+        .padding(18)
+        .background(
+            LinearGradient(colors: [PrimaryTabPalette.accent.opacity(0.24), PrimaryTabPalette.elevatedSurface], startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
+        .overlay { RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1) }
+    }
+
+    private func endpoint(_ value: String?, icon: String, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 5) {
+            Image(systemName: icon).foregroundStyle(PrimaryTabPalette.secondaryText)
+            Text(nonEmpty(value) ?? String(localized: "agent.airportPending"))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private var infoGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            infoCell(String(localized: "agent.flightNumber"), candidate.bookingCode ?? String(localized: "agent.valueUnset"), "number")
+            infoCell(String(localized: "agent.flightDate"), candidate.date.isEmpty ? String(localized: "agent.valueUnset") : candidate.date, "calendar")
+            infoCell(String(localized: "agent.departureTime"), candidate.startAt.isEmpty ? String(localized: "agent.valueUnset") : candidate.startAt, "airplane.departure")
+            infoCell(String(localized: "agent.arrivalTime"), nonEmpty(candidate.endAt) ?? String(localized: "agent.valueUnset"), "airplane.arrival")
+        }
+    }
+
+    private func infoCell(_ title: String, _ value: String, _ icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
+            Text(value).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(2)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+        .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func section<Content: View>(title: String, icon: String, tint: Color = PrimaryTabPalette.accent, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: icon).font(.headline).foregroundStyle(tint)
+            content().font(.body).foregroundStyle(.white.opacity(0.84)).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func bulletList(_ values: [String], tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ForEach(values, id: \.self) { value in
+                HStack(alignment: .top, spacing: 9) {
+                    Circle().fill(tint).frame(width: 5, height: 5).padding(.top, 7)
+                    Text(value)
+                }
+            }
+        }
+    }
+
+    private var bookingURL: URL? {
+        guard let value = candidate.url, let url = URL(string: value), url.scheme?.lowercased() == "https" else { return nil }
+        return url
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 }
 
@@ -3414,8 +3839,8 @@ private struct AgentCandidatePOIDetailSheet: View {
 
 private extension AgentV2Candidate {
     var agentPriceText: String? {
-        if let priceMinor {
-            let major = Double(priceMinor) / 100
+        if let minor = kind == .flight ? (ticketPriceMinor ?? priceMinor) : priceMinor {
+            let major = Double(minor) / 100
             let amount = major.truncatingRemainder(dividingBy: 1) == 0
                 ? String(format: "%.0f", major)
                 : String(format: "%.2f", major)

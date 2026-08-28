@@ -50,6 +50,21 @@ final class AgentV2SessionStoreTests: XCTestCase {
         XCTAssertEqual(AgentHistoryRelativeTime.display(for: now.addingTimeInterval(-(16 * 24 * 60 * 60)), now: now), "两周前")
     }
 
+    func testOutOfRangeCandidateCannotCommitAndDanglingChangeRemainsVisible() {
+        var outOfRange = candidate(kind: .flight, status: .notRequired, place: nil)
+        outOfRange.dateStatus = .outOfRange
+        let missingID = UUID()
+        let dangling = AgentV2Change(
+            id: UUID(), operation: .replace, candidateId: missingID,
+            targetCardId: 42, targetDraftId: nil,
+            summary: "替换航班", impact: nil
+        )
+        let draft = AgentV2Draft(candidates: [outOfRange], changes: [dangling])
+
+        XCTAssertFalse(outOfRange.isCommitReady)
+        XCTAssertEqual(draft.unresolvedCandidateChanges.map(\.id), [dangling.id])
+    }
+
     @MainActor
     func testRestoreKeepsEveryDecodedCandidateForDisplay() throws {
         let defaults = try makeDefaults()

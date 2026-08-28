@@ -97,6 +97,30 @@ final class AgentV2StreamParserTests: XCTestCase {
         XCTAssertTrue(sawDone)
     }
 
+    func testOutOfRangeCandidateStaysDecodedButCannotCommit() throws {
+        let candidateID = UUID().uuidString.lowercased()
+        let fixture = """
+        event: candidate_upsert
+        data: {"id":"\(candidateID)","kind":"flight","title":"CA123","date":"2026-10-05","dateStatus":"outOfRange","startAt":"09:00","endAt":"12:00","place":null,"placeStatus":"notRequired","bookingCode":"CA123","fromAirport":"PEK","toAirport":"HND","tips":[],"risks":[],"missingFields":["日期超出行程范围"],"selected":false}
+
+        event: done
+        data: {}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var candidate: AgentV2Candidate?
+        for byte in fixture.utf8 {
+            guard let event = try parser.consume(byte) else { continue }
+            if case .candidateUpsert(let value) = event { candidate = value }
+        }
+
+        let decoded = try XCTUnwrap(candidate)
+        XCTAssertEqual(decoded.dateStatus, .outOfRange)
+        XCTAssertEqual(decoded.date, "2026-10-05")
+        XCTAssertFalse(decoded.isCommitReady)
+    }
+
     func testFliggyEventsDecodeAsPairedStructuredSignals() throws {
         // Mirrors the backend's observed ordering: flight start → hotel start
         // (term picked from `origin`) → two completions → done.
