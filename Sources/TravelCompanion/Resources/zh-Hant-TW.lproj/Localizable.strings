@@ -965,6 +965,7 @@
 "error.noIdentityToken" = "未收到 Apple 登入憑證，請重試。";
 "error.invalidCredential" = "Apple 回傳了無法辨識的登入憑證。";
 "error.problemDetail" = "%@\n\n欄位：%@\n原因：%@";
+"error.placeVerificationUnavailable" = "地點驗證服務暫時無法使用，本次未匯入任何內容。請稍後再試。";
 "error.validation.dateUnset" = "行程日期尚未設定。";
 "error.validation.dateInvalid" = "行程日期無效。";
 "error.validation.titleRange" = "所選卡片標題需為 1–160 個字元，且日期需在旅行範圍內。";

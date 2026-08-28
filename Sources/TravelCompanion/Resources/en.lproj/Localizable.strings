@@ -963,6 +963,7 @@
 "error.noIdentityToken" = "No Apple sign-in credential was received. Please try again.";
 "error.invalidCredential" = "Apple returned an unrecognized sign-in credential.";
 "error.problemDetail" = "%@\n\nField: %@\nReason: %@";
+"error.placeVerificationUnavailable" = "Place verification is temporarily unavailable. Nothing was imported. Please try again later.";
 "error.validation.dateUnset" = "Itinerary dates aren't set yet.";
 "error.validation.dateInvalid" = "The itinerary dates are invalid.";
 "error.validation.titleRange" = "Card titles must be 1–160 characters, and dates must be within the trip.";

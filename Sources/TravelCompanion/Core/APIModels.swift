@@ -351,8 +351,14 @@ struct APIProblem: Decodable, Error, LocalizedError {
     var statusCode: Int?
 
     var errorDescription: String? {
-        guard let detail = details?.first, !detail.reason.isEmpty else { return message }
-        return String(format: String(localized: "error.problemDetail"), message, detail.field, detail.reason)
+        let displayMessage = switch code {
+        case "place_verification_unavailable":
+            String(localized: "error.placeVerificationUnavailable")
+        default:
+            message
+        }
+        guard let detail = details?.first, !detail.reason.isEmpty else { return displayMessage }
+        return String(format: String(localized: "error.problemDetail"), displayMessage, detail.field, detail.reason)
     }
 
     var isPermanentClientFailure: Bool {
