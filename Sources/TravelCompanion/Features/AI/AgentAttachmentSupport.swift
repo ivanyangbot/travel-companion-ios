@@ -218,13 +218,14 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
-/// 将系统 PHPicker 直接嵌入当前 Agent 层级，而不是再创建一层 SwiftUI
-/// sheet。受保护相册通过 Face ID 后会重建远程 picker 视图；保持同一个
-/// 宿主层级可避免重建时用系统灰色 presentation host 替换上半屏。
+/// 使用系统支持的 inline PhotosPicker 保持在 Agent 层级内。相册解锁后
+/// Photos 会重建远程内容视图；inline 样式负责正确同步布局和命中测试，
+/// 避免手动嵌入 PHPickerViewController 后远程网格触控坐标失配。
 struct AgentPhotoPickerOverlay: View {
     let maximumSelectionCount: Int
-    let onPick: ([PHPickerResult]) -> Void
+    let onPick: ([PhotosPickerItem]) -> Void
     let onDismiss: () -> Void
+    @State private var selection: [PhotosPickerItem] = []
     @GestureState private var dragOffset: CGFloat = 0
 
     var body: some View {
@@ -236,23 +237,62 @@ struct AgentPhotoPickerOverlay: View {
                     .accessibilityHidden(true)
 
                 VStack(spacing: 0) {
-                    HStack {
+                    ZStack {
+                        HStack {
+                            Button(action: onDismiss) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 17, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 48, height: 48)
+                                    .background(Color.white.opacity(0.12), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text("common.cancel"))
+
+                            Spacer()
+
+                            Button {
+                                guard !selection.isEmpty else { return }
+                                onPick(selection)
+                            } label: {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 48, height: 48)
+                                    .background(
+                                        selection.isEmpty
+                                            ? Color.white.opacity(0.10)
+                                            : PrimaryTabPalette.accent,
+                                        in: Circle()
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(selection.isEmpty)
+                            .accessibilityLabel(Text("common.done"))
+                        }
+
                         Capsule()
                             .fill(Color.white.opacity(0.34))
                             .frame(width: 46, height: 5)
+                            .contentShape(Rectangle().inset(by: -18))
+                            .gesture(dismissGesture)
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 21)
-                    .contentShape(Rectangle())
-                    .gesture(dismissGesture)
+                    .frame(height: 64)
+                    .padding(.horizontal, 20)
 
-                    AgentPhotoLibraryPicker(selectionLimit: maximumSelectionCount) { results in
-                        if results.isEmpty {
-                            onDismiss()
-                        } else {
-                            onPick(results)
-                        }
+                    PhotosPicker(
+                        selection: $selection,
+                        maxSelectionCount: max(1, maximumSelectionCount),
+                        selectionBehavior: .continuousAndOrdered,
+                        matching: .images,
+                        preferredItemEncoding: .current
+                    ) {
+                        EmptyView()
                     }
+                    .photosPickerStyle(.inline)
+                    .photosPickerDisabledCapabilities(.selectionActions)
+                    .photosPickerAccessoryVisibility(.hidden, edges: .bottom)
                 }
                 .frame(
                     height: min(
@@ -296,46 +336,6 @@ struct AgentPhotoPickerOverlay: View {
                     onDismiss()
                 }
             }
-    }
-}
-
-struct AgentPhotoLibraryPicker: UIViewControllerRepresentable {
-    let selectionLimit: Int
-    let onPick: ([PHPickerResult]) -> Void
-
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var configuration = PHPickerConfiguration()
-        configuration.filter = .images
-        configuration.selectionLimit = max(1, selectionLimit)
-        configuration.selection = .ordered
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = context.coordinator
-        picker.overrideUserInterfaceStyle = .dark
-        picker.view.backgroundColor = .black
-        picker.view.isOpaque = true
-        picker.view.clipsToBounds = true
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {
-        uiViewController.overrideUserInterfaceStyle = .dark
-        // Face ID success replaces the out-of-process child hierarchy. The
-        // local host remains opaque and matches the Agent palette throughout
-        // that replacement instead of exposing secondarySystemBackground.
-        uiViewController.view.backgroundColor = .black
-        uiViewController.view.isOpaque = true
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
-
-    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let onPick: ([PHPickerResult]) -> Void
-
-        init(onPick: @escaping ([PHPickerResult]) -> Void) { self.onPick = onPick }
-
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            onPick(results)
-        }
     }
 }
 

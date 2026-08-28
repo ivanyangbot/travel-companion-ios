@@ -325,7 +325,7 @@ struct AgentHomeView: View {
                             withAnimation(.easeOut(duration: 0.22)) {
                                 isShowingPhotoPicker = false
                             }
-                            loadPHPickerResults(results)
+                            loadPhotosPickerItems(results)
                         },
                         onDismiss: {
                             withAnimation(.easeOut(duration: 0.22)) {
@@ -2127,15 +2127,18 @@ struct AgentHomeView: View {
         return true
     }
 
-    private func loadPHPickerResults(_ results: [PHPickerResult]) {
-        let accepted = Array(results.prefix(remainingAttachmentSlots))
+    private func loadPhotosPickerItems(_ items: [PhotosPickerItem]) {
+        let accepted = Array(items.prefix(remainingAttachmentSlots))
         guard !accepted.isEmpty else { return }
         isProcessingAttachment = true
         Task {
             defer { isProcessingAttachment = false }
-            for (index, result) in accepted.enumerated() {
+            for (index, item) in accepted.enumerated() {
                 do {
-                    let image = try await loadPickedImage(result.itemProvider)
+                    guard let sourceData = try await item.loadTransferable(type: Data.self),
+                          let image = UIImage(data: sourceData) else {
+                        throw AgentAttachmentError.unreadable
+                    }
                     guard let data = image.jpegData(compressionQuality: 0.92) else {
                         throw AgentAttachmentError.unreadable
                     }
@@ -2145,18 +2148,6 @@ struct AgentHomeView: View {
                 }
             }
             restoreComposerAfterPicking()
-        }
-    }
-
-    private func loadPickedImage(_ provider: NSItemProvider) async throws -> UIImage {
-        try await withCheckedThrowingContinuation { continuation in
-            provider.loadObject(ofClass: UIImage.self) { object, error in
-                if let image = object as? UIImage {
-                    continuation.resume(returning: image)
-                } else {
-                    continuation.resume(throwing: error ?? AgentAttachmentError.unreadable)
-                }
-            }
         }
     }
 
