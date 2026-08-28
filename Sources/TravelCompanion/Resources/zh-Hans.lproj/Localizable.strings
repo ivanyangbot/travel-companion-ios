@@ -740,6 +740,7 @@
 "agent.sectionTips" = "实用贴士";
 "agent.sectionExtra" = "补充信息";
 "agent.sectionPlace" = "地点";
+"agent.sectionSources" = "参考来源";
 "agent.closeDetailsA11y" = "关闭详情";
 "agent.durationMinutes" = "%lld 分钟";
 "agent.openReference" = "打开参考链接";

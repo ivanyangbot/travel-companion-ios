@@ -740,6 +740,7 @@
 "agent.sectionTips" = "Practical Tips";
 "agent.sectionExtra" = "More Info";
 "agent.sectionPlace" = "Place";
+"agent.sectionSources" = "Sources";
 "agent.closeDetailsA11y" = "Close details";
 "agent.durationMinutes" = "%lld min";
 "agent.openReference" = "Open Reference";

@@ -173,6 +173,14 @@ struct PlaceSnapshot: Codable, Sendable, Equatable, Identifiable {
     var updatedAt: Date
 }
 
+struct TravelCardSource: Codable, Sendable, Equatable, Identifiable {
+    var id: String { url }
+    let provider: String
+    let url: String
+    let title: String?
+    let author: String?
+}
+
 struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     enum Kind: String, Codable, CaseIterable, Sendable, Identifiable {
         case flight, hotel, activity
@@ -205,6 +213,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     var place: PlaceSnapshot?
     var bookingCode: String?
     var url: String?
+    /// Ordered, server-verified public references. ``url`` remains the first
+    /// source for snapshots produced by older servers and clients.
+    var sources: [TravelCardSource]?
     /// AI-authored or user-authored short introduction shown above notes.
     var description: String?
     /// Flight-only structured airports (e.g. "HND" -> "KIX").
@@ -236,7 +247,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case serverID = "id", dayID = "dayId", kind, title, startAt, endAt, place, bookingCode, url
+        case serverID = "id", dayID = "dayId", kind, title, startAt, endAt, place, bookingCode, url, sources
         case description, fromAirport = "fromAirport", toAirport = "toAirport", priceMinor
         case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips
         case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
@@ -252,6 +263,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         place: PlaceSnapshot? = nil,
         bookingCode: String? = nil,
         url: String? = nil,
+        sources: [TravelCardSource]? = nil,
         description: String? = nil,
         fromAirport: String? = nil,
         toAirport: String? = nil,
@@ -277,6 +289,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.place = place
         self.bookingCode = bookingCode
         self.url = url
+        self.sources = sources
         self.description = description
         self.fromAirport = fromAirport
         self.toAirport = toAirport
@@ -304,6 +317,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         place = try container.decodeIfPresent(PlaceSnapshot.self, forKey: .place)
         bookingCode = try container.decodeIfPresent(String.self, forKey: .bookingCode)
         url = try container.decodeIfPresent(String.self, forKey: .url)
+        let decodedSources = try container.decodeIfPresent([TravelCardSource].self, forKey: .sources) ?? []
+        sources = decodedSources.isEmpty ? nil : decodedSources
         description = try container.decodeIfPresent(String.self, forKey: .description)
         fromAirport = try container.decodeIfPresent(String.self, forKey: .fromAirport)
         toAirport = try container.decodeIfPresent(String.self, forKey: .toAirport)
@@ -338,6 +353,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(place, forKey: .place)
         try container.encodeIfPresent(bookingCode, forKey: .bookingCode)
         try container.encodeIfPresent(url, forKey: .url)
+        try container.encodeIfPresent(sources, forKey: .sources)
         try container.encodeIfPresent(description, forKey: .description)
         try container.encodeIfPresent(fromAirport, forKey: .fromAirport)
         try container.encodeIfPresent(toAirport, forKey: .toAirport)

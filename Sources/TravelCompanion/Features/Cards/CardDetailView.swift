@@ -216,9 +216,9 @@ struct CardDetailView: View {
             if let booking = card.bookingCode, !booking.isEmpty {
                 copyableRow(String(localized: "carddetail.orderId"), value: booking, icon: "number")
             }
-            if let link = card.url, !link.isEmpty {
-                Button { linkHandler.openPublicLink(link) } label: {
-                    detailRow(String(localized: "carddetail.links"), value: String(localized: "carddetail.openWeb"), icon: "arrow.up.right.square.fill", showsChevron: true)
+            ForEach(Array(displaySources.enumerated()), id: \.element.id) { index, source in
+                Button { linkHandler.openPublicLink(source.url) } label: {
+                    sourceRow(source, showsSectionLabel: index == 0)
                 }
                 .buttonStyle(.plain)
             }
@@ -329,6 +329,32 @@ struct CardDetailView: View {
         .accessibilityHint(Text("carddetail.copyHint"))
     }
 
+    private func sourceRow(_ source: TravelCardSource, showsSectionLabel: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Image(systemName: sourceIcon(source)).foregroundStyle(tint).frame(width: 20)
+            Text(showsSectionLabel ? String(localized: "carddetail.links") : "")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(sourceTitle(source))
+                    .font(.subheadline.weight(.medium))
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
+                if let author = source.author, !author.isEmpty {
+                    Text(author)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Image(systemName: "arrow.up.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 3)
+    }
+
     private var tint: Color {
         switch card.kind {
         case .flight: .blue
@@ -338,7 +364,42 @@ struct CardDetailView: View {
     }
 
     private var validatedCardURL: URL? {
-        card.url.flatMap(ExternalLinkHandler.validatedHTTPSURL)
+        displaySources.first.flatMap { ExternalLinkHandler.validatedHTTPSURL($0.url) }
+    }
+
+    private var displaySources: [TravelCardSource] {
+        var seen = Set<String>()
+        let sources = (card.sources ?? []).filter { source in
+            ExternalLinkHandler.validatedHTTPSURL(source.url) != nil && seen.insert(source.url).inserted
+        }
+        if !sources.isEmpty { return sources }
+        guard let url = card.url,
+              ExternalLinkHandler.validatedHTTPSURL(url) != nil else { return [] }
+        return [TravelCardSource(provider: sourceProvider(url), url: url, title: nil, author: nil)]
+    }
+
+    private func sourceTitle(_ source: TravelCardSource) -> String {
+        if let title = source.title, !title.isEmpty { return title }
+        switch source.provider.lowercased() {
+        case "xiaohongshu": return String(localized: "agent.viewXhsNote")
+        case "fliggy": return String(localized: "agent.viewBookingFliggy")
+        default: return String(localized: "carddetail.openWeb")
+        }
+    }
+
+    private func sourceIcon(_ source: TravelCardSource) -> String {
+        switch source.provider.lowercased() {
+        case "xiaohongshu": return "book.pages.fill"
+        case "fliggy": return "airplane"
+        default: return "safari.fill"
+        }
+    }
+
+    private func sourceProvider(_ value: String) -> String {
+        let host = URL(string: value)?.host?.lowercased() ?? ""
+        if host.contains("xiaohongshu") || host.contains("xhslink") { return "xiaohongshu" }
+        if host.contains("fliggy") || host.contains("alitrip") { return "fliggy" }
+        return "web"
     }
 
     private var timeText: String {

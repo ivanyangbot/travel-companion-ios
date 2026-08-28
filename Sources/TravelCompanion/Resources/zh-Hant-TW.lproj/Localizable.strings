@@ -742,6 +742,7 @@
 "agent.sectionTips" = "實用祕訣";
 "agent.sectionExtra" = "補充資訊";
 "agent.sectionPlace" = "地點";
+"agent.sectionSources" = "參考來源";
 "agent.closeDetailsA11y" = "關閉詳情";
 "agent.durationMinutes" = "%lld 分鐘";
 "agent.openReference" = "打開參考連結";

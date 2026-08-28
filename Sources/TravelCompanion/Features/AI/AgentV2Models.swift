@@ -117,6 +117,15 @@ struct AgentV2Draft: Codable, Sendable, Equatable {
     }
 }
 
+struct AgentV2Source: Codable, Sendable, Equatable, Identifiable {
+    var id: String { url }
+    let provider: String
+    let url: String
+    let title: String?
+    let author: String?
+    let sourceProof: String?
+}
+
 struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     enum PlaceStatus: String, Codable, Sendable { case verified, pending, failed, notRequired }
     enum DateStatus: String, Codable, Sendable { case inRange, outOfRange, unscheduled, invalid }
@@ -135,6 +144,7 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var description: String?
     var notes: String?
     var url: String?
+    var sources: [AgentV2Source] = []
     var sourceProof: String? = nil
     var priceMinor: Int64?
     var ticketPriceMinor: Int64?
@@ -214,6 +224,7 @@ extension AgentV2Candidate {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         notes = try container.decodeIfPresent(String.self, forKey: .notes)
         url = try container.decodeIfPresent(String.self, forKey: .url)
+        sources = try container.decodeIfPresent([AgentV2Source].self, forKey: .sources) ?? []
         sourceProof = try container.decodeIfPresent(String.self, forKey: .sourceProof)
         priceMinor = try container.decodeIfPresent(Int64.self, forKey: .priceMinor)
         ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)

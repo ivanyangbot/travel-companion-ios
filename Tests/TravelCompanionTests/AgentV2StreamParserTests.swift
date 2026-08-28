@@ -121,6 +121,35 @@ final class AgentV2StreamParserTests: XCTestCase {
         XCTAssertFalse(decoded.isCommitReady)
     }
 
+    func testFlightScheduleAndMultipleSourcesSurviveCandidateStreamDecoding() throws {
+        let candidateID = UUID().uuidString.lowercased()
+        let fixture = """
+        event: candidate_upsert
+        data: {"id":"\(candidateID)","kind":"flight","title":"ID6331 努拉莱伊至科莫多","date":"2026-09-26","dateStatus":"inRange","startAt":"11:45","endAt":"13:00","place":null,"placeStatus":"notRequired","bookingCode":"ID6331","fromAirport":"DPS","toAirport":"LBJ","sources":[{"provider":"xiaohongshu","url":"https://www.xiaohongshu.com/explore/one","title":"科莫多交通攻略","author":"旅行者甲","sourceProof":"proof-one"},{"provider":"xiaohongshu","url":"https://www.xiaohongshu.com/explore/two","title":"巴厘岛转机记录","author":"旅行者乙","sourceProof":"proof-two"}],"tips":[],"risks":[],"missingFields":[],"selected":false}
+
+        event: done
+        data: {}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var candidate: AgentV2Candidate?
+        for byte in fixture.utf8 {
+            guard let event = try parser.consume(byte) else { continue }
+            if case .candidateUpsert(let value) = event { candidate = value }
+        }
+
+        let decoded = try XCTUnwrap(candidate)
+        XCTAssertEqual(decoded.startAt, "11:45")
+        XCTAssertEqual(decoded.endAt, "13:00")
+        XCTAssertEqual(decoded.bookingCode, "ID6331")
+        XCTAssertEqual(decoded.sources.map(\.url), [
+            "https://www.xiaohongshu.com/explore/one",
+            "https://www.xiaohongshu.com/explore/two",
+        ])
+        XCTAssertTrue(decoded.isCommitReady)
+    }
+
     func testFliggyEventsDecodeAsPairedStructuredSignals() throws {
         // Mirrors the backend's observed ordering: flight start → hotel start
         // (term picked from `origin`) → two completions → done.

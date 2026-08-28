@@ -3331,17 +3331,40 @@ private struct AgentFlightDetailSheet: View {
                 if let notes = candidate.notes, !notes.isEmpty {
                     section(title: String(localized: "agent.sectionExtra"), icon: "note.text") { Text(notes) }
                 }
-                if let bookingURL {
-                    Link(destination: bookingURL) {
-                        HStack {
-                            Label("agent.viewBooking", systemImage: "safari.fill")
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
+                if !displaySources.isEmpty {
+                    section(title: String(localized: "agent.sectionSources"), icon: "link") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(displaySources.enumerated()), id: \.element.id) { index, source in
+                                if let url = URL(string: source.url) {
+                                    Link(destination: url) {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: sourceIcon(source))
+                                                .foregroundStyle(PrimaryTabPalette.accent)
+                                                .frame(width: 28)
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(sourceTitle(source))
+                                                    .font(.subheadline.weight(.semibold))
+                                                    .foregroundStyle(.white)
+                                                if let author = source.author, !author.isEmpty {
+                                                    Text(author)
+                                                        .font(.caption)
+                                                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                                }
+                                            }
+                                            Spacer()
+                                            Image(systemName: "arrow.up.right")
+                                                .font(.caption.weight(.bold))
+                                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                        }
+                                        .padding(.vertical, 10)
+                                        .contentShape(Rectangle())
+                                    }
+                                    if index < displaySources.count - 1 {
+                                        Divider().overlay(Color.white.opacity(0.08))
+                                    }
+                                }
+                            }
                         }
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .padding(16)
-                        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                 }
             }
@@ -3467,9 +3490,43 @@ private struct AgentFlightDetailSheet: View {
         }
     }
 
-    private var bookingURL: URL? {
-        guard let value = candidate.url, let url = URL(string: value), url.scheme?.lowercased() == "https" else { return nil }
-        return url
+    private var displaySources: [AgentV2Source] {
+        var seen = Set<String>()
+        let sources = candidate.sources.filter { source in
+            guard let url = URL(string: source.url),
+                  url.scheme?.lowercased() == "https",
+                  seen.insert(source.url).inserted else { return false }
+            return true
+        }
+        if !sources.isEmpty { return sources }
+        guard let value = candidate.url,
+              let url = URL(string: value),
+              url.scheme?.lowercased() == "https" else { return [] }
+        return [AgentV2Source(provider: sourceProvider(url), url: value, title: nil, author: nil, sourceProof: candidate.sourceProof)]
+    }
+
+    private func sourceTitle(_ source: AgentV2Source) -> String {
+        if let title = source.title, !title.isEmpty { return title }
+        switch source.provider.lowercased() {
+        case "xiaohongshu": return String(localized: "agent.viewXhsNote")
+        case "fliggy": return String(localized: "agent.viewBookingFliggy")
+        default: return String(localized: "agent.openReference")
+        }
+    }
+
+    private func sourceIcon(_ source: AgentV2Source) -> String {
+        switch source.provider.lowercased() {
+        case "xiaohongshu": return "book.pages"
+        case "fliggy": return "airplane"
+        default: return "safari"
+        }
+    }
+
+    private func sourceProvider(_ url: URL) -> String {
+        let host = url.host?.lowercased() ?? ""
+        if host.contains("xiaohongshu") || host.contains("xhslink") { return "xiaohongshu" }
+        if host.contains("fliggy") || host.contains("alitrip") { return "fliggy" }
+        return "web"
     }
 
     private func nonEmpty(_ value: String?) -> String? {
@@ -3607,17 +3664,44 @@ private struct AgentCandidatePOIDetailSheet: View {
                     }
                 }
 
-                if let sourceURL {
-                    Link(destination: sourceURL) {
-                        HStack {
-                            Label(sourceLabel, systemImage: sourceIcon)
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
+                if !displaySources.isEmpty {
+                    detailSection(title: String(localized: "agent.sectionSources"), icon: "link") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(displaySources.enumerated()), id: \.element.id) { index, source in
+                                if let url = URL(string: source.url) {
+                                    Link(destination: url) {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: sourceIcon(for: url))
+                                                .font(.body.weight(.semibold))
+                                                .foregroundStyle(PrimaryTabPalette.accent)
+                                                .frame(width: 36, height: 36)
+                                                .background(PrimaryTabPalette.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(sourceTitle(source, url: url))
+                                                    .font(.subheadline.weight(.semibold))
+                                                    .foregroundStyle(.white)
+                                                    .lineLimit(2)
+                                                if let author = source.author, !author.isEmpty {
+                                                    Text(author)
+                                                        .font(.caption)
+                                                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                                        .lineLimit(1)
+                                                }
+                                            }
+                                            Spacer(minLength: 8)
+                                            Image(systemName: "arrow.up.right")
+                                                .font(.caption.weight(.bold))
+                                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                        }
+                                        .padding(.vertical, 11)
+                                        .contentShape(Rectangle())
+                                    }
+                                    if index < displaySources.count - 1 {
+                                        Divider().overlay(Color.white.opacity(0.08))
+                                    }
+                                }
+                            }
                         }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(16)
-                        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                 }
             }
@@ -3805,22 +3889,45 @@ private struct AgentCandidatePOIDetailSheet: View {
         return [candidate.date, time].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    private var sourceURL: URL? {
+    private var displaySources: [AgentV2Source] {
+        var seen = Set<String>()
+        let sources = candidate.sources.filter { source in
+            guard let url = URL(string: source.url),
+                  url.scheme?.lowercased() == "https",
+                  seen.insert(source.url).inserted else { return false }
+            return true
+        }
+        if !sources.isEmpty { return sources }
         guard let value = candidate.url,
               let url = URL(string: value),
-              url.scheme?.lowercased() == "https" else { return nil }
-        return url
+              url.scheme?.lowercased() == "https" else { return [] }
+        return [AgentV2Source(provider: sourceProvider(for: url), url: value, title: nil, author: nil, sourceProof: candidate.sourceProof)]
     }
 
-    private var sourceLabel: String {
-        guard let host = sourceURL?.host?.lowercased() else { return String(localized: "agent.openReference") }
+    private func sourceTitle(_ source: AgentV2Source, url: URL) -> String {
+        if let title = source.title, !title.isEmpty { return title }
+        return sourceLabel(for: url)
+    }
+
+    private func sourceLabel(for url: URL) -> String {
+        guard let host = url.host?.lowercased() else { return String(localized: "agent.openReference") }
         if host.contains("xiaohongshu") || host.contains("xhslink") { return String(localized: "agent.viewXhsNote") }
         if host.contains("fliggy") || host.contains("alitrip") { return String(localized: "agent.viewBookingFliggy") }
         return String(localized: "agent.openReference")
     }
 
-    private var sourceIcon: String {
-        sourceLabel.contains("预订") ? "airplane" : "arrow.up.right.square"
+    private func sourceIcon(for url: URL) -> String {
+        let host = url.host?.lowercased() ?? ""
+        if host.contains("xiaohongshu") || host.contains("xhslink") { return "book.pages" }
+        if host.contains("fliggy") || host.contains("alitrip") { return "airplane" }
+        return "safari"
+    }
+
+    private func sourceProvider(for url: URL) -> String {
+        let host = url.host?.lowercased() ?? ""
+        if host.contains("xiaohongshu") || host.contains("xhslink") { return "xiaohongshu" }
+        if host.contains("fliggy") || host.contains("alitrip") { return "fliggy" }
+        return "web"
     }
 
     private var mapsURL: URL? {

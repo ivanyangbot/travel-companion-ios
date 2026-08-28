@@ -475,6 +475,23 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertNil(CardImageURL.resolve(nil))
     }
 
+    func testCardSnapshotDecodesOrderedSourceLinks() throws {
+        let json = Data("""
+        {"id":10,"dayId":1,"kind":"hotel","title":"海景酒店","startAt":"2026-10-01T09:00:00Z",
+         "url":"https://www.xiaohongshu.com/explore/one",
+         "sources":[{"provider":"xiaohongshu","url":"https://www.xiaohongshu.com/explore/one","title":"第一篇攻略","author":"作者甲"},{"provider":"xiaohongshu","url":"https://www.xiaohongshu.com/explore/two","title":"第二篇攻略","author":"作者乙"}],
+         "position":0,"updatedAt":"2026-10-01T08:00:00Z"}
+        """.utf8)
+
+        let card = try JSONDecoder.sharedTrip.decode(TravelCardSnapshot.self, from: json)
+
+        XCTAssertEqual(card.sources?.map(\.url), [
+            "https://www.xiaohongshu.com/explore/one",
+            "https://www.xiaohongshu.com/explore/two",
+        ])
+        XCTAssertEqual(card.sources?.compactMap(\.title), ["第一篇攻略", "第二篇攻略"])
+    }
+
     func testCardSnapshotDecodesServerLargeImageDecisionAndKeepsOldSnapshotsCompact() throws {
         let immersiveJSON = Data("""
         {"id":8,"dayId":1,"kind":"activity","title":"丽江古城","startAt":"2026-10-01T09:00:00Z",
