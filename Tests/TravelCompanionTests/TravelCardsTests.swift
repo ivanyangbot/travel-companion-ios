@@ -17,14 +17,14 @@ final class TravelCardsTests: XCTestCase {
         )
     }
 
-    func testAgentHomeQuickActionsNeverContainReload() {
+    func testAgentHomeQuickActionsNeverContainSharingOrReload() {
         XCTAssertEqual(
             TodayQuickAction.agentHomeActions(isAuthenticated: false),
             [.tripSelection, .settings, .signIn]
         )
         XCTAssertEqual(
             TodayQuickAction.agentHomeActions(isAuthenticated: true),
-            [.addCompanion, .tripSelection, .settings]
+            [.tripSelection, .settings]
         )
     }
 

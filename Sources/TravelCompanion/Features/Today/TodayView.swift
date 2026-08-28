@@ -932,10 +932,13 @@ enum TodayQuickAction: String, CaseIterable {
         }
     }
 
-    /// AgentHome has no map/POI canvas to resynchronise, so its drawer omits
-    /// the map-specific reload action while retaining all other valid actions.
+    /// AgentHome represents the state with no active trip. It therefore omits
+    /// both trip sharing and the map-specific reload action; signed-out users
+    /// additionally receive the direct login action.
     static func agentHomeActions(isAuthenticated: Bool) -> [TodayQuickAction] {
-        visibleActions(isAuthenticated: isAuthenticated).filter { $0 != .reload }
+        isAuthenticated
+            ? [.tripSelection, .settings]
+            : [.tripSelection, .settings, .signIn]
     }
 }
 
