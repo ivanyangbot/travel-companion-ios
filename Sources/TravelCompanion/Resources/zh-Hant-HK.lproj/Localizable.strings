@@ -137,8 +137,6 @@
 "tripswitch.newTripButton" = "開展一段新旅程";
 "tripswitch.newTripSubtitle" = "同豆奶 Agent 一齊由靈感開始規劃";
 "tripswitch.newTripHint" = "叫豆奶規劃新旅程，返到嚟仲會保留目前旅行";
-"tripswitch.workbenchTitle" = "暫時唔揀行程";
-"tripswitch.workbenchSubtitle" = "等豆奶按你嘅描述開始規劃";
 "tripswitch.currentValue" = "目前旅行";
 "tripswitch.deleteA11y" = "刪除";
 "tripswitch.editA11y" = "編輯";

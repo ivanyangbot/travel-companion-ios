@@ -137,8 +137,6 @@
 "tripswitch.newTripButton" = "Start a New Trip";
 "tripswitch.newTripSubtitle" = "Plan from inspiration with the Dounai agent";
 "tripswitch.newTripHint" = "Ask Dounai to plan a new trip; your current trip is kept when you return";
-"tripswitch.workbenchTitle" = "No trip for now";
-"tripswitch.workbenchSubtitle" = "Let Dounai plan from your description";
 "tripswitch.currentValue" = "Current trip";
 "tripswitch.deleteA11y" = "Delete";
 "tripswitch.editA11y" = "Edit";

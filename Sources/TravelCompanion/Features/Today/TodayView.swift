@@ -1405,7 +1405,7 @@ private struct TodayPrivacyPolicySheet: View {
 
 /// 「切换旅行」弹窗：主页左上角菜单与 Agent 工作台共用同一实现。
 /// 行程区使用原生 List + swipeActions 提供左滑编辑/删除（仅 owner 可操作）；
-/// 工作台通过可选参数启用 Agent 语境——副标题、「暂不选择行程」行、编辑改开「旅行与偏好」。
+/// 工作台通过可选参数启用 Agent 语境——副标题、编辑改开「旅行与偏好」。
 struct TodayTripPickerSheet: View {
     let trips: [TripSummary]
     let selectedTripID: Int?
@@ -1413,8 +1413,6 @@ struct TodayTripPickerSheet: View {
     let isStartingNewTrip: Bool
     /// 弹窗副标题：主页默认「选择首页要显示的旅行」，工作台传 Agent 语境文案。
     var subtitle: String = String(localized: "tripswitch.subtitle")
-    /// 工作台传入：显示「暂不选择行程」行（Agent 允许不带行程规划）。
-    var onClear: (() -> Void)? = nil
     /// 工作台传入：编辑交由宿主处理（选中该行程并打开「旅行与偏好」）；
     /// 主页保持 nil，走内置的 TripSetupSheet 编辑（目的地/日期/货币）。
     var onEditTrip: ((TripSummary) -> Void)? = nil
@@ -1438,10 +1436,6 @@ struct TodayTripPickerSheet: View {
             List {
                 Group {
                     createTripButton
-
-                    if let onClear {
-                        clearSelectionRow(onClear)
-                    }
 
                     if !trips.isEmpty {
                         existingTripsDivider
@@ -1603,57 +1597,6 @@ struct TodayTripPickerSheet: View {
         .disabled(isBusy)
         .opacity(isBusy && !isStartingNewTrip ? 0.55 : 1)
         .accessibilityHint(Text("tripswitch.newTripHint"))
-    }
-
-    /// 工作台模式的「暂不选择行程」行：与行程行相同的卡片样式，选中态
-    /// 对应 selectedTripID == nil。
-    private func clearSelectionRow(_ action: @escaping () -> Void) -> some View {
-        let isSelected = selectedTripID == nil
-
-        return Button {
-            action()
-            onDismiss()
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "location.slash")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isSelected ? PrimaryTabPalette.accent : .white.opacity(0.72))
-                    .frame(width: 38, height: 38)
-                    .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("tripswitch.workbenchTitle")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                    Text("tripswitch.workbenchSubtitle")
-                        .font(.caption)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(PrimaryTabPalette.accent)
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 64)
-            .background(
-                isSelected ? PrimaryTabPalette.accent.opacity(0.12) : PrimaryTabPalette.surface,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(isSelected ? PrimaryTabPalette.accent.opacity(0.55) : .white.opacity(0.08), lineWidth: 1)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     /// 行程行卡片：List 行内的内容视图，左滑编辑/删除由原生 swipeActions 提供。

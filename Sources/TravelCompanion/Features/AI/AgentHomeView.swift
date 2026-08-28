@@ -67,9 +67,9 @@ struct AgentHomeView: View {
     @State private var isReloadingHome = false
     /// 「切换旅行」的「编辑」入口：等 picker 收起后再打开「旅行与偏好」，避免两张 sheet 抢占同一宿主。
     @State private var openContextAfterPickerDismiss = false
-    /// 工作台内「暂不选择行程」：等 picker 收起后连同工作台 sheet 一起关闭，
-    /// 主页直接落到未选择行程的状态，而不是闪回地图。
-    @State private var closeWorkbenchAfterPickerDismiss = false
+    /// 工作台内「新建一段旅行」：清空当前行程后，等 picker 收起再关闭工作台，
+    /// 让 Today 根视图稳定落到 Agent 首页，而不是短暂闪回地图。
+    @State private var closeWorkbenchAfterNewTripPickerDismiss = false
     @State private var didConsumeInitialMessage = false
     @State private var didSubmitInitialMessage = false
     /// Coalesce the many scroll requests produced by a token stream. Without
@@ -379,27 +379,20 @@ struct AgentHomeView: View {
                     openContextAfterPickerDismiss = false
                     isShowingContext = true
                 }
-                // 「暂不选择行程」直接关闭整个工作台，主页落到未选择行程的状态。
-                if closeWorkbenchAfterPickerDismiss {
-                    closeWorkbenchAfterPickerDismiss = false
+                // 工作台内新建旅行时，关闭整个工作台并落到 Agent 首页。
+                if closeWorkbenchAfterNewTripPickerDismiss {
+                    closeWorkbenchAfterNewTripPickerDismiss = false
                     dismissWorkbench()
                 }
             }) {
                 // 与主页左上角的「切换旅行」共用同一弹窗；Agent 语境下副标题
-                // 换文案、多出「暂不选择行程」，编辑改为打开「旅行与偏好」。
+                // 换文案，编辑改为打开「旅行与偏好」。
                 TodayTripPickerSheet(
                     trips: syncEngine.trips,
                     selectedTripID: syncEngine.selectedTripID,
                     tripBeingSelectedID: nil,
                     isStartingNewTrip: false,
                     subtitle: String(localized: "agent.selectTripSheetSubtitle"),
-                    onClear: {
-                        resetSuggestions()
-                        Task { await syncEngine.clearSelectedTrip() }
-                        if presentation == .workbench {
-                            closeWorkbenchAfterPickerDismiss = true
-                        }
-                    },
                     onEditTrip: { summary in
                         // 与点击行程一致：编辑未选中的行程先切换过去，再打开「旅行与偏好」。
                         if summary.id != syncEngine.selectedTripID {
@@ -418,11 +411,19 @@ struct AgentHomeView: View {
                         isShowingTripPicker = false
                     },
                     onCreate: {
-                        // 新建一段旅行＝回到欢迎页开新对话，从灵感开始让豆奶规划；
-                        // 当前行程保留，提交方案时再落成新行程（与主页口径一致）。
+                        // 两种宿主都回到 Agent 首页开新对话；工作台需先清空当前
+                        // 行程，再关闭工作台 sheet，避免 Today 根视图闪回地图。
                         startNewConversation()
                         resetSuggestions()
-                        isShowingTripPicker = false
+                        if presentation == .workbench {
+                            Task {
+                                await syncEngine.clearSelectedTrip()
+                                closeWorkbenchAfterNewTripPickerDismiss = true
+                                isShowingTripPicker = false
+                            }
+                        } else {
+                            isShowingTripPicker = false
+                        }
                     },
                     onEdit: { summary, destination, startDate, endDate, currency in
                         Task {
