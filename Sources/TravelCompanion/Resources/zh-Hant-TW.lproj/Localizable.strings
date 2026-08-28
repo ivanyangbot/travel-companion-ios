@@ -1081,3 +1081,7 @@
 "demo.orbStateA11y" = "思考狀態：%@，點一下切換到下一個";
 "demo.autoCarousel" = "自動輪播";
 "demo.closeA11y" = "關閉 Demo";
+"agent.commitAdded" = "已加入行程";
+"agent.commitUpdated" = "行程已更新";
+"agent.commitSuccessCount" = "成功加入 %d 項，已同步至行程";
+"agent.commitRemovalSuccess" = "變更已同步至行程";

@@ -492,6 +492,20 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(card.sources?.compactMap(\.title), ["第一篇攻略", "第二篇攻略"])
     }
 
+    func testFlightSnapshotDecodesServerAirlineMetadata() throws {
+        let json = Data("""
+        {"id":11,"dayId":1,"kind":"flight","title":"ID6331 努拉莱伊至科莫多","startAt":"2026-09-26T03:45:00Z",
+         "bookingCode":"ID6331","airlineCode":"ID","airlineName":"Batik Air","airlineLogoURL":"/v1/airlines/logos/ID.png",
+         "position":0,"updatedAt":"2026-09-20T08:00:00Z"}
+        """.utf8)
+
+        let card = try JSONDecoder.sharedTrip.decode(TravelCardSnapshot.self, from: json)
+
+        XCTAssertEqual(card.airlineCode, "ID")
+        XCTAssertEqual(card.airlineName, "Batik Air")
+        XCTAssertEqual(card.airlineLogoURL, "/v1/airlines/logos/ID.png")
+    }
+
     func testCardSnapshotDecodesServerLargeImageDecisionAndKeepsOldSnapshotsCompact() throws {
         let immersiveJSON = Data("""
         {"id":8,"dayId":1,"kind":"activity","title":"丽江古城","startAt":"2026-10-01T09:00:00Z",

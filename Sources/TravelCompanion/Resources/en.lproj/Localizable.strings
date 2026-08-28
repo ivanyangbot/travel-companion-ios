@@ -1079,3 +1079,7 @@
 "demo.orbStateA11y" = "Thinking state: %@, tap to advance";
 "demo.autoCarousel" = "Auto-cycle";
 "demo.closeA11y" = "Close demo";
+"agent.commitAdded" = "Added to Trip";
+"agent.commitUpdated" = "Trip Updated";
+"agent.commitSuccessCount" = "%d item(s) added and synced to your trip";
+"agent.commitRemovalSuccess" = "Your changes are synced to the trip";

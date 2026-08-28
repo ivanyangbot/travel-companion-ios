@@ -212,6 +212,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     var endAt: Date?
     var place: PlaceSnapshot?
     var bookingCode: String?
+    var airlineCode: String?
+    var airlineName: String?
+    var airlineLogoURL: String?
     var url: String?
     /// Ordered, server-verified public references. ``url`` remains the first
     /// source for snapshots produced by older servers and clients.
@@ -247,7 +250,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case serverID = "id", dayID = "dayId", kind, title, startAt, endAt, place, bookingCode, url, sources
+        case serverID = "id", dayID = "dayId", kind, title, startAt, endAt, place, bookingCode
+        case airlineCode, airlineName, airlineLogoURL, url, sources
         case description, fromAirport = "fromAirport", toAirport = "toAirport", priceMinor
         case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips
         case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
@@ -262,6 +266,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         endAt: Date? = nil,
         place: PlaceSnapshot? = nil,
         bookingCode: String? = nil,
+        airlineCode: String? = nil,
+        airlineName: String? = nil,
+        airlineLogoURL: String? = nil,
         url: String? = nil,
         sources: [TravelCardSource]? = nil,
         description: String? = nil,
@@ -288,6 +295,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.endAt = endAt
         self.place = place
         self.bookingCode = bookingCode
+        self.airlineCode = airlineCode
+        self.airlineName = airlineName
+        self.airlineLogoURL = airlineLogoURL
         self.url = url
         self.sources = sources
         self.description = description
@@ -316,6 +326,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         endAt = try container.decodeIfPresent(Date.self, forKey: .endAt)
         place = try container.decodeIfPresent(PlaceSnapshot.self, forKey: .place)
         bookingCode = try container.decodeIfPresent(String.self, forKey: .bookingCode)
+        airlineCode = try container.decodeIfPresent(String.self, forKey: .airlineCode)
+        airlineName = try container.decodeIfPresent(String.self, forKey: .airlineName)
+        airlineLogoURL = try container.decodeIfPresent(String.self, forKey: .airlineLogoURL)
         url = try container.decodeIfPresent(String.self, forKey: .url)
         let decodedSources = try container.decodeIfPresent([TravelCardSource].self, forKey: .sources) ?? []
         sources = decodedSources.isEmpty ? nil : decodedSources
@@ -352,6 +365,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(endAt, forKey: .endAt)
         try container.encodeIfPresent(place, forKey: .place)
         try container.encodeIfPresent(bookingCode, forKey: .bookingCode)
+        try container.encodeIfPresent(airlineCode, forKey: .airlineCode)
+        try container.encodeIfPresent(airlineName, forKey: .airlineName)
+        try container.encodeIfPresent(airlineLogoURL, forKey: .airlineLogoURL)
         try container.encodeIfPresent(url, forKey: .url)
         try container.encodeIfPresent(sources, forKey: .sources)
         try container.encodeIfPresent(description, forKey: .description)

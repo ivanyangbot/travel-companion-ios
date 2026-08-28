@@ -78,6 +78,9 @@ struct AgentHomeView: View {
     /// this, every published fragment queues another main-thread layout pass.
     @State private var streamingScrollTask: Task<Void, Never>?
     @State private var isCreatingTripFromProposal = false
+    /// 成功提交后短暂保留候选区，并在页面中央播放确认反馈；动画落稳后再
+    /// 清理草稿，避免服务器成功时卡片毫无解释地瞬间消失。
+    @State private var commitSuccess: AgentCommitSuccess?
     @State private var isReasoningExpanded = false
     /// 悬浮 Agent 欢迎态由服务端按当前行程生成的问题推荐。
     @State private var suggestedPrompts: [String] = []
@@ -271,6 +274,13 @@ struct AgentHomeView: View {
                         withAnimation(.snappy(duration: 0.3)) { dockFlight = nil }
                     }
                     .allowsHitTesting(false)
+                }
+            }
+            .overlay {
+                if let success = commitSuccess {
+                    AgentCommitSuccessHUD(success: success)
+                        .transition(.scale(scale: 0.78).combined(with: .opacity))
+                        .allowsHitTesting(false)
                 }
             }
             .overlay(alignment: .topLeading) {
@@ -1109,6 +1119,10 @@ struct AgentHomeView: View {
                 AssistantMessageContainer {
                     workbenchView
                 }
+                .transition(.asymmetric(
+                    insertion: .opacity,
+                    removal: .move(edge: .trailing).combined(with: .opacity)
+                ))
             }
         }
     }
@@ -2441,7 +2455,7 @@ struct AgentHomeView: View {
         let client = APIClient()
         Task {
             do {
-                _ = try await client.commitAgentV2(
+                let result = try await client.commitAgentV2(
                     .init(
                         sessionId: store.session.id,
                         expectedTripVersion: trip.version,
@@ -2452,12 +2466,100 @@ struct AgentHomeView: View {
                     tripID: trip.id,
                     idempotencyKey: UUID()
                 )
-                store.clearCommittedDraft()
+                let removalCount = snapshot.draft.changes.filter {
+                    $0.operation == .remove && $0.targetCardId != nil
+                }.count
+                let success = AgentCommitSuccess(
+                    addedCount: result.committedCandidateIds.count,
+                    removedCount: removalCount
+                )
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
+                    commitSuccess = success
+                }
+                UIAccessibility.post(notification: .announcement, argument: success.accessibilityText)
+                try? await Task.sleep(for: .milliseconds(720))
+                withAnimation(.snappy(duration: 0.42)) {
+                    store.clearCommittedDraft()
+                }
                 await syncEngine.refresh()
+                try? await Task.sleep(for: .milliseconds(900))
+                withAnimation(.easeOut(duration: 0.24)) {
+                    commitSuccess = nil
+                }
             } catch {
                 runState.error = error.localizedDescription
             }
             runState.isCommitting = false
+        }
+    }
+}
+
+private struct AgentCommitSuccess: Equatable {
+    let addedCount: Int
+    let removedCount: Int
+
+    var title: String {
+        addedCount > 0 ? String(localized: "agent.commitAdded") : String(localized: "agent.commitUpdated")
+    }
+
+    var detail: String {
+        if addedCount > 0 {
+            return String(format: String(localized: "agent.commitSuccessCount"), addedCount)
+        }
+        return String(localized: "agent.commitRemovalSuccess")
+    }
+
+    var accessibilityText: String { "\(title)，\(detail)" }
+}
+
+private struct AgentCommitSuccessHUD: View {
+    let success: AgentCommitSuccess
+    @State private var revealed = false
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(PrimaryTabPalette.accent.opacity(0.14))
+                    .frame(width: 72, height: 72)
+                    .scaleEffect(revealed ? 1 : 0.55)
+                Circle()
+                    .stroke(PrimaryTabPalette.accent.opacity(0.45), lineWidth: 1.5)
+                    .frame(width: 58, height: 58)
+                    .scaleEffect(revealed ? 1 : 1.35)
+                    .opacity(revealed ? 1 : 0)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 25, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(width: 46, height: 46)
+                    .background(PrimaryTabPalette.accent, in: Circle())
+                    .scaleEffect(revealed ? 1 : 0.35)
+            }
+
+            VStack(spacing: 4) {
+                Text(success.title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Text(success.detail)
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 22)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.42), radius: 28, y: 14)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(success.accessibilityText)
+        .onAppear {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.66).delay(0.05)) {
+                revealed = true
+            }
         }
     }
 }
@@ -2916,32 +3018,6 @@ private struct AgentLivePlaceCandidateCard: View {
     }
 }
 
-private struct AgentAirlineBadge: View {
-    let logoURL: URL?
-
-    var body: some View {
-        Group {
-            if let logoURL {
-                AsyncImage(url: logoURL) { image in
-                    image.resizable().scaledToFit().padding(5)
-                } placeholder: {
-                    placeholder
-                }
-            } else {
-                placeholder
-            }
-        }
-        .frame(width: 32, height: 32)
-        .background(logoURL == nil ? PrimaryTabPalette.accent : Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private var placeholder: some View {
-        Image(systemName: "airplane")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(.black)
-    }
-}
-
 private struct AgentLiveFlightCandidateCard: View {
     let card: AgentV2LiveCard
 
@@ -2980,7 +3056,7 @@ private struct AgentLiveFlightCandidateCard: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            AgentAirlineBadge(logoURL: card.airlineLogoImageURL)
+            AirlineLogoBadge(logoURL: card.airlineLogoImageURL)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(card.title)
@@ -3355,7 +3431,7 @@ private struct AgentFlightCandidateCard: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             HStack(spacing: 10) {
-                AgentAirlineBadge(logoURL: candidate.airlineLogoImageURL)
+                AirlineLogoBadge(logoURL: candidate.airlineLogoImageURL)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(candidate.title)
                         .font(.subheadline.weight(.semibold))
@@ -3565,7 +3641,7 @@ private struct AgentFlightDetailSheet: View {
                     .background(PrimaryTabPalette.accent, in: Capsule())
                 Spacer()
                 if let logoURL = candidate.airlineLogoImageURL {
-                    AgentAirlineBadge(logoURL: logoURL)
+                    AirlineLogoBadge(logoURL: logoURL)
                 }
                 if let price = candidate.agentPriceText {
                     Text(price).font(.headline.monospacedDigit()).foregroundStyle(.white)

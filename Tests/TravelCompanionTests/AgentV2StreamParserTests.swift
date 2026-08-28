@@ -125,7 +125,7 @@ final class AgentV2StreamParserTests: XCTestCase {
         let candidateID = UUID().uuidString.lowercased()
         let fixture = """
         event: candidate_upsert
-        data: {"id":"\(candidateID)","kind":"flight","title":"ID6331 努拉莱伊至科莫多","date":"2026-09-26","dateStatus":"inRange","startAt":"11:45","endAt":"13:00","place":null,"placeStatus":"notRequired","bookingCode":"ID6331","fromAirport":"DPS","toAirport":"LBJ","sources":[{"provider":"xiaohongshu","url":"https://www.xiaohongshu.com/explore/one","title":"科莫多交通攻略","author":"旅行者甲","sourceProof":"proof-one"},{"provider":"xiaohongshu","url":"https://www.xiaohongshu.com/explore/two","title":"巴厘岛转机记录","author":"旅行者乙","sourceProof":"proof-two"}],"tips":[],"risks":[],"missingFields":[],"selected":false}
+        data: {"id":"\(candidateID)","kind":"flight","title":"ID6331 努拉莱伊至科莫多","date":"2026-09-26","dateStatus":"inRange","startAt":"11:45","endAt":"13:00","place":null,"placeStatus":"notRequired","bookingCode":"ID6331","fromAirport":"DPS","toAirport":"LBJ","airlineCode":"ID","airlineName":"Batik Air","airlineLogoURL":"/v1/airlines/logos/ID.png","sources":[{"provider":"xiaohongshu","url":"https://www.xiaohongshu.com/explore/one","title":"科莫多交通攻略","author":"旅行者甲","sourceProof":"proof-one"},{"provider":"xiaohongshu","url":"https://www.xiaohongshu.com/explore/two","title":"巴厘岛转机记录","author":"旅行者乙","sourceProof":"proof-two"}],"tips":[],"risks":[],"missingFields":[],"selected":false}
 
         event: done
         data: {}
@@ -143,6 +143,9 @@ final class AgentV2StreamParserTests: XCTestCase {
         XCTAssertEqual(decoded.startAt, "11:45")
         XCTAssertEqual(decoded.endAt, "13:00")
         XCTAssertEqual(decoded.bookingCode, "ID6331")
+        XCTAssertEqual(decoded.airlineCode, "ID")
+        XCTAssertEqual(decoded.airlineName, "Batik Air")
+        XCTAssertEqual(decoded.airlineLogoURL, "/v1/airlines/logos/ID.png")
         XCTAssertEqual(decoded.sources.map(\.url), [
             "https://www.xiaohongshu.com/explore/one",
             "https://www.xiaohongshu.com/explore/two",

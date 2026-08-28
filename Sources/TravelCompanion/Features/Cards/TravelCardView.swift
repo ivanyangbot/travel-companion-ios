@@ -144,11 +144,15 @@ struct TravelCardView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: card.kind.systemImage)
-                .font(.title3)
-                .foregroundStyle(tint)
-                .frame(width: 28, height: 28)
-                .accessibilityHidden(true)
+            if card.kind == .flight {
+                AirlineLogoBadge(logoURL: persistedAirlineLogoURL, size: 28, cornerRadius: 8)
+            } else {
+                Image(systemName: card.kind.systemImage)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+                    .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(card.kind.title).font(.caption.weight(.semibold)).foregroundStyle(tint)
                 Text(card.title).font(.headline)
@@ -165,6 +169,13 @@ struct TravelCardView: View {
             }
             .accessibilityLabel(Text(String(format: String(localized: "common.moreActions"), card.title)))
         }
+    }
+
+    private var persistedAirlineLogoURL: URL? {
+        if let url = CardImageURL.resolve(card.airlineLogoURL) { return url }
+        let code = card.airlineCode ?? AgentFlightDisplay.airlineCode(fromBookingCode: card.bookingCode)
+        guard let code else { return nil }
+        return CardImageURL.resolve("/v1/airlines/logos/\(code).png")
     }
 
     private var timeRow: some View {
