@@ -97,17 +97,11 @@ struct AgentV2Draft: Codable, Sendable, Equatable {
     var candidates: [AgentV2Candidate]
     var changes: [AgentV2Change]
 
-    /// Only candidates that can safely be shown as a durable, selectable
-    /// draft survive persistence. Streaming placeholders live in
-    /// `AgentV2LiveCard` and must never leak into a resumed session.
+    /// Every fully decoded candidate remains visible in the durable draft.
+    /// Import validation belongs to the explicit commit action; streaming
+    /// placeholders still live separately in `AgentV2LiveCard`.
     func sanitizedForPersistence() -> AgentV2Draft {
-        let safeCandidates = candidates.filter(\.isSafeForPersistedDraft)
-        let safeCandidateIDs = Set(safeCandidates.map(\.id))
-        let safeChanges = changes.filter { change in
-            guard let candidateID = change.candidateId else { return true }
-            return safeCandidateIDs.contains(candidateID)
-        }
-        return AgentV2Draft(candidates: safeCandidates, changes: safeChanges)
+        self
     }
 }
 
@@ -170,10 +164,6 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     /// invented, and the user must still select it before commit.
     var hasAllowedUnverifiedPlace: Bool {
         placeStatus == .failed && place == nil && allowsUnverifiedPlace == true
-    }
-
-    var isSafeForPersistedDraft: Bool {
-        kind != .activity && kind != .hotel || hasConcreteVerifiedPlace || hasExplicitUnverifiedPlace || hasAllowedUnverifiedPlace
     }
 
     var isCommitReady: Bool {

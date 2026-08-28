@@ -683,12 +683,13 @@
 "agent.carriedOver" = "Awaiting confirmation (%lld)";
 "agent.changeList" = "View changes (%lld)";
 "agent.importableCount" = "%lld ready to import";
+"agent.candidateCount" = "%lld candidates";
 "agent.pendingRemovalCount" = "· %lld to remove";
 "agent.deselectAll" = "Deselect All";
-"agent.selectAll" = "Select Importable";
+"agent.selectAll" = "Select All";
 "agent.confirmRemove" = "Remove (%lld)";
 "agent.confirmAdd" = "Add to Itinerary (%lld)";
-"agent.captionVerify" = "Places still being verified can't be added yet; items marked “Location pending” from your own text can be added now, with map pins filled in later.";
+"agent.captionVerify" = "These candidates remain available to review and select. Import validation runs only when you confirm; failed items won't be written to the trip.";
 "agent.captionRemove" = "Only the cards listed in the change list will be removed from the itinerary; everything else stays.";
 "agent.captionKeep" = "Your current itinerary isn't touched until you confirm; unselected candidates stay in local drafts.";
 "agent.proposalLabel" = "Trip Proposal";
@@ -705,7 +706,7 @@
 "agent.errorPlanDate" = "The plan's dates couldn't be parsed. Ask Dounai to regenerate the plan.";
 "agent.errorCreateFailed" = "Couldn't create the trip. Please try again later.";
 "agent.errorNoCandidates" = "No candidates to confirm. Re-select and try again.";
-"agent.errorNotReady" = "Selected candidates are still generating or missing time info — please confirm a little later.";
+"agent.errorNotReady" = "Some selected candidates have incomplete details or an unverified location, so they couldn't be imported.";
 "agent.historyEmptyTitle" = "No Conversations Yet";
 "agent.historyEmptyDesc" = "Tap “New Conversation” and the current chat will be saved here automatically.";
 "agent.messageCount" = "· %lld messages";

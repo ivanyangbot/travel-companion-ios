@@ -1280,24 +1280,23 @@ struct AgentHomeView: View {
                 }
 
                 let selected = draft.candidates.filter(\.selected)
-                let commitReady = draft.candidates.filter(\.isCommitReady)
-                let allCommitReadySelected = !commitReady.isEmpty && commitReady.allSatisfy(\.selected)
+                let allCandidatesSelected = !draft.candidates.isEmpty && draft.candidates.allSatisfy(\.selected)
                 // 变更清单中待确认的“移除行程卡”提案：无选中候选时也可单独提交。
                 let pendingRemovals = draft.changes.filter { $0.operation == .remove && $0.targetCardId != nil }
-                let hasBlockingSelection = selected.contains(where: { !$0.isCommitReady })
-                let canCommit = !runState.isCommitting && !hasBlockingSelection && (!selected.isEmpty || !pendingRemovals.isEmpty)
+                let hasInvalidSelection = selected.contains(where: { !$0.isCommitReady })
+                let canCommit = !runState.isCommitting && (!selected.isEmpty || !pendingRemovals.isEmpty)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(String(format: String(localized: "agent.importableCount"), commitReady.count) + (pendingRemovals.isEmpty ? "" : " " + String(format: String(localized: "agent.pendingRemovalCount"), pendingRemovals.count)))
+                        Text(String(format: String(localized: "agent.candidateCount"), draft.candidates.count) + (pendingRemovals.isEmpty ? "" : " " + String(format: String(localized: "agent.pendingRemovalCount"), pendingRemovals.count)))
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                         Spacer()
-                        Button(allCommitReadySelected ? String(localized: "agent.deselectAll") : String(localized: "agent.selectAll")) {
-                            store.setSelected(!allCommitReadySelected, ids: Set(commitReady.map(\.id)))
+                        Button(allCandidatesSelected ? String(localized: "agent.deselectAll") : String(localized: "agent.selectAll")) {
+                            store.setSelected(!allCandidatesSelected, ids: Set(draft.candidates.map(\.id)))
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(PrimaryTabPalette.accent)
-                        .disabled(commitReady.isEmpty || runState.isCommitting)
+                        .disabled(draft.candidates.isEmpty || runState.isCommitting)
                     }
 
                     Button { commit() } label: {
@@ -1317,7 +1316,7 @@ struct AgentHomeView: View {
                     .disabled(!canCommit)
                     .opacity(canCommit || runState.isCommitting ? 1 : 0.45)
 
-                    if hasBlockingSelection {
+                    if hasInvalidSelection {
                         Text("agent.captionVerify")
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -2933,7 +2932,7 @@ struct AgentV2CandidateCard: View {
 
                 HStack(spacing: 10) {
                     Button {
-                        if candidate.isCommitReady { selection(!candidate.selected) }
+                        selection(!candidate.selected)
                     } label: {
                         Label(candidate.selected ? String(localized: "agent.selectedButton") : String(localized: "agent.joinTrip"), systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
                             .font(.subheadline.weight(.semibold))
@@ -2946,8 +2945,6 @@ struct AgentV2CandidateCard: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .disabled(!candidate.isCommitReady)
-                    .opacity(candidate.isCommitReady ? 1 : 0.45)
 
                     Button { isShowingDetails = true } label: {
                         HStack(spacing: 5) {
@@ -3283,7 +3280,6 @@ private struct AgentCandidatePOIDetailSheet: View {
         VStack(spacing: 0) {
             Divider().overlay(Color.white.opacity(0.08))
             Button {
-                guard candidate.isCommitReady else { return }
                 selection(!candidate.selected)
             } label: {
                 HStack {
@@ -3299,8 +3295,6 @@ private struct AgentCandidatePOIDetailSheet: View {
                 .background(candidate.selected ? Color.white : PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(!candidate.isCommitReady)
-            .opacity(candidate.isCommitReady ? 1 : 0.45)
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
         }

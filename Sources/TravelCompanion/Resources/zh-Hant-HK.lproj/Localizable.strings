@@ -685,12 +685,13 @@
 "agent.carriedOver" = "前幾輪待確認（%lld）";
 "agent.changeList" = "查看變更清單（%lld）";
 "agent.importableCount" = "可匯入 %lld 項";
+"agent.candidateCount" = "候選 %lld 項";
 "agent.pendingRemovalCount" = "· 待移除 %lld 項";
 "agent.deselectAll" = "取消全選";
-"agent.selectAll" = "全選可匯入項";
+"agent.selectAll" = "全選";
 "agent.confirmRemove" = "確認移除（%lld）";
 "agent.confirmAdd" = "確認加入行程（%lld）";
-"agent.captionVerify" = "仲喺度驗證嘅地點暫時加入唔到；「地點待確認」嘅用戶原文項目可以直接加入，之後再補地圖點位。";
+"agent.captionVerify" = "呢啲候選仍然可以查看同選擇；只會喺確認匯入時驗證，未通過嘅項目唔會寫入行程。";
 "agent.captionRemove" = "確認之後只會由行程移除變更清單列出嘅卡片，其他內容唔變。";
 "agent.captionKeep" = "確認之前唔會郁目前行程，未揀嘅候選仲會留喺本機草稿。";
 "agent.proposalLabel" = "旅程提案";
@@ -707,7 +708,7 @@
 "agent.errorPlanDate" = "旅程計劃嘅日期認唔到，叫豆奶重新出過個計劃。";
 "agent.errorCreateFailed" = "建立旅程失敗，請稍後再試。";
 "agent.errorNoCandidates" = "而家冇得確認嘅候選，請重新揀過再確認。";
-"agent.errorNotReady" = "揀咗嘅候選仲生成緊或者欠必要時間資料，請陣間再確認。";
+"agent.errorNotReady" = "部分已選候選資料唔完整或者地點未通過驗證，無法匯入。";
 "agent.historyEmptyTitle" = "暫時冇歷史對話";
 "agent.historyEmptyDesc" = "撳「新建對話」之後，目前對話會自動儲存喺呢度。";
 "agent.messageCount" = "· %lld 個訊息";

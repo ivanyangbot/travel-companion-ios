@@ -51,7 +51,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRestoreKeepsExplicitTextOnlyPlaceAndRemovesUnsafeUnverifiedCandidates() throws {
+    func testRestoreKeepsEveryDecodedCandidateForDisplay() throws {
         let defaults = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
@@ -99,16 +99,17 @@ final class AgentV2SessionStoreTests: XCTestCase {
 
         let store = AgentV2SessionStore(defaults: defaults)
 
-        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [explicitFailed.id, allowedRecommendation.id, verified.id, flight.id])
-        XCTAssertTrue(store.session.draft?.candidates.first?.isCommitReady == true)
-        XCTAssertEqual(Set(store.session.draft?.changes.compactMap(\.candidateId) ?? []), Set([explicitFailed.id, allowedRecommendation.id, verified.id, flight.id]))
+        let allCandidateIDs = [failed, explicitFailed, allowedRecommendation, missingCoordinates, missingAddress, blankAddress, verified, flight].map(\.id)
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), allCandidateIDs)
+        XCTAssertFalse(store.session.draft?.candidates.first?.isCommitReady == true)
+        XCTAssertEqual(Set(store.session.draft?.changes.compactMap(\.candidateId) ?? []), Set(allCandidateIDs))
         XCTAssertEqual(store.session.messages.map(\.id), messages.map(\.id))
         XCTAssertEqual(store.session.messages.map(\.content), messages.map(\.content))
         XCTAssertEqual(store.session.attachments.map(\.id), attachments.map(\.id))
 
         let persistedData = try XCTUnwrap(defaults.data(forKey: sessionKey))
         let persisted = try decoder.decode(AgentV2LocalSession.self, from: persistedData)
-        XCTAssertEqual(persisted.draft?.candidates.map(\.id), [explicitFailed.id, allowedRecommendation.id, verified.id, flight.id])
+        XCTAssertEqual(persisted.draft?.candidates.map(\.id), allCandidateIDs)
     }
 
     @MainActor

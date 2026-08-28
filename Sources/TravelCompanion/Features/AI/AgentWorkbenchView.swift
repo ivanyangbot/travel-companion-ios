@@ -403,24 +403,23 @@ AgentIntroGlobeView(diameter: 208)
                 }
 
                 let selected = draft.candidates.filter(\.selected)
-                let commitReady = draft.candidates.filter(\.isCommitReady)
-                let allCommitReadySelected = !commitReady.isEmpty && commitReady.allSatisfy(\.selected)
+                let allCandidatesSelected = !draft.candidates.isEmpty && draft.candidates.allSatisfy(\.selected)
                 // 变更清单中待确认的“移除行程卡”提案：无选中候选时也可单独提交。
                 let pendingRemovals = draft.changes.filter { $0.operation == .remove && $0.targetCardId != nil }
-                let hasBlockingSelection = selected.contains(where: { !$0.isCommitReady })
-                let canCommit = !runState.isCommitting && !hasBlockingSelection && (!selected.isEmpty || !pendingRemovals.isEmpty)
+                let hasInvalidSelection = selected.contains(where: { !$0.isCommitReady })
+                let canCommit = !runState.isCommitting && (!selected.isEmpty || !pendingRemovals.isEmpty)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(String(format: String(localized: "agent.importableCount"), commitReady.count) + (pendingRemovals.isEmpty ? "" : " " + String(format: String(localized: "agent.pendingRemovalCount"), pendingRemovals.count)))
+                        Text(String(format: String(localized: "agent.candidateCount"), draft.candidates.count) + (pendingRemovals.isEmpty ? "" : " " + String(format: String(localized: "agent.pendingRemovalCount"), pendingRemovals.count)))
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                         Spacer()
-                        Button(allCommitReadySelected ? String(localized: "agent.deselectAll") : String(localized: "agent.selectAll")) {
-                            store.setSelected(!allCommitReadySelected, ids: Set(commitReady.map(\.id)))
+                        Button(allCandidatesSelected ? String(localized: "agent.deselectAll") : String(localized: "agent.selectAll")) {
+                            store.setSelected(!allCandidatesSelected, ids: Set(draft.candidates.map(\.id)))
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(PrimaryTabPalette.accent)
-                        .disabled(commitReady.isEmpty || runState.isCommitting)
+                        .disabled(draft.candidates.isEmpty || runState.isCommitting)
                     }
 
                     Button { commit() } label: {
@@ -440,7 +439,7 @@ AgentIntroGlobeView(diameter: 208)
                     .disabled(!canCommit)
                     .opacity(canCommit || runState.isCommitting ? 1 : 0.45)
 
-                    if hasBlockingSelection {
+                    if hasInvalidSelection {
                         Text("agent.captionVerify")
                             .font(.caption)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -1105,7 +1104,7 @@ private struct LegacyAgentV2CandidateCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button { if candidate.isCommitReady { selection(!candidate.selected) } } label: {
+            Button { selection(!candidate.selected) } label: {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: candidate.selected ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
@@ -1149,7 +1148,7 @@ private struct LegacyAgentV2CandidateCard: View {
             }
             .buttonStyle(.plain)
             .accessibilityValue(candidate.selected ? String(localized: "common.selected") : String(localized: "common.notSelected"))
-            .accessibilityHint(candidate.isCommitReady ? String(localized: "common.tapToToggle") : "信息完整后才可选择")
+            .accessibilityHint(String(localized: "common.tapToToggle"))
 
             if let xiaohongshuURL {
                 Link(destination: xiaohongshuURL) {
@@ -1187,7 +1186,6 @@ private struct LegacyAgentV2CandidateCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(candidate.selected ? PrimaryTabPalette.accent.opacity(0.5) : Color.white.opacity(0.035), lineWidth: 1)
         }
-        .opacity(candidate.isCommitReady ? 1 : 0.72)
     }
 
     private var xiaohongshuURL: URL? {
