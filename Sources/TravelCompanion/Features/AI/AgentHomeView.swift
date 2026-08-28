@@ -2916,6 +2916,32 @@ private struct AgentLivePlaceCandidateCard: View {
     }
 }
 
+private struct AgentAirlineBadge: View {
+    let logoURL: URL?
+
+    var body: some View {
+        Group {
+            if let logoURL {
+                AsyncImage(url: logoURL) { image in
+                    image.resizable().scaledToFit().padding(5)
+                } placeholder: {
+                    placeholder
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(width: 32, height: 32)
+        .background(logoURL == nil ? PrimaryTabPalette.accent : Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var placeholder: some View {
+        Image(systemName: "airplane")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(.black)
+    }
+}
+
 private struct AgentLiveFlightCandidateCard: View {
     let card: AgentV2LiveCard
 
@@ -2954,11 +2980,7 @@ private struct AgentLiveFlightCandidateCard: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "airplane")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(.black)
-                .frame(width: 32, height: 32)
-                .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            AgentAirlineBadge(logoURL: card.airlineLogoImageURL)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(card.title)
@@ -3035,13 +3057,7 @@ private struct AgentLiveFlightCandidateCard: View {
     }
 
     private func airportCode(_ value: String?) -> String {
-        guard let value else { return "—" }
-        if let code = value.split(whereSeparator: { $0.isWhitespace || $0 == "(" || $0 == ")" })
-            .map(String.init)
-            .last(where: { $0.count == 3 && $0.allSatisfy { $0.isLetter && $0.isASCII } }) {
-            return code.uppercased()
-        }
-        return "—"
+        AgentFlightDisplay.airportCode(value)
     }
 }
 
@@ -3339,11 +3355,7 @@ private struct AgentFlightCandidateCard: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: "airplane")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.black)
-                    .frame(width: 32, height: 32)
-                    .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                AgentAirlineBadge(logoURL: candidate.airlineLogoImageURL)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(candidate.title)
                         .font(.subheadline.weight(.semibold))
@@ -3431,13 +3443,7 @@ private struct AgentFlightCandidateCard: View {
     }
 
     private func airportCode(_ value: String?) -> String {
-        guard let value else { return "—" }
-        if let code = value.split(whereSeparator: { $0.isWhitespace || $0 == "(" || $0 == ")" })
-            .map(String.init)
-            .last(where: { $0.count == 3 && $0.allSatisfy { $0.isLetter && $0.isASCII } }) {
-            return code.uppercased()
-        }
-        return "—"
+        AgentFlightDisplay.airportCode(value)
     }
 }
 
@@ -3558,6 +3564,9 @@ private struct AgentFlightDetailSheet: View {
                     .padding(.vertical, 7)
                     .background(PrimaryTabPalette.accent, in: Capsule())
                 Spacer()
+                if let logoURL = candidate.airlineLogoImageURL {
+                    AgentAirlineBadge(logoURL: logoURL)
+                }
                 if let price = candidate.agentPriceText {
                     Text(price).font(.headline.monospacedDigit()).foregroundStyle(.white)
                 }

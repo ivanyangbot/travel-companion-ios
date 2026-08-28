@@ -153,6 +153,9 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var bookingCode: String?
     var fromAirport: String?
     var toAirport: String?
+    var airlineCode: String? = nil
+    var airlineName: String? = nil
+    var airlineLogoURL: String? = nil
     var reason: String?
     var risks: [String]
     var missingFields: [String]
@@ -233,10 +236,77 @@ extension AgentV2Candidate {
         bookingCode = try container.decodeIfPresent(String.self, forKey: .bookingCode)
         fromAirport = try container.decodeIfPresent(String.self, forKey: .fromAirport)
         toAirport = try container.decodeIfPresent(String.self, forKey: .toAirport)
+        airlineCode = try container.decodeIfPresent(String.self, forKey: .airlineCode)
+        airlineName = try container.decodeIfPresent(String.self, forKey: .airlineName)
+        airlineLogoURL = try container.decodeIfPresent(String.self, forKey: .airlineLogoURL)
         reason = try container.decodeIfPresent(String.self, forKey: .reason)
         risks = try container.decodeIfPresent([String].self, forKey: .risks) ?? []
         missingFields = try container.decodeIfPresent([String].self, forKey: .missingFields) ?? []
         selected = try container.decodeIfPresent(Bool.self, forKey: .selected) ?? false
+    }
+}
+
+/// 航班展示字段的服务端无关解析：机场三字码与航司二字码。
+enum AgentFlightDisplay {
+    /// 从机场描述提取 IATA 三字码。模型常附加航站楼信息且可能使用全角
+    /// 括号（如 努拉莱伊机场（DPS）D 航站楼），按空格/半角括号分词会丢失
+    /// 代码，因此改为扫描独立的 3 个连续大写 ASCII 字母段。
+    static func airportCode(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "—" }
+        let range = NSRange(value.startIndex..., in: value)
+        if let match = iataCodeRegex.firstMatch(in: value, range: range),
+           let matchRange = Range(match.range(at: 1), in: value) {
+            return String(value[matchRange])
+        }
+        return "—"
+    }
+
+    /// 从航班号提取航司二字码（IATA 前缀），如 ID6331 → ID。
+    static func airlineCode(fromBookingCode value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        if let match = bookingCodeRegex.firstMatch(in: trimmed, range: range),
+           let matchRange = Range(match.range(at: 1), in: trimmed) {
+            return String(trimmed[matchRange]).uppercased()
+        }
+        return nil
+    }
+
+    private static let iataCodeRegex = try! NSRegularExpression(pattern: "(?:^|[^A-Z])([A-Z]{3})(?![A-Z])")
+    private static let bookingCodeRegex = try! NSRegularExpression(pattern: "^\\s*([A-Z0-9]{2})\\s*[- ]?\\s*\\d{1,4}[A-Z]?\\s*$", options: [.caseInsensitive])
+}
+
+extension AgentV2Candidate {
+    /// 展示用航司二字码：优先服务端 enrichment，缺失时从航班号前缀推导。
+    var displayAirlineCode: String? {
+        if let code = airlineCode?.trimmingCharacters(in: .whitespacesAndNewlines), !code.isEmpty {
+            return code.uppercased()
+        }
+        return AgentFlightDisplay.airlineCode(fromBookingCode: bookingCode)
+    }
+
+    /// 航司标识图：服务端下发的相对路径，或按航司码拼装的托管 logo 地址。
+    var airlineLogoImageURL: URL? {
+        if let path = airlineLogoURL?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
+            return CardImageURL.resolve(path)
+        }
+        guard let code = displayAirlineCode else { return nil }
+        return CardImageURL.resolve("/v1/airlines/logos/\(code).png")
+    }
+}
+
+extension AgentV2LiveCard {
+    /// 流式阶段的航司标识图：字段随 bookingCode 之后增量到达，未到达时
+    /// 退回从航班号推导。
+    var airlineLogoImageURL: URL? {
+        if let path = fields["airlineLogoURL"], !path.isEmpty {
+            return CardImageURL.resolve(path)
+        }
+        let code = fields["airlineCode"].flatMap { $0.isEmpty ? nil : $0.uppercased() }
+            ?? AgentFlightDisplay.airlineCode(fromBookingCode: fields["bookingCode"])
+        guard let code else { return nil }
+        return CardImageURL.resolve("/v1/airlines/logos/\(code).png")
     }
 }
 
