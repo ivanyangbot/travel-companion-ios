@@ -52,6 +52,7 @@ struct AgentHomeView: View {
     @FocusState private var isComposerFocused: Bool
     @State private var message = ""
     @State private var isShowingPhotoPicker = false
+    @State private var photoPickerSelection: [PhotosPickerItem] = []
     @State private var isShowingCameraPicker = false
     @State private var isShowingDocumentPicker = false
     @State private var isProcessingAttachment = false
@@ -340,24 +341,21 @@ struct AgentHomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
-            .overlay {
-                if isShowingPhotoPicker {
-                    AgentPhotoPickerOverlay(
-                        maximumSelectionCount: max(1, remainingAttachmentSlots),
-                        onPick: { results in
-                            withAnimation(.easeOut(duration: 0.22)) {
-                                isShowingPhotoPicker = false
-                            }
-                            loadPhotosPickerItems(results)
-                        },
-                        onDismiss: {
-                            withAnimation(.easeOut(duration: 0.22)) {
-                                isShowingPhotoPicker = false
-                            }
-                        }
-                    )
-                    .zIndex(100)
-                }
+            // 直接使用系统 presentation，而不是把跨进程 Photos 内容嵌进
+            // 自定义 overlay。系统由此完整管理半屏、Face ID 重建、触摸命中
+            // 与取消/完成按钮，宿主页面也不会再插入一层灰色 SwiftUI sheet。
+            .photosPicker(
+                isPresented: $isShowingPhotoPicker,
+                selection: $photoPickerSelection,
+                maxSelectionCount: max(1, remainingAttachmentSlots),
+                selectionBehavior: .ordered,
+                matching: .images,
+                preferredItemEncoding: .current
+            )
+            .onChange(of: photoPickerSelection) { _, selection in
+                guard !selection.isEmpty else { return }
+                loadPhotosPickerItems(selection)
+                photoPickerSelection = []
             }
             .sheet(isPresented: Binding(
                 get: { isShowingTripSharing },
@@ -2150,9 +2148,7 @@ struct AgentHomeView: View {
     private func presentPhotoPicker() {
         guard reserveAttachmentSlot() else { return }
         isComposerFocused = false
-        withAnimation(.easeOut(duration: 0.22)) {
-            isShowingPhotoPicker = true
-        }
+        isShowingPhotoPicker = true
     }
 
     private func presentDocumentPicker() {
