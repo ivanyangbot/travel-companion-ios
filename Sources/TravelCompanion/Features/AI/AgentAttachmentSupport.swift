@@ -160,6 +160,7 @@ struct AgentAttachmentPreviewCard: View {
 /// the conversation rather than editable composer state.
 struct AgentSentAttachmentStrip: View {
     let attachments: [AgentV2TurnRequest.Attachment]
+    @State private var previewedAttachment: AgentV2TurnRequest.Attachment?
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -172,12 +173,17 @@ struct AgentSentAttachmentStrip: View {
             .scrollClipDisabled(false)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .fullScreenCover(item: $previewedAttachment) { attachment in
+            AgentSentImagePreview(attachment: attachment)
+        }
     }
 
     private var attachmentRow: some View {
         HStack(spacing: 8) {
             ForEach(attachments) { attachment in
-                AgentSentAttachmentCard(attachment: attachment)
+                AgentSentAttachmentCard(attachment: attachment) {
+                    previewedAttachment = attachment
+                }
             }
         }
     }
@@ -185,21 +191,26 @@ struct AgentSentAttachmentStrip: View {
 
 private struct AgentSentAttachmentCard: View {
     let attachment: AgentV2TurnRequest.Attachment
+    let onImageTap: () -> Void
 
     @ViewBuilder
     var body: some View {
         if attachment.mediaType.hasPrefix("image/"),
            let data = attachment.decodedData,
            let image = UIImage(data: data) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 76, height: 76)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(.white.opacity(0.16), lineWidth: 0.5)
-                )
+            Button(action: onImageTap) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 76, height: 76)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(.white.opacity(0.16), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(attachment.fileName ?? String(localized: "attachment.imageFallback"))
         } else {
             Image(systemName: "doc.fill")
                 .font(.title3)
@@ -212,6 +223,100 @@ private struct AgentSentAttachmentCard: View {
                 )
                 .accessibilityLabel(attachment.fileName ?? String(localized: "attachment.fileFallback"))
         }
+    }
+}
+
+private struct AgentSentImagePreview: View {
+    @Environment(\.dismiss) private var dismiss
+    let attachment: AgentV2TurnRequest.Attachment
+
+    @State private var scale: CGFloat = 1
+    @State private var settledScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var settledOffset: CGSize = .zero
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+
+            if let data = attachment.decodedData,
+               let image = UIImage(data: data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .gesture(zoomGesture.simultaneously(with: panGesture))
+                    .onTapGesture(count: 2, perform: toggleZoom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.66), in: Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.2), lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 12)
+            .padding(.trailing, 16)
+            .accessibilityLabel(Text("common.close"))
+        }
+        .presentationBackground(.black)
+        .statusBarHidden()
+    }
+
+    private var zoomGesture: some Gesture {
+        MagnifyGesture(minimumScaleDelta: 0.01)
+            .onChanged { value in
+                scale = min(5, max(1, settledScale * value.magnification))
+            }
+            .onEnded { _ in
+                settledScale = scale
+                if scale == 1 {
+                    resetOffset()
+                }
+            }
+    }
+
+    private var panGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard scale > 1 else { return }
+                offset = CGSize(
+                    width: settledOffset.width + value.translation.width,
+                    height: settledOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                if scale > 1 {
+                    settledOffset = offset
+                } else {
+                    resetOffset()
+                }
+            }
+    }
+
+    private func toggleZoom() {
+        withAnimation(.easeInOut(duration: 0.22)) {
+            if scale > 1 {
+                scale = 1
+                settledScale = 1
+                resetOffset()
+            } else {
+                scale = 2
+                settledScale = 2
+            }
+        }
+    }
+
+    private func resetOffset() {
+        offset = .zero
+        settledOffset = .zero
     }
 }
 
