@@ -1,9 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// A cinematic, read-only dossier for the itinerary card and its linked POI.
-/// Every server-backed card and place field remains visible here so a traveller
-/// can use the page as the single source of truth while on the move.
+/// 与 Agent 候选详情共用视觉层级的只读行程详情。
+/// 对用户展示可执行的行程、地点、提示和来源信息，隐藏内部同步字段。
 struct CardDetailView: View {
     let card: TravelCardSnapshot
     let currency: String?
@@ -11,179 +10,163 @@ struct CardDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var linkHandler = ExternalLinkHandler()
     @State private var copiedField: String?
+    @State private var imageIndex = 0
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                background
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        hero
-                        quickFacts
-                        if let description = card.description, !description.isEmpty {
-                            narrative(description)
-                        }
-                        itinerarySection
-                        if let place = card.place {
-                            poiSection(place)
-                        }
-                        if let tips = card.tips, !tips.isEmpty {
-                            tipsSection(tips)
-                        }
-                        if let notes = card.notes, !notes.isEmpty {
-                            notesSection(notes)
-                        }
-                        auditSection
+        ZStack(alignment: .topTrailing) {
+            background
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    hero
+                    titleBlock
+                    if let description = card.description, !description.isEmpty {
+                        narrative(description)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 32)
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "chevron.down")
-                            .font(.headline.weight(.bold))
-                            .frame(width: 38, height: 38)
-                            .background(.thinMaterial, in: Circle())
+                    itinerarySection
+                    if let place = card.place {
+                        poiSection(place)
                     }
-                    .accessibilityLabel(Text("carddetail.closeA11y"))
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if let url = validatedCardURL {
-                        ShareLink(item: url, subject: Text(card.title), message: Text("common.shareCardMessage")) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.headline.weight(.semibold))
-                                .frame(width: 38, height: 38)
-                                .background(.thinMaterial, in: Circle())
-                        }
-                        .accessibilityLabel(Text("carddetail.shareA11y"))
+                    if let tips = card.tips, !tips.isEmpty {
+                        tipsSection(tips)
+                    }
+                    if let notes = card.notes, !notes.isEmpty {
+                        notesSection(notes)
+                    }
+                    if !displaySources.isEmpty {
+                        sourcesSection
                     }
                 }
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+                .padding(.bottom, 36)
             }
-            .sheet(isPresented: Binding(
-                get: { linkHandler.browserURL != nil },
-                set: { if !$0 { linkHandler.browserURL = nil } }
-            )) {
-                if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
+            .scrollDismissesKeyboard(.interactively)
+
+            HStack(spacing: 10) {
+                if let url = validatedCardURL {
+                    ShareLink(item: url, subject: Text(card.title), message: Text("common.shareCardMessage")) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 46, height: 46)
+                            .background(.black.opacity(0.72), in: Circle())
+                    }
+                    .accessibilityLabel(Text("carddetail.shareA11y"))
+                }
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                        .background(.black.opacity(0.76), in: Circle())
+                }
+                .accessibilityLabel(Text("agent.closeDetailsA11y"))
             }
-            .alert("common.copied", isPresented: Binding(
-                get: { copiedField != nil },
-                set: { if !$0 { copiedField = nil } }
-            )) {
-                Button("common.ok", role: .cancel) { copiedField = nil }
-            } message: {
-                Text(String(format: String(localized: "common.copiedToClipboard"), copiedField ?? String(localized: "common.copiedToClipboardField")))
-            }
-            .alert("common.cannotOpenLink", isPresented: Binding(
-                get: { linkHandler.alertMessage != nil },
-                set: { if !$0 { linkHandler.alertMessage = nil } }
-            )) {
-                Button("common.ok", role: .cancel) { linkHandler.alertMessage = nil }
-            } message: {
-                Text(linkHandler.alertMessage ?? "")
-            }
+            .padding(.top, 18)
+            .padding(.trailing, 24)
         }
+        .sheet(isPresented: Binding(
+            get: { linkHandler.browserURL != nil },
+            set: { if !$0 { linkHandler.browserURL = nil } }
+        )) {
+            if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
+        }
+        .alert("common.copied", isPresented: Binding(
+            get: { copiedField != nil },
+            set: { if !$0 { copiedField = nil } }
+        )) {
+            Button("common.ok", role: .cancel) { copiedField = nil }
+        } message: {
+            Text(String(format: String(localized: "common.copiedToClipboard"), copiedField ?? String(localized: "common.copiedToClipboardField")))
+        }
+        .alert("common.cannotOpenLink", isPresented: Binding(
+            get: { linkHandler.alertMessage != nil },
+            set: { if !$0 { linkHandler.alertMessage = nil } }
+        )) {
+            Button("common.ok", role: .cancel) { linkHandler.alertMessage = nil }
+        } message: {
+            Text(linkHandler.alertMessage ?? "")
+        }
+        .preferredColorScheme(.dark)
     }
 
     private var background: some View {
-        LinearGradient(
-            colors: [tint.opacity(0.24), Color.indigo.opacity(0.14), Color(uiColor: .systemBackground)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        PrimaryTabPalette.background.ignoresSafeArea()
     }
 
     private var hero: some View {
-        ZStack(alignment: .bottomLeading) {
-            heroImage
-            LinearGradient(colors: [.clear, .black.opacity(0.72)], startPoint: .center, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Label(card.kind.title, systemImage: card.kind.systemImage)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
+        CardDetailImagePager(urls: imageURLs, selection: $imageIndex, height: imageURLs.isEmpty ? 144 : 252, tint: tint, placeholderIcon: card.kind.systemImage)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.26), radius: 18, y: 10)
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Label(card.kind.title, systemImage: card.kind.systemImage)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(tint.opacity(0.13), in: Capsule())
+                if card.place?.latitude != nil {
+                    Label("carddetail.coordsSet", systemImage: "checkmark.seal.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.green)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
-                        .background(tint.opacity(0.9), in: Capsule())
-                    Text("carddetail.heroSubtitle")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.78))
-                }
-                Text(card.title)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .lineLimit(3)
-                    .minimumScaleFactor(0.8)
-                Text(timeText)
-                    .font(.subheadline.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.white.opacity(0.86))
-            }
-            .padding(22)
-        }
-        .frame(height: 330)
-        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .shadow(color: tint.opacity(0.24), radius: 24, y: 14)
-        .padding(.top, 6)
-    }
-
-    @ViewBuilder
-    private var heroImage: some View {
-        if let firstImage = (card.images ?? []).compactMap({ CardImageURL.resolve($0) }).first {
-            AsyncImage(url: firstImage) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                case .empty:
-                    Rectangle().fill(tint.opacity(0.35)).overlay { ProgressView().tint(.white) }
-                default:
-                    heroPlaceholder
+                        .background(Color.green.opacity(0.11), in: Capsule())
                 }
             }
-        } else {
-            heroPlaceholder
-        }
-    }
-
-    private var heroPlaceholder: some View {
-        LinearGradient(colors: [tint, .indigo, .black.opacity(0.9)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            .overlay(alignment: .topTrailing) {
-                Image(systemName: card.kind.systemImage)
-                    .font(.system(size: 120, weight: .thin))
-                    .foregroundStyle(.white.opacity(0.16))
-                    .padding(18)
-            }
-    }
-
-    private var quickFacts: some View {
-        HStack(spacing: 10) {
-            factTile(String(localized: "carddetail.timeLabel"), value: timeText, icon: "clock.fill")
-            if let stay = card.stayDurationMinutes {
-                factTile(String(localized: "carddetail.stayLabel"), value: stayText(stay), icon: "hourglass")
-            }
-            if let place = card.place {
-                factTile(String(localized: "carddetail.coordsLabel"), value: place.latitude == nil ? String(localized: "carddetail.coordsPending") : String(localized: "carddetail.coordsSet"), icon: "location.fill")
+            Text(card.title)
+                .font(.system(size: 27, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+            Label(dateTimeText(card.startAt), systemImage: "calendar")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+            HStack(spacing: 8) {
+                if let price = displayPrice {
+                    detailBadge(price, icon: "tag.fill")
+                }
+                if let stay = card.stayDurationMinutes {
+                    detailBadge(stayText(stay), icon: "hourglass")
+                }
             }
         }
     }
 
-    private func factTile(_ title: String, value: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Image(systemName: icon).font(.caption.weight(.bold)).foregroundStyle(tint)
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.subheadline.weight(.semibold)).lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
-        .padding(13)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+    private func detailBadge(_ value: String, icon: String) -> some View {
+        Label(value, systemImage: icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.86))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.white.opacity(0.07), in: Capsule())
+    }
+
+    private var imageURLs: [URL] {
+        (card.images ?? []).compactMap(CardImageURL.resolve)
+    }
+
+    private var displayPrice: String? {
+        CardPrice.format(minor: card.actualPriceMinor, currency: currency)
+            ?? CardPrice.format(minor: card.priceMinor, currency: currency)
+            ?? CardPrice.format(minor: card.ticketPriceMinor, currency: currency)
     }
 
     private func narrative(_ description: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle(String(localized: "carddetail.storySection"), icon: "quote.opening")
-            Text(description).font(.body).lineSpacing(5)
+            sectionTitle(String(localized: "agent.sectionIntro"), icon: "text.alignleft")
+            Text(description)
+                .font(.body)
+                .foregroundStyle(.white.opacity(0.86))
+                .lineSpacing(5)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .detailSurface(tint: tint)
     }
@@ -216,60 +199,58 @@ struct CardDetailView: View {
             if let booking = card.bookingCode, !booking.isEmpty {
                 copyableRow(String(localized: "carddetail.orderId"), value: booking, icon: "number")
             }
-            ForEach(Array(displaySources.enumerated()), id: \.element.id) { index, source in
-                Button { linkHandler.openPublicLink(source.url) } label: {
-                    sourceRow(source, showsSectionLabel: index == 0)
-                }
-                .buttonStyle(.plain)
-            }
         }
         .detailSurface(tint: tint)
     }
 
     private func poiSection(_ place: PlaceSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                sectionTitle(String(localized: "carddetail.poiSection"), icon: "mappin.circle.fill")
-                Spacer()
-                if place.latitude != nil, place.longitude != nil {
-                    Button("carddetail.mapButton", systemImage: "map.fill") { linkHandler.openInMaps(for: place) }
+            sectionTitle(String(localized: "agent.sectionPlace"), icon: "mappin.and.ellipse")
+            Button { linkHandler.openInMaps(for: place) } label: {
+                HStack(spacing: 13) {
+                    Image(systemName: "map.fill")
+                        .font(.title3)
+                        .foregroundStyle(PrimaryTabPalette.accent)
+                        .frame(width: 42, height: 42)
+                        .background(PrimaryTabPalette.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(place.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                        if let address = place.address, !address.isEmpty {
+                            Text(address)
+                                .font(.caption)
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "arrow.up.right")
                         .font(.caption.weight(.bold))
-                        .buttonStyle(.borderedProminent)
-                        .tint(tint)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
+                .padding(14)
+                .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(place.name).font(.title3.weight(.bold))
-                Text(String(format: String(localized: "carddetail.poiNumber"), place.id)).font(.caption.monospaced()).foregroundStyle(.secondary)
-            }
-            if let address = place.address, !address.isEmpty {
-                copyableRow(String(localized: "carddetail.address"), value: address, icon: "building.2.fill")
-            }
-            if let latitude = place.latitude, let longitude = place.longitude {
-                copyableRow(String(localized: "carddetail.geoCoords"), value: String(format: String(localized: "carddetail.coordFormat"), latitude, longitude), icon: "scope")
-            }
-            if let placeID = place.placeId, !placeID.isEmpty {
-                copyableRow(String(localized: "carddetail.placeId"), value: placeID, icon: "key.fill")
-            }
-            if let cityCode = place.cityCode, !cityCode.isEmpty {
-                copyableRow(String(localized: "carddetail.cityCode"), value: cityCode, icon: "building.columns.fill")
-            }
-            detailRow(String(localized: "carddetail.poiUpdated"), value: dateTimeText(place.updatedAt), icon: "arrow.triangle.2.circlepath")
+            .buttonStyle(.plain)
+            .disabled(place.latitude == nil || place.longitude == nil)
         }
         .detailSurface(tint: tint)
     }
 
     private func tipsSection(_ tips: [String]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionTitle(String(localized: "carddetail.tipsSection"), icon: "sparkles")
-            ForEach(Array(tips.enumerated()), id: \.offset) { index, tip in
-                HStack(alignment: .top, spacing: 11) {
-                    Text("\(index + 1)")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 24, height: 24)
-                        .background(tint, in: Circle())
-                    Text(tip).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            sectionTitle(String(localized: "agent.sectionTips"), icon: "lightbulb.fill")
+            ForEach(tips, id: \.self) { tip in
+                HStack(alignment: .top, spacing: 9) {
+                    Circle()
+                        .fill(PrimaryTabPalette.accent)
+                        .frame(width: 5, height: 5)
+                        .padding(.top, 7)
+                    Text(tip)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.82))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -284,17 +265,22 @@ struct CardDetailView: View {
         .detailSurface(tint: tint)
     }
 
-    private var auditSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle(String(localized: "carddetail.dataSection"), icon: "checkmark.seal.fill")
-            detailRow(String(localized: "carddetail.cardId"), value: card.serverID.map(String.init) ?? String(localized: "carddetail.notSynced"), icon: "number")
-            detailRow(String(localized: "carddetail.dayId"), value: String(card.dayID), icon: "calendar")
-            detailRow(String(localized: "carddetail.sortIndex"), value: String(card.position), icon: "list.number")
-            detailRow(String(localized: "carddetail.cardUpdated"), value: dateTimeText(card.updatedAt), icon: "clock.arrow.circlepath")
-            detailRow(String(localized: "carddetail.imageCount"), value: String(card.images?.count ?? 0), icon: "photo.on.rectangle")
+    private var sourcesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle(String(localized: "agent.sectionSources"), icon: "link")
+            VStack(spacing: 0) {
+                ForEach(Array(displaySources.enumerated()), id: \.element.id) { index, source in
+                    Button { linkHandler.openPublicLink(source.url) } label: {
+                        sourceRow(source, showsSectionLabel: false)
+                    }
+                    .buttonStyle(.plain)
+                    if index < displaySources.count - 1 {
+                        Divider().overlay(Color.white.opacity(0.08))
+                    }
+                }
+            }
         }
         .detailSurface(tint: tint)
-        .opacity(0.8)
     }
 
     private func sectionTitle(_ title: String, icon: String) -> some View {
@@ -329,25 +315,26 @@ struct CardDetailView: View {
         .accessibilityHint(Text("carddetail.copyHint"))
     }
 
-    private func sourceRow(_ source: TravelCardSource, showsSectionLabel: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Image(systemName: sourceIcon(source)).foregroundStyle(tint).frame(width: 20)
-            Text(showsSectionLabel ? String(localized: "carddetail.links") : "")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 12)
-            VStack(alignment: .trailing, spacing: 2) {
+    private func sourceRow(_ source: TravelCardSource, showsSectionLabel _: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: sourceIcon(source))
+                .font(.body.weight(.semibold))
+                .foregroundStyle(PrimaryTabPalette.accent)
+                .frame(width: 36, height: 36)
+                .background(PrimaryTabPalette.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
                 Text(sourceTitle(source))
                     .font(.subheadline.weight(.medium))
-                    .multilineTextAlignment(.trailing)
+                    .foregroundStyle(.white)
                     .lineLimit(2)
                 if let author = source.author, !author.isEmpty {
                     Text(author)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    .lineLimit(1)
                 }
             }
+            Spacer(minLength: 12)
             Image(systemName: "arrow.up.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.tertiary)
@@ -402,15 +389,6 @@ struct CardDetailView: View {
         return "web"
     }
 
-    private var timeText: String {
-        if let endAt = card.endAt { return String(format: String(localized: "carddetail.timeRange"), timeOnlyText(card.startAt), timeOnlyText(endAt)) }
-        return timeOnlyText(card.startAt)
-    }
-
-    private func timeOnlyText(_ date: Date) -> String {
-        Self.timeFormatter.string(from: date)
-    }
-
     private func dateTimeText(_ date: Date) -> String {
         Self.dateTimeFormatter.string(from: date)
     }
@@ -428,19 +406,85 @@ struct CardDetailView: View {
         copiedField = label
     }
 
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
-
     private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.locale = .autoupdatingCurrent
         formatter.dateFormat = String(localized: "carddetail.dateFormat.full")
         return formatter
     }()
+}
+
+private struct CardDetailImagePager: View {
+    let urls: [URL]
+    @Binding var selection: Int
+    let height: CGFloat
+    let tint: Color
+    let placeholderIcon: String
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            if urls.isEmpty {
+                placeholder(icon: placeholderIcon)
+            } else {
+                TabView(selection: $selection) {
+                    ForEach(Array(urls.enumerated()), id: \.offset) { index, url in
+                        AsyncImage(url: url, transaction: Transaction(animation: .easeInOut(duration: 0.25))) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable().scaledToFill()
+                            case .failure:
+                                placeholder(icon: "photo.badge.exclamationmark")
+                            case .empty:
+                                ZStack {
+                                    placeholder(icon: "photo")
+                                    ProgressView().tint(.white.opacity(0.8))
+                                }
+                            @unknown default:
+                                placeholder(icon: "photo")
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: height)
+                        .clipped()
+                        .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+            }
+
+            LinearGradient(colors: [.clear, .black.opacity(0.48)], startPoint: .center, endPoint: .bottom)
+                .allowsHitTesting(false)
+
+            if urls.count > 1 {
+                Text(String(format: String(localized: "agent.pagerFormat"), selection + 1, urls.count))
+                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(.black.opacity(0.62), in: Capsule())
+                    .padding(12)
+                    .accessibilityLabel(Text(String(format: String(localized: "agent.pagerA11y"), selection + 1, urls.count)))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .clipped()
+    }
+
+    private func placeholder(icon: String) -> some View {
+        ZStack {
+            LinearGradient(
+                colors: [tint.opacity(0.42), PrimaryTabPalette.elevatedSurface],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: icon)
+                .font(.system(size: 42, weight: .light))
+                .foregroundStyle(.white.opacity(0.54))
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+    }
 }
 
 private struct DetailSurface: ViewModifier {
@@ -450,10 +494,10 @@ private struct DetailSurface: ViewModifier {
         content
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+            .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .stroke(tint.opacity(0.12), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
             }
     }
 }

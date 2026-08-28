@@ -169,7 +169,10 @@ struct ItineraryView: View {
             }
             .sheet(item: $detailCard) { card in
                 CardDetailView(card: card, currency: syncEngine.trip?.currency)
+                    .presentationDetents([.fraction(0.82), .large])
                     .presentationDragIndicator(.visible)
+                    .presentationCornerRadius(30)
+                    .presentationBackground(PrimaryTabPalette.background)
             }
             .sheet(item: $activeCardEditor) { target in
                 CardEditorView(

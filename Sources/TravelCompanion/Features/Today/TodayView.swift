@@ -80,7 +80,11 @@ struct TodayView: View {
             userLocationProvider.start()
         }
         .sheet(item: $detailCard) { card in
-            TodayCardDetailSheet(card: card, linkHandler: linkHandler)
+            CardDetailView(card: card, currency: syncEngine.trip?.currency)
+                .presentationDetents([.fraction(0.82), .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(30)
+                .presentationBackground(PrimaryTabPalette.background)
         }
         .sheet(isPresented: Binding(
             get: { showsSharingSheet },
@@ -2499,7 +2503,7 @@ private struct POICard: View {
             .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
     }
 
-    /// 与 CardDetailView / TodayCardDetailSheet 一致的卡片类型配色。
+    /// 与统一的 CardDetailView 一致的卡片类型配色。
     private var kindTint: Color {
         switch card.kind {
         case .flight: .blue
@@ -2593,115 +2597,4 @@ private struct POICard: View {
         return formatter.string(from: card.startAt)
     }
 
-}
-
-private struct TodayCardDetailSheet: View {
-    let card: TravelCardSnapshot
-    @ObservedObject var linkHandler: ExternalLinkHandler
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    timeRow
-                    if let place = card.place { placeRow(place) }
-                    if let code = card.bookingCode, !code.isEmpty { bookingRow(code) }
-                    if let notes = card.notes, !notes.isEmpty {
-                        Text(notes).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    actions
-                }
-                .padding()
-            }
-            .navigationTitle(card.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("common.done") { dismiss() } }
-            }
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: card.kind.systemImage)
-                .font(.title2)
-                .foregroundStyle(tint)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(card.kind.title).font(.caption.weight(.semibold)).foregroundStyle(tint)
-                Text(card.title).font(.title3.bold())
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .glassEffect(.regular.tint(tint.opacity(0.15)), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var timeRow: some View {
-        Label(timeText, systemImage: "clock")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-    }
-
-    private func placeRow(_ place: PlaceSnapshot) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "mappin").foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(place.name).font(.subheadline.weight(.medium))
-                if let address = place.address, !address.isEmpty {
-                    Text(address).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-        }
-        .padding(14)
-        .glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(alignment: .bottomTrailing) {
-            Button("today.onMapButton", systemImage: "location") { linkHandler.openInMaps(for: place) }
-                .buttonStyle(.glass)
-                .disabled(place.latitude == nil || place.longitude == nil)
-                .padding(8)
-        }
-    }
-
-    private func bookingRow(_ code: String) -> some View {
-        Text(String(format: String(localized: "common.orderNumber"), code))
-            .font(.subheadline.monospaced())
-            .padding(12)
-            .glassEffect(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    @ViewBuilder
-    private var actions: some View {
-        if let value = card.url, let url = ExternalLinkHandler.validatedHTTPSURL(value) {
-            HStack(spacing: 10) {
-                Button("common.openLink", systemImage: "arrow.up.right.square") { linkHandler.openPublicLink(value) }
-                    .buttonStyle(.glass)
-                    .frame(minHeight: 44)
-                ShareLink(item: url, subject: Text(card.title), message: Text("common.shareCardMessage")) {
-                    Label("common.share", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(.glass)
-                .frame(minHeight: 44)
-            }
-        }
-    }
-
-    private var timeText: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = String(localized: "today.dateFormat.monthDayTime")
-        if let endAt = card.endAt { return "\(formatter.string(from: card.startAt)) — \(formatter.string(from: endAt))" }
-        return formatter.string(from: card.startAt)
-    }
-
-    private var tint: Color {
-        switch card.kind {
-        case .flight: .blue
-        case .hotel: .indigo
-        case .activity: .teal
-        }
-    }
 }

@@ -347,6 +347,7 @@
 "travelcard.openInAppleMaps" = "在 Apple 地图打开";
 "travelcard.planRoute" = "规划路线";
 "travelcard.placeActionsA11y" = "地点操作";
+"travelcard.viewDetails" = "查看详情";
 "kind.flight" = "机票";
 "kind.hotel" = "酒店";
 "kind.activity" = "活动";

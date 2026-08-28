@@ -347,6 +347,7 @@
 "travelcard.openInAppleMaps" = "Open in Apple Maps";
 "travelcard.planRoute" = "Plan Route";
 "travelcard.placeActionsA11y" = "Place actions";
+"travelcard.viewDetails" = "View details";
 "kind.flight" = "Flight";
 "kind.hotel" = "Hotel";
 "kind.activity" = "Activity";

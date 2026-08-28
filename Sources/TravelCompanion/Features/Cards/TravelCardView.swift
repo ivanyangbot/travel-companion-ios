@@ -17,6 +17,21 @@ struct TravelCardView: View {
     @State private var showsRoute = false
 
     var body: some View {
+        Group {
+            if card.kind == .flight {
+                flightTicketCard
+            } else {
+                standardCard
+            }
+        }
+        .alert("common.copied", isPresented: Binding(get: { copiedValue != nil }, set: { if !$0 { copiedValue = nil } })) {
+            Button("common.ok", role: .cancel) { copiedValue = nil }
+        } message: {
+            Text("common.copiedPrivacyNote")
+        }
+    }
+
+    private var standardCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             imageSwiper
             header
@@ -25,9 +40,6 @@ struct TravelCardView: View {
             }
             if showsTime {
                 timeRow
-            }
-            if card.kind == .flight, let from = card.fromAirport, let to = card.toAirport, !from.isEmpty, !to.isEmpty {
-                flightRouteRow(from: from, to: to)
             }
             if let place = card.place { placeRow(place) }
             // 预估价/实际价只显示一个：填写了实际价就优先展示实际价。
@@ -50,10 +62,145 @@ struct TravelCardView: View {
             actions
         }
         .travelCardStyle(tint: tint)
-        .alert("common.copied", isPresented: Binding(get: { copiedValue != nil }, set: { if !$0 { copiedValue = nil } })) {
-            Button("common.ok", role: .cancel) { copiedValue = nil }
-        } message: {
-            Text("common.copiedPrivacyNote")
+    }
+
+    private var flightTicketCard: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 18) {
+                flightHeader
+                flightRoute
+                if let summary = flightSummary {
+                    Text(summary)
+                        .font(.footnote)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(16)
+
+            flightTicketDivider
+
+            HStack(spacing: 12) {
+                if let price = flightPrice {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(card.actualPriceMinor == nil ? String(localized: "travelcard.estimateLabel") : String(localized: "travelcard.actualLabel"))
+                            .font(.caption2)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        Text(price)
+                            .font(.headline.monospacedDigit())
+                            .foregroundStyle(.white)
+                    }
+                } else if let airlineName = card.airlineName, !airlineName.isEmpty {
+                    Text(airlineName)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 6) {
+                    Text("travelcard.viewDetails")
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+            }
+            .frame(minHeight: 48)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .background {
+            LinearGradient(
+                colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 18, y: 9)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var flightHeader: some View {
+        HStack(alignment: .top, spacing: 11) {
+            AirlineLogoBadge(logoURL: persistedAirlineLogoURL, size: 38, cornerRadius: 11)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                Text(flightNumberText)
+                    .font(.caption.monospaced().weight(.medium))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+            Spacer(minLength: 6)
+            cardActionsMenu
+                .foregroundStyle(.white.opacity(0.82))
+        }
+    }
+
+    private var flightRoute: some View {
+        HStack(alignment: .center, spacing: 10) {
+            flightAirportBlock(value: card.fromAirport, time: timeOnly(card.startAt), alignment: .leading)
+            VStack(spacing: 7) {
+                Image(systemName: "airplane")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                HStack(spacing: 4) {
+                    Circle().fill(Color.white.opacity(0.25)).frame(width: 4, height: 4)
+                    Rectangle().fill(Color.white.opacity(0.18)).frame(height: 1)
+                    Circle().fill(Color.white.opacity(0.25)).frame(width: 4, height: 4)
+                }
+                Text(Self.flightDateFormatter.string(from: card.startAt))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            flightAirportBlock(
+                value: card.toAirport,
+                time: card.endAt.map(timeOnly) ?? String(localized: "agent.timePending"),
+                alignment: .trailing
+            )
+        }
+    }
+
+    private func flightAirportBlock(value: String?, time: String, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 5) {
+            Text(AgentFlightDisplay.airportCode(value))
+                .font(.system(size: 29, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.75)
+            Text(nonEmpty(value) ?? String(localized: "agent.airportPending"))
+                .font(.caption2)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+            Text(time)
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white.opacity(0.88))
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private var flightTicketDivider: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<20, id: \.self) { _ in
+                Capsule().fill(Color.white.opacity(0.10)).frame(maxWidth: .infinity).frame(height: 1)
+            }
+        }
+        .overlay(alignment: .leading) {
+            Circle().fill(PrimaryTabPalette.background).frame(width: 18, height: 18).offset(x: -9)
+        }
+        .overlay(alignment: .trailing) {
+            Circle().fill(PrimaryTabPalette.background).frame(width: 18, height: 18).offset(x: 9)
         }
     }
 
@@ -81,16 +228,6 @@ struct TravelCardView: View {
             .tabViewStyle(.page(indexDisplayMode: urls.count > 1 ? .automatic : .never))
             .frame(height: 160)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-    }
-
-    private func flightRouteRow(from: String, to: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "airplane.departure").foregroundStyle(.secondary)
-            Text(from).font(.subheadline.weight(.semibold))
-            Image(systemName: "arrow.right").foregroundStyle(.secondary).font(.caption)
-            Text(to).font(.subheadline.weight(.semibold))
-            Spacer()
         }
     }
 
@@ -158,17 +295,21 @@ struct TravelCardView: View {
                 Text(card.title).font(.headline)
             }
             Spacer(minLength: 8)
-            Menu {
-                Button("common.edit", systemImage: "pencil", action: onEdit)
-                Button("travelcard.moveUp", systemImage: "arrow.up", action: { onMove(-1) }).disabled(!canMoveUp)
-                Button("travelcard.moveDown", systemImage: "arrow.down", action: { onMove(1) }).disabled(!canMoveDown)
-                Button("common.delete", systemImage: "trash", role: .destructive, action: onDelete)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .frame(minWidth: 44, minHeight: 44)
-            }
-            .accessibilityLabel(Text(String(format: String(localized: "common.moreActions"), card.title)))
+            cardActionsMenu
         }
+    }
+
+    private var cardActionsMenu: some View {
+        Menu {
+            Button("common.edit", systemImage: "pencil", action: onEdit)
+            Button("travelcard.moveUp", systemImage: "arrow.up", action: { onMove(-1) }).disabled(!canMoveUp)
+            Button("travelcard.moveDown", systemImage: "arrow.down", action: { onMove(1) }).disabled(!canMoveDown)
+            Button("common.delete", systemImage: "trash", role: .destructive, action: onDelete)
+        } label: {
+            Image(systemName: "ellipsis")
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .accessibilityLabel(Text(String(format: String(localized: "common.moreActions"), card.title)))
     }
 
     private var persistedAirlineLogoURL: URL? {
@@ -176,6 +317,28 @@ struct TravelCardView: View {
         let code = card.airlineCode ?? AgentFlightDisplay.airlineCode(fromBookingCode: card.bookingCode)
         guard let code else { return nil }
         return CardImageURL.resolve("/v1/airlines/logos/\(code).png")
+    }
+
+    private var flightNumberText: String {
+        nonEmpty(card.bookingCode) ?? nonEmpty(card.airlineCode) ?? String(localized: "agent.flightNumberPending")
+    }
+
+    private var flightSummary: String? {
+        nonEmpty(card.description) ?? nonEmpty(card.notes)
+    }
+
+    private var flightPrice: String? {
+        CardPrice.format(minor: card.actualPriceMinor, currency: currency)
+            ?? CardPrice.format(minor: card.priceMinor, currency: currency)
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return value
+    }
+
+    private func timeOnly(_ date: Date) -> String {
+        Self.flightTimeFormatter.string(from: date)
     }
 
     private var timeRow: some View {
@@ -260,6 +423,21 @@ struct TravelCardView: View {
         case .activity: .teal
         }
     }
+
+    private static let flightTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+
+    private static let flightDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMMd")
+        return formatter
+    }()
 
     private func copy(_ value: String) {
         UIPasteboard.general.string = value
