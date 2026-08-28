@@ -100,9 +100,6 @@ struct ExpenseListView: View {
         .frame(height: 48)
         .padding(.horizontal, 20)
         .padding(.top, 2)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(PrimaryTabPalette.divider).frame(height: 1)
-        }
     }
 
     private var expenseSectionPicker: some View {
