@@ -162,15 +162,24 @@ struct AgentSentAttachmentStrip: View {
     let attachments: [AgentV2TurnRequest.Attachment]
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(attachments) { attachment in
-                    AgentSentAttachmentCard(attachment: attachment)
-                }
+        ViewThatFits(in: .horizontal) {
+            attachmentRow
+
+            ScrollView(.horizontal) {
+                attachmentRow
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled(false)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var attachmentRow: some View {
+        HStack(spacing: 8) {
+            ForEach(attachments) { attachment in
+                AgentSentAttachmentCard(attachment: attachment)
             }
         }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled(false)
     }
 }
 
