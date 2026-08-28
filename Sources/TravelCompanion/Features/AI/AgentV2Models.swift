@@ -367,6 +367,12 @@ struct AgentV2LiveCard: Identifiable, Equatable {
     let index: Int
     var fields: [String: String] = [:]
 
+    var kind: TravelCardSnapshot.Kind? {
+        guard let rawValue = fields["kind"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return nil
+        }
+        return TravelCardSnapshot.Kind(rawValue: rawValue)
+    }
     var title: String { fields["title"] ?? String(localized: "agentv2.organizing") }
     var timing: String {
         [fields["date"], fields["startAt"]].compactMap { $0 }.joined(separator: " · ")

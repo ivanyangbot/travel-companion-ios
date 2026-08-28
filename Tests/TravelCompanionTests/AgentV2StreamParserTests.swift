@@ -222,4 +222,12 @@ final class AgentV2StreamParserTests: XCTestCase {
         guard case .status = events[0], case .done = events[1] else { return XCTFail("unexpected events \(events)") }
         XCTAssertNoThrow(try parser.finishAtEOF())
     }
+
+    func testLiveCardRecognizesFlightKindFromStreamedField() {
+        var card = AgentV2LiveCard(id: UUID(), index: 0)
+
+        card.fields["kind"] = " flight "
+
+        XCTAssertEqual(card.kind, .flight)
+    }
 }

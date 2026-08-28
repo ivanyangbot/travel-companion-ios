@@ -724,6 +724,7 @@
 "agent.flightResults" = "飞猪已返回 %lld 个结果";
 "agent.flightUnavailable" = "飞猪实时数据暂不可用，已用其他来源继续";
 "agent.verifyingBadge" = "地点验证中";
+"agent.organizingFlightBadge" = "正在整理航班信息";
 "agent.verifiedBadge" = "地点已验证";
 "agent.pendingBadge" = "地点待确认";
 "agent.noPlaceNeededBadge" = "无需地点";

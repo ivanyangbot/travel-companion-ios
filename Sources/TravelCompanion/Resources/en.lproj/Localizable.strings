@@ -724,6 +724,7 @@
 "agent.flightResults" = "Fliggy returned %lld results";
 "agent.flightUnavailable" = "Fliggy live data unavailable; continuing with other sources";
 "agent.verifyingBadge" = "Verifying place";
+"agent.organizingFlightBadge" = "Organizing flight details";
 "agent.verifiedBadge" = "Place verified";
 "agent.pendingBadge" = "Location pending";
 "agent.noPlaceNeededBadge" = "No place needed";

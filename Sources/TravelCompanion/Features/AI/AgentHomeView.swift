@@ -1092,7 +1092,7 @@ struct AgentHomeView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
                         ForEach(runState.liveCards) { card in
-                            LiveCandidateCard(card: card)
+                            AgentV2LiveCandidateCard(card: card)
                         }
                     }
                 }
@@ -2883,7 +2883,20 @@ private struct FliggySearchStatusChip: View {
     }
 }
 
-private struct LiveCandidateCard: View {
+struct AgentV2LiveCandidateCard: View {
+    let card: AgentV2LiveCard
+
+    @ViewBuilder
+    var body: some View {
+        if card.kind == .flight {
+            AgentLiveFlightCandidateCard(card: card)
+        } else {
+            AgentLivePlaceCandidateCard(card: card)
+        }
+    }
+}
+
+private struct AgentLivePlaceCandidateCard: View {
     let card: AgentV2LiveCard
 
     var body: some View {
@@ -2900,6 +2913,135 @@ private struct LiveCandidateCard: View {
         }
         .padding(12)
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
+    }
+}
+
+private struct AgentLiveFlightCandidateCard: View {
+    let card: AgentV2LiveCard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header
+            route
+
+            if let reason = nonEmpty(card.fields["reason"]) {
+                Text(reason)
+                    .font(.footnote)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(2)
+            }
+
+            Label("agent.organizingFlightBadge", systemImage: "clock.arrow.circlepath")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(PrimaryTabPalette.accent)
+        }
+        .padding(16)
+        .background {
+            LinearGradient(
+                colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.22), radius: 18, y: 9)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "airplane")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.black)
+                .frame(width: 32, height: 32)
+                .background(PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                Text(nonEmpty(card.fields["bookingCode"]) ?? String(localized: "agent.flightNumberPending"))
+                    .font(.caption.monospaced().weight(.medium))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+
+            Spacer(minLength: 8)
+            ProgressView()
+                .controlSize(.mini)
+                .tint(PrimaryTabPalette.secondaryText)
+        }
+    }
+
+    private var route: some View {
+        HStack(alignment: .center, spacing: 12) {
+            airportBlock(
+                code: airportCode(card.fields["fromAirport"]),
+                name: card.fields["fromAirport"],
+                time: card.fields["startAt"],
+                alignment: .leading
+            )
+
+            VStack(spacing: 7) {
+                Image(systemName: "airplane")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                HStack(spacing: 4) {
+                    Circle().fill(Color.white.opacity(0.25)).frame(width: 4, height: 4)
+                    Rectangle().fill(Color.white.opacity(0.18)).frame(height: 1)
+                    Circle().fill(Color.white.opacity(0.25)).frame(width: 4, height: 4)
+                }
+                Text(nonEmpty(card.fields["date"]) ?? String(localized: "agent.datePending"))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+
+            airportBlock(
+                code: airportCode(card.fields["toAirport"]),
+                name: card.fields["toAirport"],
+                time: card.fields["endAt"],
+                alignment: .trailing
+            )
+        }
+    }
+
+    private func airportBlock(code: String, name: String?, time: String?, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 5) {
+            Text(code)
+                .font(.system(size: 29, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.8)
+            Text(nonEmpty(name) ?? String(localized: "agent.airportPending"))
+                .font(.caption2)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+            Text(nonEmpty(time) ?? String(localized: "agent.timePending"))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white.opacity(0.86))
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+
+    private func airportCode(_ value: String?) -> String {
+        guard let value else { return "—" }
+        if let code = value.split(whereSeparator: { $0.isWhitespace || $0 == "(" || $0 == ")" })
+            .map(String.init)
+            .last(where: { $0.count == 3 && $0.allSatisfy { $0.isLetter && $0.isASCII } }) {
+            return code.uppercased()
+        }
+        return "—"
     }
 }
 

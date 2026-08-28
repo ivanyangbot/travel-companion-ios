@@ -726,6 +726,7 @@
 "agent.flightResults" = "飛豬已回傳 %lld 個結果";
 "agent.flightUnavailable" = "飛豬即時資料暫不可用，已用其他來源繼續";
 "agent.verifyingBadge" = "地點驗證中";
+"agent.organizingFlightBadge" = "正在整理航班資訊";
 "agent.verifiedBadge" = "地點已驗證";
 "agent.pendingBadge" = "地點待確認";
 "agent.noPlaceNeededBadge" = "無需地點";

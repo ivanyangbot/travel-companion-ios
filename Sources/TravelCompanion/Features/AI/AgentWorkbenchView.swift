@@ -322,7 +322,7 @@ AgentIntroGlobeView(diameter: 208)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
                         ForEach(runState.liveCards) { card in
-                            LiveCandidateCard(card: card)
+                            AgentV2LiveCandidateCard(card: card)
                         }
                     }
                 }
@@ -1084,26 +1084,6 @@ private struct FliggySearchStatusChip: View {
             }
             return String(localized: "agent.flightUnavailable")
         }
-    }
-}
-
-private struct LiveCandidateCard: View {
-    let card: AgentV2LiveCard
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(card.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-                Spacer()
-                ProgressView().controlSize(.mini).tint(PrimaryTabPalette.secondaryText)
-            }
-            if !card.timing.isEmpty { Label(card.timing, systemImage: "clock").font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText) }
-            if let place = card.place { Label(place, systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.white.opacity(0.85)) }
-            if let reason = card.reason { Text(reason).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText) }
-            Text("agent.verifyingBadge").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
-        }
-        .padding(12)
-        .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
     }
 }
 
