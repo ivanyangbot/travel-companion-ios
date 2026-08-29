@@ -635,7 +635,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testReconnectDropsPartialRenderAndKeepsGeneratingState() {
+    func testReconnectKeepsPartialRenderAndGeneratingState() {
         let state = AgentV2RunState()
         state.prepareForTurn()
         _ = state.beginGeneration()
@@ -650,10 +650,10 @@ final class AgentV2SessionStoreTests: XCTestCase {
 
         XCTAssertTrue(state.isGenerating)
         XCTAssertEqual(state.status, "连接中断，正在重新连接（1/2）…")
-        XCTAssertEqual(state.streamingReply, "")
-        XCTAssertEqual(state.reasoningSummary, "")
-        XCTAssertEqual(state.stagedSummaryText, "")
-        XCTAssertTrue(state.liveCards.isEmpty)
+        XCTAssertEqual(state.streamingReply, "未完成回答")
+        XCTAssertEqual(state.reasoningSummary, "未完成推理")
+        XCTAssertEqual(state.stagedSummaryText, "未完成摘要")
+        XCTAssertEqual(state.liveCards.count, 1)
         XCTAssertNil(state.error)
     }
 

@@ -2,6 +2,30 @@ import XCTest
 @testable import TravelCompanion
 
 final class AgentV2StreamParserTests: XCTestCase {
+    func testSSEEventIDIsCapturedForCursorResume() throws {
+        let fixture = """
+        id: 41
+        event: status
+        data: "正在继续"
+
+        id: 42
+        event: done
+        data: {}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var ids: [Int] = []
+
+        for byte in fixture.utf8 {
+            guard try parser.consume(byte) != nil else { continue }
+            ids.append(try XCTUnwrap(parser.lastEventID))
+        }
+
+        XCTAssertEqual(ids, [41, 42])
+        XCTAssertNoThrow(try parser.finishAtEOF())
+    }
+
     func testCompleteFixtureEmitsEventsAndAcceptsEOFOnlyAfterDone() throws {
         let fixture = """
         event: status

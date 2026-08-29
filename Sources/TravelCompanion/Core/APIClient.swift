@@ -446,12 +446,19 @@ actor APIClient {
     /// V2 Agent stream. Reasoning summaries remain ephemeral UI progress;
     /// durable candidate patches use stable identifiers. `tripID` 为 nil 表示
     /// plan_new 轮次（无旅程上下文），服务端不强制本接口的旅程鉴权。
-    func agentV2Stream(_ payload: AgentV2TurnRequest, tripID: Int?) async throws -> AsyncThrowingStream<AgentV2StreamEvent, Error> {
+    func agentV2Stream(
+        _ payload: AgentV2TurnRequest,
+        tripID: Int?,
+        afterEventID: Int? = nil
+    ) async throws -> AsyncThrowingStream<AgentV2StreamEnvelope, Error> {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: "/v2/agent/turns/stream"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        if let afterEventID, afterEventID > 0 {
+            request.setValue(String(afterEventID), forHTTPHeaderField: "Last-Event-ID")
+        }
         authorize(&request, tripID: tripID)
         request.httpBody = try encoder.encode(payload)
         request.timeoutInterval = 600
@@ -474,7 +481,7 @@ actor APIClient {
                     for try await byte in bytes {
                         if Task.isCancelled { break }
                         guard let decoded = try parser.consume(byte) else { continue }
-                        continuation.yield(decoded)
+                        continuation.yield(.init(eventID: parser.lastEventID, event: decoded))
                         if case .done = decoded { continuation.finish(); return }
                     }
                     if Task.isCancelled {
@@ -659,10 +666,12 @@ private final class JournalUploadProgressDelegate: NSObject, URLSessionTaskDeleg
 /// from URLSession so framing, completion, and truncated-stream behavior can
 /// be verified with deterministic fixtures.
 struct AgentV2SSEParser: Sendable {
+    private var eventID: Int?
     private var eventName = ""
     private var eventData = ""
     private var line = Data()
     private(set) var receivedDone = false
+    private(set) var lastEventID: Int?
 
     mutating func consume(_ byte: UInt8) throws -> AgentV2StreamEvent? {
         guard byte == 0x0A else {
@@ -672,6 +681,10 @@ struct AgentV2SSEParser: Sendable {
 
         let value = String(data: line, encoding: .utf8) ?? ""
         line.removeAll(keepingCapacity: true)
+        if value.hasPrefix("id:") {
+            eventID = Int(String(value.dropFirst(3)).trimmingCharacters(in: .whitespaces))
+            return nil
+        }
         if value.hasPrefix("event:") {
             eventName = String(value.dropFirst(6)).trimmingCharacters(in: .whitespaces)
             return nil
@@ -683,12 +696,14 @@ struct AgentV2SSEParser: Sendable {
         if value.hasPrefix(":") || !value.isEmpty { return nil }
 
         defer {
+            eventID = nil
             eventName = ""
             eventData = ""
         }
         guard !eventName.isEmpty, let payload = eventData.data(using: .utf8),
               let decoded = try APIClient.agentV2Event(eventName, payload)
         else { return nil }
+        lastEventID = eventID
         if case .done = decoded { receivedDone = true }
         return decoded
     }
@@ -696,6 +711,11 @@ struct AgentV2SSEParser: Sendable {
     func finishAtEOF() throws {
         guard receivedDone else { throw AgentV2IncompleteStreamError() }
     }
+}
+
+struct AgentV2StreamEnvelope: Sendable {
+    let eventID: Int?
+    let event: AgentV2StreamEvent
 }
 
 struct AgentV2IncompleteStreamError: LocalizedError, Equatable, Sendable {

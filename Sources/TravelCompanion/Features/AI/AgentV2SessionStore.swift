@@ -93,11 +93,10 @@ final class AgentV2RunState: ObservableObject {
         clearFliggyProgress()
     }
 
-    /// A disconnected stateless turn restarts from its original request.
-    /// Remove every partial render first so replayed events cannot duplicate
-    /// text or cards from the abandoned connection.
+    /// A disconnected durable turn resumes after its last received SSE ID.
+    /// Keep the partial render in place; the server only replays newer events.
     func prepareForReconnect(attempt: Int, maximumAttempts: Int) {
-        discardPartialResponse()
+        error = nil
         status = "连接中断，正在重新连接（\(attempt)/\(maximumAttempts)）…"
     }
 

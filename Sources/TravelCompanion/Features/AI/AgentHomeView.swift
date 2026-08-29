@@ -2298,11 +2298,11 @@ struct AgentHomeView: View {
         let task = Task {
             var reconnectAttempt = 0
             var didComplete = false
+            var lastEventID = 0
+            var pendingQuestions: [String] = []
 
             while !Task.isCancelled, !didComplete {
                 if reconnectAttempt > 0 {
-                    sessionStore.discardTurn()
-                    sessionStore.beginTurn()
                     state.prepareForReconnect(
                         attempt: reconnectAttempt,
                         maximumAttempts: AgentV2StreamRetryPolicy.maximumReconnectAttempts
@@ -2314,10 +2314,17 @@ struct AgentHomeView: View {
                     }
                 }
 
-                var pendingQuestions: [String] = []
                 do {
-                    let stream = try await client.agentV2Stream(request, tripID: tripID)
-                    for try await event in stream {
+                    let stream = try await client.agentV2Stream(
+                        request,
+                        tripID: tripID,
+                        afterEventID: lastEventID
+                    )
+                    for try await envelope in stream {
+                        if let eventID = envelope.eventID {
+                            lastEventID = max(lastEventID, eventID)
+                        }
+                        let event = envelope.event
                         switch event {
                         case .status(let text): state.status = text
                         case .reasoningSummary(let text): state.appendReasoningSummary(text)
