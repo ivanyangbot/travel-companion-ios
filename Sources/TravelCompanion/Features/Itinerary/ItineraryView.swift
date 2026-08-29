@@ -948,7 +948,9 @@ struct ItineraryView: View {
             }
 
             Group {
-                if card.showLargeImage, CardImageURL.resolve(card.images?.first) != nil {
+                if card.kind == .flight {
+                    itineraryFlightCardContent(card)
+                } else if card.showLargeImage, CardImageURL.resolve(card.images?.first) != nil {
                     itineraryLargeImageCardContent(card, index: index)
                 } else {
                     itineraryOrdinaryCardContent(card, index: index)
@@ -958,6 +960,199 @@ struct ItineraryView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private func itineraryFlightCardContent(_ card: TravelCardSnapshot) -> some View {
+        let price = compactCardPrice(for: card)
+        let summary = ItineraryListPresentation.cardSummary(for: card)
+
+        return Button {
+            guard suppressedListCardTapID != card.id else { return }
+            if revealedListCardID != nil {
+                closeListCardActions()
+            } else {
+                detailCard = card
+            }
+        } label: {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .top, spacing: 11) {
+                        AirlineLogoBadge(
+                            logoURL: itineraryAirlineLogoURL(for: card),
+                            size: 38,
+                            cornerRadius: 11
+                        )
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(card.title)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                            Text(itineraryFlightNumber(for: card))
+                                .font(.caption.monospaced().weight(.medium))
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        }
+                        Spacer(minLength: 8)
+                        if let price {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(card.actualPriceMinor == nil ? String(localized: "travelcard.estimateLabel") : String(localized: "travelcard.actualLabel"))
+                                    .font(.caption2)
+                                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                Text(price)
+                                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                    }
+
+                    HStack(alignment: .center, spacing: 9) {
+                        itineraryFlightAirportBlock(
+                            airport: card.fromAirport,
+                            time: itineraryFlightTime(card.startAt),
+                            alignment: .leading
+                        )
+                        VStack(spacing: 6) {
+                            Image(systemName: "airplane")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(PrimaryTabPalette.accent)
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
+                                Rectangle().fill(Color.white.opacity(0.17)).frame(height: 1)
+                                Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
+                            }
+                            Text(Self.itineraryFlightDateFormatter.string(from: card.startAt))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        itineraryFlightAirportBlock(
+                            airport: card.toAirport,
+                            time: card.endAt.map { itineraryFlightTime($0) } ?? String(localized: "agent.timePending"),
+                            alignment: .trailing
+                        )
+                    }
+
+                    if let summary {
+                        Text(summary)
+                            .font(.footnote)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            .lineSpacing(2)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(14)
+
+                itineraryFlightTicketDivider
+
+                HStack(spacing: 8) {
+                    if let airlineName = card.airlineName?.nilIfEmpty {
+                        Text(airlineName)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            .lineLimit(1)
+                    } else {
+                        Label(card.kind.title, systemImage: "airplane")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                    Spacer(minLength: 8)
+                    HStack(spacing: 5) {
+                        Text("travelcard.viewDetails")
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                }
+                .frame(minHeight: 40)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                LinearGradient(
+                    colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .stroke(Color.white.opacity(0.09), lineWidth: 1)
+            }
+        }
+        .buttonStyle(ItineraryCardNoFadeButtonStyle())
+    }
+
+    private func itineraryFlightAirportBlock(
+        airport: String?,
+        time: String,
+        alignment: HorizontalAlignment
+    ) -> some View {
+        VStack(alignment: alignment, spacing: 4) {
+            Text(AgentFlightDisplay.airportCode(airport))
+                .font(.system(size: 27, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.72)
+            Text(airport?.nilIfEmpty ?? String(localized: "agent.airportPending"))
+                .font(.caption2)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+            Text(time)
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white.opacity(0.86))
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private var itineraryFlightTicketDivider: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<18, id: \.self) { _ in
+                Capsule().fill(Color.white.opacity(0.10)).frame(maxWidth: .infinity).frame(height: 1)
+            }
+        }
+        .overlay(alignment: .leading) {
+            Circle().fill(JourneyPalette.listSurface).frame(width: 16, height: 16).offset(x: -8)
+        }
+        .overlay(alignment: .trailing) {
+            Circle().fill(JourneyPalette.listSurface).frame(width: 16, height: 16).offset(x: 8)
+        }
+    }
+
+    private func itineraryAirlineLogoURL(for card: TravelCardSnapshot) -> URL? {
+        if let url = CardImageURL.resolve(card.airlineLogoURL) { return url }
+        let code = card.airlineCode ?? AgentFlightDisplay.airlineCode(fromBookingCode: card.bookingCode)
+        guard let code else { return nil }
+        return CardImageURL.resolve("/v1/airlines/logos/\(code).png")
+    }
+
+    private func itineraryFlightNumber(for card: TravelCardSnapshot) -> String {
+        card.bookingCode?.nilIfEmpty
+            ?? card.airlineCode?.nilIfEmpty
+            ?? String(localized: "agent.flightNumberPending")
+    }
+
+    private func itineraryFlightTime(_ date: Date) -> String {
+        Self.itineraryFlightTimeFormatter.string(from: date)
+    }
+
+    private static let itineraryFlightTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+
+    private static let itineraryFlightDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMMd")
+        return formatter
+    }()
 
     private func itineraryOrdinaryCardContent(
         _ card: TravelCardSnapshot,
