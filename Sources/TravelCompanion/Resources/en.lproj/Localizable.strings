@@ -1106,3 +1106,4 @@
 "hotelcard.checkIn" = "Check-in";
 "hotelcard.checkOut" = "Check-out";
 "hotelcard.nights" = "%lld nights";
+"today.locateA11y" = "Locate me";

@@ -441,6 +441,135 @@ final class TravelCardsTests: XCTestCase {
         )
     }
 
+    func testMergedDayListPlacesOvernightFlightBeforeLaterDeparture() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let overnightFlight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "CA977",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-19T18:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-09-20T00:15:00Z")),
+            position: 0
+        )
+        let departureDay = TripDaySnapshot(date: "2026-09-19", position: 0, cards: [overnightFlight])
+        let morningFlight = TravelCardSnapshot(
+            dayID: 2,
+            kind: .flight,
+            title: "ID6584",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-20T08:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-09-20T09:30:00Z")),
+            position: 0
+        )
+        let arrivalDay = TripDaySnapshot(date: "2026-09-20", position: 1, cards: [morningFlight])
+        let days = [departureDay, arrivalDay]
+
+        let merged = ItineraryListPresentation.mergedDayListItems(
+            ownCards: ItineraryListPresentation.orderedCards(arrivalDay.cards),
+            projectedOccurrences: ItineraryListPresentation.projectedMultiDayCards(
+                for: arrivalDay,
+                in: days,
+                timeZone: timeZone
+            ),
+            day: arrivalDay,
+            timeZone: timeZone
+        )
+
+        XCTAssertEqual(merged.map(\.card.id), [overnightFlight.id, morningFlight.id])
+        XCTAssertNil(merged[0].ownIndex)
+        XCTAssertEqual(merged[0].progress, .day(.init(dayIndex: 2, totalDays: 2)))
+        XCTAssertEqual(
+            merged[0].effectiveStart,
+            try XCTUnwrap(ItineraryListPresentation.localDayStart("2026-09-20", timeZone: timeZone))
+        )
+        XCTAssertEqual(merged[1].ownIndex, 0)
+    }
+
+    func testMergedDayListPinsHotelNightsToTheBottom() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "两晚酒店",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-01T15:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-10-03T11:00:00Z")),
+            position: 0
+        )
+        let checkInDay = TripDaySnapshot(date: "2026-10-01", position: 0, cards: [hotel])
+        let morningActivity = TravelCardSnapshot(
+            dayID: 2,
+            kind: .activity,
+            title: "Museum",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-02T09:00:00Z")),
+            position: 0
+        )
+        let secondNight = TripDaySnapshot(date: "2026-10-02", position: 1, cards: [morningActivity])
+        let days = [checkInDay, secondNight]
+
+        let merged = ItineraryListPresentation.mergedDayListItems(
+            ownCards: ItineraryListPresentation.orderedCards(secondNight.cards),
+            projectedOccurrences: ItineraryListPresentation.projectedMultiDayCards(
+                for: secondNight,
+                in: days,
+                timeZone: timeZone
+            ),
+            day: secondNight,
+            timeZone: timeZone
+        )
+
+        XCTAssertEqual(merged.map(\.card.id), [morningActivity.id, hotel.id])
+        XCTAssertEqual(merged[0].ownIndex, 0)
+        XCTAssertNil(merged[1].ownIndex)
+        XCTAssertTrue(merged[1].isHotelNight)
+        XCTAssertNil(merged[1].effectiveStart)
+    }
+
+    func testMergedDayListKeepsManualOwnCardOrderWhileInterleavingProjections() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let cruise = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "Cruise",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-01T09:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-10-02T17:00:00Z")),
+            position: 0
+        )
+        let firstDay = TripDaySnapshot(date: "2026-10-01", position: 0, cards: [cruise])
+        // Manual order intentionally contradicts the clock: position wins.
+        let lateStart = TravelCardSnapshot(
+            dayID: 2,
+            kind: .activity,
+            title: "Late show",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-02T21:00:00Z")),
+            position: 0
+        )
+        let earlyStart = TravelCardSnapshot(
+            dayID: 2,
+            kind: .activity,
+            title: "Early market",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-02T07:00:00Z")),
+            position: 1
+        )
+        let secondDay = TripDaySnapshot(date: "2026-10-02", position: 1, cards: [lateStart, earlyStart])
+        let days = [firstDay, secondDay]
+
+        let merged = ItineraryListPresentation.mergedDayListItems(
+            ownCards: ItineraryListPresentation.orderedCards(secondDay.cards),
+            projectedOccurrences: ItineraryListPresentation.projectedMultiDayCards(
+                for: secondDay,
+                in: days,
+                timeZone: timeZone
+            ),
+            day: secondDay,
+            timeZone: timeZone
+        )
+
+        XCTAssertEqual(merged.map(\.card.id), [cruise.id, lateStart.id, earlyStart.id])
+        XCTAssertEqual(merged.map(\.ownIndex), [nil, 0, 1])
+    }
+
     func testItineraryListFallsBackToFirstDayAndFindsToday() {
         let days = [
             TripDaySnapshot(date: "2026-09-12", position: 0),

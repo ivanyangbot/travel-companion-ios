@@ -303,6 +303,12 @@ struct TodayView: View {
                 if showsTimeline {
                     let timelineWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
                     VStack(spacing: 8) {
+                        // 定位按钮：时间轴上方、页面右下角，点击把地图移到用户位置。
+                        HStack {
+                            Spacer(minLength: 0)
+                            locateButton
+                        }
+
                         TodayDateTimeline(
                             days: days,
                             selectedIndex: currentIndex,
@@ -835,19 +841,13 @@ struct TodayView: View {
         in day: TripDaySnapshot,
         projectedCards: [TravelCardSnapshot]
     ) -> [TravelCardSnapshot] {
+        // 无坐标（缺地址/未定位）的 POI 也保留卡片；地图点位由 mapPoints
+        // 逐卡 compactMap 自然跳过，切换到该卡时 focus 因无坐标而不移动地图。
         let persisted = day.cards
-            .filter {
-                $0.kind != .flight
-                    && $0.place?.latitude != nil
-                    && $0.place?.longitude != nil
-            }
+            .filter { $0.kind != .flight }
             .sorted { $0.startAt < $1.startAt }
         let projected = projectedCards
-            .filter {
-                $0.kind != .flight
-                    && $0.place?.latitude != nil
-                    && $0.place?.longitude != nil
-            }
+            .filter { $0.kind != .flight }
             .sorted { $0.startAt < $1.startAt }
         return persisted + projected
     }
@@ -913,6 +913,36 @@ struct TodayView: View {
             max(0, min(6, Self.utcCalendar.component(.weekday, from: date) - 1))
         ]
         return symbol
+    }
+
+    /// 右下角定位按钮（时间轴上方）：把地图显式移到用户当前位置。
+    /// 空日期冻结视角后，这是回到用户位置的唯一入口。
+    private var locateButton: some View {
+        Button {
+            guard let location = userLocationProvider.coordinate else { return }
+            cameraFocusPointID = nil
+            withAnimation(.easeInOut(duration: 0.4)) {
+                cameraFocus = location
+                cameraRequestID &+= 1
+            }
+        } label: {
+            Image(systemName: "location.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(PrimaryTabPalette.elevatedSurface, in: Circle())
+                .overlay {
+                    Circle().stroke(.white.opacity(0.10), lineWidth: 1)
+                }
+                .shadow(
+                    color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+                    radius: 12,
+                    y: 12
+                )
+        }
+        .buttonStyle(.plain)
+        .opacity(userLocationProvider.coordinate == nil ? 0.55 : 1)
+        .accessibilityLabel(Text("today.locateA11y"))
     }
 
     private func fitAll(

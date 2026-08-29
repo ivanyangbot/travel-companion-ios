@@ -1108,3 +1108,4 @@
 "hotelcard.checkIn" = "入住";
 "hotelcard.checkOut" = "退房";
 "hotelcard.nights" = "%lld 晚";
+"today.locateA11y" = "定位到我的位置";

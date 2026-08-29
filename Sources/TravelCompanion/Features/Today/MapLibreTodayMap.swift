@@ -2142,15 +2142,17 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             Self.logger.debug(
                 "camera request=\(requestID) handled=\(self.handledCameraRequestID) points=\(points.count) focus=\(focus != nil)"
             )
-            if points.isEmpty {
-                guard !isFollowingUserLocation else { return }
-                isFollowingUserLocation = true
-                mapView.showsUserLocation = true
-                mapView.setUserTrackingMode(
-                    .follow,
-                    animated: true,
-                    completionHandler: nil
-                )
+            if points.isEmpty && focus == nil {
+                // 空日期（或当日 POI 全部无坐标）时不再回中到用户位置：
+                // 冻结在当前视角，回到用户位置交给右下角定位按钮显式触发。
+                if isFollowingUserLocation {
+                    isFollowingUserLocation = false
+                    mapView.setUserTrackingMode(
+                        .none,
+                        animated: false,
+                        completionHandler: nil
+                    )
+                }
                 return
             }
 

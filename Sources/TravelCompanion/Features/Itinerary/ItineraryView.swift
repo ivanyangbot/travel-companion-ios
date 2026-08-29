@@ -3980,6 +3980,96 @@ enum ItineraryListPresentation {
         }
     }
 
+    struct DayListItem: Identifiable {
+        let id: String
+        let card: TravelCardSnapshot
+        let progress: CardProgress?
+        let ownIndex: Int?
+        let effectiveStart: Date?
+
+        var isHotelNight: Bool {
+            guard let progress else { return false }
+            if case .hotelNight = progress { return true }
+            return false
+        }
+    }
+
+    /// Merges a day's own cards with the multi-day occurrences projected from
+    /// other days into one chronological list. A projected card's effective
+    /// start on the target day is the later of its real start and the day's
+    /// local midnight, so an overnight flight landing 00:15 sorts before an
+    /// 08:00 departure instead of trailing the whole day. Hotel-night
+    /// projections have no daytime slot and stay pinned to the bottom, like
+    /// the night's lodging. Own cards keep their relative order untouched so
+    /// manual reordering keeps working.
+    static func mergedDayListItems(
+        ownCards: [TravelCardSnapshot],
+        projectedOccurrences: [ProjectedCardOccurrence],
+        day: TripDaySnapshot,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> [DayListItem] {
+        let dayStart = localDayStart(day.date, timeZone: timeZone)
+        let ownItems = ownCards.enumerated().map { index, card in
+            DayListItem(
+                id: card.id.uuidString,
+                card: card,
+                progress: nil,
+                ownIndex: index,
+                effectiveStart: card.startAt
+            )
+        }
+        var timedProjections = projectedOccurrences.filter { !$0.isHotelNight }.map { occurrence in
+            DayListItem(
+                id: occurrence.id,
+                card: occurrence.card,
+                progress: occurrence.progress,
+                ownIndex: nil,
+                effectiveStart: max(
+                    occurrence.card.startAt,
+                    dayStart ?? occurrence.card.startAt
+                )
+            )
+        }
+
+        var merged: [DayListItem] = []
+        merged.reserveCapacity(ownItems.count + timedProjections.count)
+        for ownItem in ownItems {
+            guard let ownStart = ownItem.effectiveStart else { continue }
+            while let first = timedProjections.first,
+                  let firstStart = first.effectiveStart,
+                  firstStart < ownStart {
+                merged.append(first)
+                timedProjections.removeFirst()
+            }
+            merged.append(ownItem)
+        }
+        merged.append(contentsOf: timedProjections)
+        merged.append(
+            contentsOf: projectedOccurrences.filter(\.isHotelNight).map { occurrence in
+                DayListItem(
+                    id: occurrence.id,
+                    card: occurrence.card,
+                    progress: occurrence.progress,
+                    ownIndex: nil,
+                    effectiveStart: nil
+                )
+            }
+        )
+        return merged
+    }
+
+    static func localDayStart(
+        _ dateString: String,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: dateString)
+    }
+
     static func movingCard(_ cardID: UUID, onto targetID: UUID, in orderedIDs: [UUID]) -> [UUID] {
         guard cardID != targetID,
               let targetIndex = orderedIDs.firstIndex(of: targetID) else { return orderedIDs }
