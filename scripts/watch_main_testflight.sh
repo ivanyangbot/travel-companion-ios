@@ -157,12 +157,28 @@ check_main_once() {
         return 0
     fi
 
+    local recovered_rewritten_state=0
     if [[ -n "$handled_sha" ]] && ! git merge-base --is-ancestor "$handled_sha" "$remote_sha"; then
-        log "$remote_ref is not a fast-forward from ${handled_sha:0:12}; refusing an automatic release."
-        return 1
+        # A normal rebase changes the source commit SHA even when the checked-out
+        # branch can still fast-forward safely to origin/main. In that case the
+        # persisted monitor state is stale, not evidence of a dangerous remote
+        # rewrite. Let the release script perform its usual ff-only sync.
+        local local_sha
+        local_sha="$(git rev-parse --verify "refs/heads/$REMOTE_BRANCH" 2>/dev/null || true)"
+        if [[ -n "$local_sha" ]] && git merge-base --is-ancestor "$local_sha" "$remote_sha"; then
+            recovered_rewritten_state=1
+            log "Stored monitor state ${handled_sha:0:12} is no longer in $remote_ref history; local $REMOTE_BRANCH can fast-forward safely, so the remote commit remains pending."
+        else
+            log "$remote_ref is not a fast-forward from stored state ${handled_sha:0:12} or local $REMOTE_BRANCH; refusing an automatic release."
+            return 1
+        fi
     fi
 
-    log "New $remote_ref commit detected: ${handled_sha:0:12} -> ${remote_sha:0:12}."
+    if ((recovered_rewritten_state == 1)); then
+        log "New $remote_ref commit detected after rewritten history: ${remote_sha:0:12}."
+    else
+        log "New $remote_ref commit detected: ${handled_sha:0:12} -> ${remote_sha:0:12}."
+    fi
     log "Starting the one-click TestFlight release."
 
     "$RELEASE_SCRIPT" 2>&1 | tee -a "$LOG_FILE"
