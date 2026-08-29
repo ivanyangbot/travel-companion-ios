@@ -88,6 +88,29 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(ItineraryListPresentation.daySummary(for: day), "抵达丽江，古城夜")
     }
 
+    func testItineraryListNeverUsesLegacyFlightIntroductionAsCardSummary() {
+        let flight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "雅加达 → 深圳",
+            startAt: Date(timeIntervalSince1970: 10),
+            description: "从雅加达直飞深圳的便捷航线介绍。",
+            notes: "请在 T3 办理值机。",
+            position: 0
+        )
+        let activity = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "浅草寺",
+            startAt: Date(timeIntervalSince1970: 20),
+            description: "东京历史悠久的寺院。",
+            position: 1
+        )
+
+        XCTAssertNil(ItineraryListPresentation.cardSummary(for: flight))
+        XCTAssertEqual(ItineraryListPresentation.cardSummary(for: activity), "东京历史悠久的寺院。")
+    }
+
     func testItineraryListProjectsOneHotelStayAcrossEveryOccupiedNight() throws {
         let formatter = ISO8601DateFormatter()
         let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))

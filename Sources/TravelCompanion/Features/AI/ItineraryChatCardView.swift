@@ -40,7 +40,9 @@ struct ItineraryChatCardView: View {
                         .foregroundStyle(.orange)
                 }
                 if let extras = card.extras {
-                    if let description = extras.description, !description.isEmpty {
+                    if card.kind != .flight,
+                       let description = extras.description,
+                       !description.isEmpty {
                         Text(description).font(.caption).foregroundStyle(.secondary)
                     }
                     if card.kind == .flight, let code = extras.bookingCode, !code.isEmpty {

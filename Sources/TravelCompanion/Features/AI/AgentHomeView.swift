@@ -3026,13 +3026,6 @@ private struct AgentLiveFlightCandidateCard: View {
             header
             route
 
-            if let reason = nonEmpty(card.fields["reason"]) {
-                Text(reason)
-                    .font(.footnote)
-                    .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    .lineLimit(2)
-            }
-
             Label("agent.organizingFlightBadge", systemImage: "clock.arrow.circlepath")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(PrimaryTabPalette.accent)
@@ -3359,11 +3352,6 @@ private struct AgentFlightCandidateCard: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.orange)
                             .lineLimit(3)
-                    } else if let reason = candidate.reason, !reason.isEmpty {
-                        Text(reason)
-                            .font(.footnote)
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                            .lineLimit(2)
                     }
                 }
                 .padding(16)
@@ -3534,9 +3522,6 @@ private struct AgentFlightDetailSheet: View {
                 flightHero
                 infoGrid
 
-                if let reason = candidate.reason, !reason.isEmpty {
-                    section(title: String(localized: "agent.sectionReason"), icon: "sparkles") { Text(reason) }
-                }
                 if !candidate.tips.isEmpty {
                     section(title: String(localized: "agent.sectionTips"), icon: "lightbulb.fill") {
                         bulletList(candidate.tips, tint: PrimaryTabPalette.accent)

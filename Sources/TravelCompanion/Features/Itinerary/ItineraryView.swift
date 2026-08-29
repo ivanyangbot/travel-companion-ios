@@ -3231,6 +3231,7 @@ enum ItineraryListPresentation {
     }
 
     static func cardSummary(for card: TravelCardSnapshot) -> String? {
+        guard card.kind != .flight else { return nil }
         for candidate in [card.description, card.notes] {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let trimmed, !trimmed.isEmpty { return trimmed }

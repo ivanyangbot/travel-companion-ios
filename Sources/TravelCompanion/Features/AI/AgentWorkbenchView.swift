@@ -1115,7 +1115,7 @@ private struct LegacyAgentV2CandidateCard: View {
                         if let address = candidate.place?.address, !address.isEmpty {
                             Text(address).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
                         }
-                        if let reason = candidate.reason {
+                        if candidate.kind != .flight, let reason = candidate.reason {
                             Text(reason).font(.footnote).foregroundStyle(PrimaryTabPalette.secondaryText)
                         }
                         if !candidate.risks.isEmpty {

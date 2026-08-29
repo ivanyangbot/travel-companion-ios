@@ -69,13 +69,6 @@ struct TravelCardView: View {
             VStack(alignment: .leading, spacing: 18) {
                 flightHeader
                 flightRoute
-                if let summary = flightSummary {
-                    Text(summary)
-                        .font(.footnote)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
             .padding(16)
 
@@ -325,10 +318,6 @@ struct TravelCardView: View {
 
     private var flightNumberText: String {
         nonEmpty(card.bookingCode) ?? nonEmpty(card.airlineCode) ?? String(localized: "agent.flightNumberPending")
-    }
-
-    private var flightSummary: String? {
-        nonEmpty(card.description) ?? nonEmpty(card.notes)
     }
 
     private var flightPrice: String? {

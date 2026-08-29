@@ -19,7 +19,9 @@ struct CardDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     hero
                     titleBlock
-                    if let description = card.description, !description.isEmpty {
+                    if card.kind != .flight,
+                       let description = card.description,
+                       !description.isEmpty {
                         narrative(description)
                     }
                     itinerarySection

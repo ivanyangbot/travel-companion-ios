@@ -113,8 +113,10 @@ struct CardEditorView: View {
                         .keyboardType(.decimalPad)
                     TextField("cardeditor.actualPlaceholder", text: $actualPriceText)
                         .keyboardType(.decimalPad)
-                    TextField("cardeditor.introPlaceholder", text: $description, axis: .vertical)
-                        .lineLimit(2...5)
+                    if kind != .flight {
+                        TextField("cardeditor.introPlaceholder", text: $description, axis: .vertical)
+                            .lineLimit(2...5)
+                    }
                 }
                 Section("cardeditor.visitSection") {
                     TextField(String(format: String(localized: "cardeditor.ticketPlaceholder"), currency ?? String(localized: "cardeditor.currencyFallback")), text: $ticketPriceText)
@@ -252,7 +254,9 @@ struct CardEditorView: View {
             if bookingCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearFields.insert("bookingCode") }
             if cleanedURL.isEmpty { clearFields.insert("url") }
             if coverImage == nil { clearFields.insert("images") }
-            if description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearFields.insert("description") }
+            if kind == .flight || description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                clearFields.insert("description")
+            }
             if fromAirport.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearFields.insert("fromAirport") }
             if toAirport.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearFields.insert("toAirport") }
             if CardPrice.minorUnits(from: priceText, currency: currency) == nil { clearFields.insert("priceMinor") }
@@ -285,7 +289,7 @@ struct CardEditorView: View {
             placeId: placeMode == .existing ? existingCard?.place.flatMap { $0.id > 0 ? $0.id : nil } : nil,
             bookingCode: emptyToNil(bookingCode),
             url: cleanedURL.isEmpty ? nil : cleanedURL,
-            description: emptyToNil(description),
+            description: kind == .flight ? nil : emptyToNil(description),
             fromAirport: emptyToNil(fromAirport),
             toAirport: emptyToNil(toAirport),
             priceMinor: CardPrice.minorUnits(from: priceText, currency: currency),
