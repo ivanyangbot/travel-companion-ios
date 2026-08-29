@@ -60,6 +60,85 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(ItineraryListPresentation.weekday(for: day), "六")
     }
 
+    func testItineraryListShowsAndCarriesForwardTheCurrentCityByDay() {
+        let lijiangPlace = PlaceSnapshot(
+            id: 1,
+            name: "丽江古城",
+            address: "云南省丽江市古城区",
+            latitude: 26.87,
+            longitude: 100.23,
+            placeId: "lijiang",
+            cityCode: nil,
+            updatedAt: .now
+        )
+        let lijiangCard = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "丽江古城",
+            startAt: Date(timeIntervalSince1970: 10),
+            place: lijiangPlace
+        )
+        let tokyoAirport = FlightAirportLocationSnapshot(
+            query: "HND",
+            iata: "HND",
+            icao: "RJTT",
+            name: "Haneda Airport",
+            city: "Tokyo",
+            country: "JP",
+            latitude: 35.5494,
+            longitude: 139.7798,
+            resolvedAt: .now
+        )
+        let flight = TravelCardSnapshot(
+            dayID: 3,
+            kind: .flight,
+            title: "上海 → 东京",
+            startAt: Date(timeIntervalSince1970: 30),
+            toAirportLocation: tokyoAirport
+        )
+        let days = [
+            TripDaySnapshot(date: "2026-09-26", position: 0, cards: [lijiangCard]),
+            TripDaySnapshot(date: "2026-09-27", position: 1),
+            TripDaySnapshot(date: "2026-09-28", position: 2, cards: [flight]),
+            TripDaySnapshot(date: "2026-09-29", position: 3),
+        ]
+
+        let labels = ItineraryListPresentation.cityLabels(in: days)
+
+        XCTAssertEqual(labels["2026-09-26"], "丽江")
+        XCTAssertEqual(labels["2026-09-27"], "丽江")
+        XCTAssertEqual(labels["2026-09-28"], "Tokyo")
+        XCTAssertEqual(labels["2026-09-29"], "Tokyo")
+    }
+
+    func testItineraryListUsesResolvedCityForUnparseableForeignAddress() {
+        let place = PlaceSnapshot(
+            id: 1,
+            name: "National Monument",
+            address: "Gambir, Central Jakarta, Indonesia",
+            latitude: -6.1754,
+            longitude: 106.8272,
+            placeId: "monas",
+            cityCode: nil,
+            updatedAt: .now
+        )
+        let card = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "National Monument",
+            startAt: Date(timeIntervalSince1970: 10),
+            place: place
+        )
+        let day = TripDaySnapshot(date: "2026-10-01", position: 0, cards: [card])
+
+        let labels = ItineraryListPresentation.cityLabels(
+            in: [day],
+            resolvedCityByDate: [day.date: "Jakarta"]
+        )
+
+        XCTAssertEqual(labels[day.date], "Jakarta")
+    }
+
     func testItineraryListFormatsRouteDistanceAndDurationLikeReference() {
         XCTAssertEqual(CardLegEstimateView.itineraryListDistanceText(218), "218m")
         XCTAssertEqual(CardLegEstimateView.itineraryListDistanceText(2_828_003), "2828km")

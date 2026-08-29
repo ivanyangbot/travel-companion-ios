@@ -602,6 +602,39 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testReasoningSummaryCoalescesTokenBurstsAndResetCancelsPendingFlush() async throws {
+        let state = AgentV2RunState()
+        state.prepareForTurn()
+
+        for fragment in ["先", "核对", "日期", "，再", "查询", "地点"] {
+            state.appendReasoningSummary(fragment)
+        }
+        XCTAssertEqual(state.reasoningSummary, "", "reasoning tokens should not relayout the expanded view individually")
+
+        state.flushReasoningSummary()
+        XCTAssertEqual(state.reasoningSummary, "先核对日期，再查询地点")
+
+        state.appendReasoningSummary("不应泄漏")
+        state.prepareForTurn()
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(state.reasoningSummary, "")
+    }
+
+    @MainActor
+    func testReasoningSummaryRemainsBoundedDuringLongExpandedStreams() {
+        let state = AgentV2RunState()
+        state.prepareForTurn()
+
+        state.appendReasoningSummary(String(repeating: "开", count: 2_000))
+        state.appendReasoningSummary(String(repeating: "新", count: 10_000))
+        state.flushReasoningSummary()
+
+        XCTAssertLessThanOrEqual(state.reasoningSummary.count, 8_003)
+        XCTAssertTrue(state.reasoningSummary.hasPrefix(String(repeating: "开", count: 1_500)))
+        XCTAssertTrue(state.reasoningSummary.hasSuffix(String(repeating: "新", count: 6_500)))
+    }
+
+    @MainActor
     func testReconnectDropsPartialRenderAndKeepsGeneratingState() {
         let state = AgentV2RunState()
         state.prepareForTurn()

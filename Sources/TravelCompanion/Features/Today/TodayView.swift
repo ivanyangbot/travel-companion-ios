@@ -1567,12 +1567,10 @@ struct TodayTripPickerSheet: View {
         .preferredColorScheme(.dark)
         .accessibilityAddTraits(.isModal)
         .sheet(item: $editingTrip) { summary in
-            TripSetupSheet(initialTrip: summary) { destination, startDate, endDate, currency in
+            TodayTripEditSheet(summary: summary) { destination, startDate, endDate, currency in
                 editingTrip = nil
                 onEdit(summary, destination, startDate, endDate, currency)
             }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
         }
         .alert(
             "tripswitch.deleteTitle",
@@ -1750,6 +1748,19 @@ struct TodayTripPickerSheet: View {
         case let (nil, end?): end
         case (nil, nil): nil
         }
+    }
+}
+
+/// Shared by the trip picker and direct trip-edit affordances so every entry
+/// point presents exactly the same form, height, and drag indicator.
+struct TodayTripEditSheet: View {
+    let summary: TripSummary
+    let onSave: (String, Date, Date, String) -> Void
+
+    var body: some View {
+        TripSetupSheet(initialTrip: summary, onSave: onSave)
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
     }
 }
 

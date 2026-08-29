@@ -143,7 +143,7 @@ struct PlaceSearchView: View {
 }
 
 @MainActor
-private final class ApplePlaceSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+private final class ApplePlaceSearchCompleter: NSObject, ObservableObject, @preconcurrency MKLocalSearchCompleterDelegate {
     @Published private(set) var suggestions: [ApplePlaceSearchSuggestion] = []
 
     private let completer: MKLocalSearchCompleter

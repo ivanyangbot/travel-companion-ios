@@ -19,6 +19,11 @@ struct AgentV2FliggyProgress: Equatable {
 /// reset an active conversation.
 @MainActor
 final class AgentV2RunState: ObservableObject {
+    /// Keeps expanded reasoning useful without allowing an unbounded streaming
+    /// transcript to make SwiftUI repeatedly lay out tens of thousands of
+    /// characters. Preserve the opening context and the newest reasoning.
+    private static let maximumPublishedReasoningCharacters = 8_000
+    private static let preservedReasoningPrefixCharacters = 1_500
     @Published var status: String?
     @Published var reasoningSummary = ""
     @Published var streamingReply = ""
@@ -38,6 +43,11 @@ final class AgentV2RunState: ObservableObject {
     /// rate, so collect short bursts and publish at most once per frame budget.
     private var streamingReplyBuffer = ""
     private var streamingReplyFlushTask: Task<Void, Never>?
+    /// Reasoning deltas can be substantially longer than reply deltas. When
+    /// expanded, publishing every token forces Text to lay out the entire,
+    /// ever-growing summary repeatedly. Coalesce them at a lower UI cadence.
+    private var reasoningSummaryBuffer = ""
+    private var reasoningSummaryFlushTask: Task<Void, Never>?
 
     private(set) var generationTask: Task<Void, Never>?
     private var generationID: UUID?
@@ -75,7 +85,7 @@ final class AgentV2RunState: ObservableObject {
 
     func prepareForTurn() {
         resetStreamingReply()
-        reasoningSummary = ""
+        resetReasoningSummary()
         stagedSummaryText = ""
         liveCards = []
         status = "正在理解你的需求…"
@@ -93,7 +103,7 @@ final class AgentV2RunState: ObservableObject {
 
     func discardPartialResponse() {
         resetStreamingReply()
-        reasoningSummary = ""
+        resetReasoningSummary()
         stagedSummaryText = ""
         liveCards = []
         error = nil
@@ -104,7 +114,7 @@ final class AgentV2RunState: ObservableObject {
     func clearTransientState() {
         cancelGeneration()
         resetStreamingReply()
-        reasoningSummary = ""
+        resetReasoningSummary()
         stagedSummaryText = ""
         liveCards = []
         error = nil
@@ -133,11 +143,47 @@ final class AgentV2RunState: ObservableObject {
         streamingReplyBuffer = ""
     }
 
+    func appendReasoningSummary(_ text: String) {
+        guard !text.isEmpty else { return }
+        reasoningSummaryBuffer += text
+        guard reasoningSummaryFlushTask == nil else { return }
+
+        reasoningSummaryFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, let self else { return }
+            self.flushReasoningSummary()
+        }
+    }
+
+    func flushReasoningSummary() {
+        reasoningSummaryFlushTask?.cancel()
+        reasoningSummaryFlushTask = nil
+        guard !reasoningSummaryBuffer.isEmpty else { return }
+        let combined = reasoningSummary + reasoningSummaryBuffer
+        if combined.count > Self.maximumPublishedReasoningCharacters {
+            let suffixCount = Self.maximumPublishedReasoningCharacters
+                - Self.preservedReasoningPrefixCharacters
+            reasoningSummary = String(combined.prefix(Self.preservedReasoningPrefixCharacters))
+                + "\n…\n"
+                + String(combined.suffix(suffixCount))
+        } else {
+            reasoningSummary = combined
+        }
+        reasoningSummaryBuffer = ""
+    }
+
     private func resetStreamingReply() {
         streamingReplyFlushTask?.cancel()
         streamingReplyFlushTask = nil
         streamingReplyBuffer = ""
         streamingReply = ""
+    }
+
+    private func resetReasoningSummary() {
+        reasoningSummaryFlushTask?.cancel()
+        reasoningSummaryFlushTask = nil
+        reasoningSummaryBuffer = ""
+        reasoningSummary = ""
     }
 
     // MARK: - Fliggy realtime-search chip

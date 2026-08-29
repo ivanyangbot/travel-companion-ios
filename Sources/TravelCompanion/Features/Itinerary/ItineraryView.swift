@@ -1,4 +1,5 @@
 import AuthenticationServices
+import MapKit
 import SwiftUI
 import UIKit
 
@@ -8,7 +9,7 @@ struct ItineraryView: View {
     @ObservedObject var appleSignIn: AppleSignInStore
     @Binding var section: JourneyView.Section
     @State private var activeDaySheet: DaySheet?
-    @State private var showsTripEditor = false
+    @State private var editingTrip: TripSummary?
     @State private var showsNewTripEditor = false
     @State private var showsSignOutConfirmation = false
     @State private var agentSheet: ItineraryAgentSheet?
@@ -48,8 +49,6 @@ struct ItineraryView: View {
     @State private var draggedListCardDestinationIndex: Int?
     @State private var draggedListCardBaseFrames: [UUID: CGRect] = [:]
     @State private var draggedListCardBaseDayFrames: [UUID: CGRect] = [:]
-    @State private var itineraryCardFrames: [UUID: CGRect] = [:]
-    @State private var itineraryDayFrames: [UUID: CGRect] = [:]
     @State private var itineraryScrollViewportFrame: CGRect = .zero
     @State private var itineraryScrollOffsetY: CGFloat = 0
     @State private var itineraryScrollContentHeight: CGFloat = 0
@@ -60,11 +59,19 @@ struct ItineraryView: View {
     @State private var dragAutoScrollTask: Task<Void, Never>?
     @State private var itineraryScrollPosition = ScrollPosition()
     @State private var itineraryNow = Date.now
+    @State private var itineraryResolvedCityByDate: [String: String] = [:]
     /// Members of the selected shared trip (signed-in only); >1 means the
     /// trip has companions and flight cards may reveal ticket passengers.
     @State private var sharedMemberCount = 0
     @StateObject private var itineraryListScrollController = ItineraryListScrollController()
+    @StateObject private var itineraryListGeometryCache = ItineraryListGeometryCache()
     @StateObject private var linkHandler = ExternalLinkHandler()
+
+    /// Geometry preferences move every frame while the user scrolls. Keeping
+    /// them in a non-publishing reference cache prevents those measurements
+    /// from invalidating and rebuilding the entire list on every frame.
+    private var itineraryCardFrames: [UUID: CGRect] { itineraryListGeometryCache.cardFrames }
+    private var itineraryDayFrames: [UUID: CGRect] { itineraryListGeometryCache.dayFrames }
 
     private var deleteDayAlertPresented: Binding<Bool> {
         optionalItemPresented($dayPendingDeletion)
@@ -280,10 +287,17 @@ struct ItineraryView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showsTripEditor) {
-                if let trip = syncEngine.trip {
-                    TripSetupSheet(initialTrip: trip) { destination, startDate, endDate, currency in
-                        Task { await syncEngine.saveSetup(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
+            .sheet(item: $editingTrip) { summary in
+                TodayTripEditSheet(summary: summary) { destination, startDate, endDate, currency in
+                    editingTrip = nil
+                    Task {
+                        await syncEngine.updateTrip(
+                            summary,
+                            destination: destination,
+                            startDate: startDate,
+                            endDate: endDate,
+                            currency: currency
+                        )
                     }
                 }
             }
@@ -586,7 +600,7 @@ struct ItineraryView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
 
-                Button { showsTripEditor = true } label: {
+                Button { editSelectedTrip() } label: {
                     Image(systemName: "pencil")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(.white.opacity(0.62))
@@ -628,7 +642,17 @@ struct ItineraryView: View {
         trip: SharedTripSnapshot,
         days: [TripDaySnapshot]
     ) -> some View {
-        ScrollViewReader { scrollProxy in
+        let currentOrNextCardID = ItineraryListPresentation.currentOrNextCardID(
+            in: days,
+            now: itineraryNow
+        )
+        let cityByDate = ItineraryListPresentation.cityLabels(
+            in: days,
+            resolvedCityByDate: itineraryResolvedCityByDate,
+            fallbackDestination: trip.destination
+        )
+
+        return ScrollViewReader { scrollProxy in
             ScrollView {
                 ItineraryScrollViewBridge(
                     controller: itineraryListScrollController,
@@ -645,9 +669,14 @@ struct ItineraryView: View {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     ForEach(days, id: \.id) { day in
                         Section {
-                            itineraryDayContent(trip: trip, day: day, days: days)
+                            itineraryDayContent(
+                                trip: trip,
+                                day: day,
+                                days: days,
+                                currentOrNextCardID: currentOrNextCardID
+                            )
                         } header: {
-                            itineraryDayHeader(day, days: days)
+                            itineraryDayHeader(day, city: cityByDate[day.date])
                                 .id(day.id)
                                 .background {
                                     GeometryReader { proxy in
@@ -688,11 +717,15 @@ struct ItineraryView: View {
             }
             .onScrollGeometryChange(for: ItineraryScrollMetrics.self) { geometry in
                 ItineraryScrollMetrics(
-                    offsetY: geometry.contentOffset.y,
+                    // A changing offset in this Equatable transform would
+                    // publish state for every normal scroll frame. Offset is
+                    // only needed while a card drag is active.
+                    offsetY: draggedListCard == nil ? 0 : geometry.contentOffset.y,
                     contentHeight: geometry.contentSize.height,
                     viewportHeight: geometry.containerSize.height
                 )
             } action: { _, metrics in
+                guard draggedListCard != nil else { return }
                 itineraryScrollOffsetY = metrics.offsetY
                 itineraryScrollContentHeight = metrics.contentHeight
                 itineraryScrollViewportHeight = metrics.viewportHeight
@@ -710,21 +743,26 @@ struct ItineraryView: View {
                 updateSelectedDay(from: offsets, days: days)
             }
             .onPreferenceChange(ItineraryCardFramesPreferenceKey.self) { frames in
-                itineraryCardFrames = frames
+                itineraryListGeometryCache.cardFrames = frames
                 settleReleasedListCardIfReady(using: frames)
             }
             .onPreferenceChange(ItineraryDayFramesPreferenceKey.self) { frames in
-                itineraryDayFrames = frames
+                itineraryListGeometryCache.dayFrames = frames
             }
             .onPreferenceChange(ItineraryScrollViewportFramePreferenceKey.self) { frame in
                 itineraryScrollViewportFrame = frame
+            }
+            .task(id: ItineraryListPresentation.cityResolutionKey(for: days)) {
+                let resolved = await ItineraryDayCityResolver.resolveCities(for: days)
+                guard !Task.isCancelled else { return }
+                itineraryResolvedCityByDate = resolved
             }
         }
     }
 
     private func itineraryDayHeader(
         _ day: TripDaySnapshot,
-        days: [TripDaySnapshot]
+        city: String?
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(ItineraryListPresentation.monthDay(for: day))
@@ -735,11 +773,13 @@ struct ItineraryView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.white)
 
-            Text(ItineraryListPresentation.daySummary(for: day, in: days))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.62))
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
+            if let city, !city.isEmpty {
+                Text(city)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.68))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
 
             Spacer(minLength: 0)
         }
@@ -761,7 +801,8 @@ struct ItineraryView: View {
     private func itineraryDayContent(
         trip: SharedTripSnapshot,
         day: TripDaySnapshot,
-        days: [TripDaySnapshot]
+        days: [TripDaySnapshot],
+        currentOrNextCardID: UUID?
     ) -> some View {
         let cards = orderedListCards(for: day)
         let projectedHotelNights = ItineraryListPresentation.projectedHotelNights(
@@ -790,7 +831,8 @@ struct ItineraryView: View {
                             index: index,
                             day: day,
                             cards: cards,
-                            days: days
+                            days: days,
+                            currentOrNextCardID: currentOrNextCardID
                         )
 
                         if index < cards.count - 1,
@@ -861,13 +903,20 @@ struct ItineraryView: View {
         index: Int,
         day: TripDaySnapshot,
         cards: [TravelCardSnapshot],
-        days: [TripDaySnapshot]
+        days: [TripDaySnapshot],
+        currentOrNextCardID: UUID?
     ) -> some View {
         let canReorder = !syncEngine.isUserAuthenticated || cards.allSatisfy { $0.serverID != nil }
         let isDragging = draggedListCard?.cardID == card.id || settlingListCard?.card.id == card.id
 
         if canReorder {
-            itinerarySwipeableCard(card, index: index, day: day, days: days)
+            itinerarySwipeableCard(
+                card,
+                index: index,
+                day: day,
+                days: days,
+                currentOrNextCardID: currentOrNextCardID
+            )
                 .background {
                     GeometryReader { proxy in
                         Color.clear.preference(
@@ -879,7 +928,13 @@ struct ItineraryView: View {
                 .opacity(isDragging ? 0 : 1)
                 .accessibilityHint(Text("itinerary.cardDetailHint"))
         } else {
-            itinerarySwipeableCard(card, index: index, day: day, days: days)
+            itinerarySwipeableCard(
+                card,
+                index: index,
+                day: day,
+                days: days,
+                currentOrNextCardID: currentOrNextCardID
+            )
                 .accessibilityHint(Text("itinerary.cardDetailHintSyncing"))
         }
     }
@@ -888,7 +943,8 @@ struct ItineraryView: View {
         _ card: TravelCardSnapshot,
         index: Int,
         day: TripDaySnapshot,
-        days: [TripDaySnapshot]
+        days: [TripDaySnapshot],
+        currentOrNextCardID: UUID?
     ) -> some View {
         let swipeOffset = listCardSwipeOffset(for: card.id)
         let revealedWidth = -swipeOffset
@@ -1034,7 +1090,7 @@ struct ItineraryView: View {
             itineraryCompactCardContent(
                 card,
                 index: index,
-                showsTimeAccent: isCurrentOrNext(card, in: days),
+                showsTimeAccent: currentOrNextCardID == card.id,
                 hotelNightLabel: itineraryHotelNightLabel(
                     ItineraryListPresentation.hotelNightProgress(
                         for: card,
@@ -1712,6 +1768,12 @@ struct ItineraryView: View {
         }
     }
 
+    private func editSelectedTrip() {
+        guard let selectedTripID = syncEngine.selectedTripID,
+              let summary = syncEngine.trips.first(where: { $0.id == selectedTripID }) else { return }
+        editingTrip = summary
+    }
+
     private func resetListCardSwipeGesture() {
         listCardSwipeGestureCardID = nil
         listCardSwipeTranslation = 0
@@ -1869,6 +1931,11 @@ struct ItineraryView: View {
         guard draggedListCard?.cardID != card.id else { return }
         closeListCardActions()
         clearSettlingListCard()
+        if let metrics = itineraryListScrollController.metrics() {
+            itineraryScrollOffsetY = metrics.offsetY
+            itineraryScrollContentHeight = metrics.contentHeight
+            itineraryScrollViewportHeight = metrics.viewportHeight
+        }
         draggedListCard = ItineraryDraggedCard(dayID: day.id, cardID: card.id)
         draggedListCardBaseFrames = itineraryCardFrames
         draggedListCardBaseDayFrames = itineraryDayFrames
@@ -2466,7 +2533,7 @@ struct ItineraryView: View {
                 .stroke(.white.opacity(0.17), lineWidth: 1)
         }
         .overlay(alignment: .topTrailing) {
-            Button("common.edit") { showsTripEditor = true }
+            Button("common.edit") { editSelectedTrip() }
                 .font(.headline.weight(.bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 18)
@@ -2976,11 +3043,30 @@ final class ItineraryListScrollController: ObservableObject {
         return targetOffsetY + insets.top
     }
 
+    fileprivate func metrics() -> ItineraryScrollMetrics? {
+        guard let scrollView else { return nil }
+        let insets = scrollView.adjustedContentInset
+        return ItineraryScrollMetrics(
+            offsetY: scrollView.contentOffset.y + insets.top,
+            contentHeight: scrollView.contentSize.height,
+            viewportHeight: scrollView.bounds.height
+        )
+    }
+
     private func applyDragLock() {
         guard let scrollView,
               scrollView.panGestureRecognizer.isEnabled == isDragLocked else { return }
         scrollView.panGestureRecognizer.isEnabled = !isDragLocked
     }
+}
+
+/// High-frequency geometry storage deliberately has no @Published fields.
+/// Gesture handlers read the newest values, but normal scrolling does not
+/// invalidate the SwiftUI hierarchy merely because frames moved on screen.
+@MainActor
+final class ItineraryListGeometryCache: ObservableObject {
+    var cardFrames: [UUID: CGRect] = [:]
+    var dayFrames: [UUID: CGRect] = [:]
 }
 
 private struct ItineraryScrollViewBridge: UIViewRepresentable {
@@ -3094,7 +3180,7 @@ private struct ItineraryScrollViewportFramePreferenceKey: PreferenceKey {
     }
 }
 
-private struct ItineraryScrollMetrics: Equatable {
+fileprivate struct ItineraryScrollMetrics: Equatable {
     let offsetY: CGFloat
     let contentHeight: CGFloat
     let viewportHeight: CGFloat
@@ -3293,6 +3379,111 @@ enum ItineraryListPresentation {
     static func weekday(for day: TripDaySnapshot) -> String {
         guard let date = dayFormatter.date(from: day.date) else { return "" }
         return weekdaySymbols[calendar.component(.weekday, from: date) - 1]
+    }
+
+    /// Builds an end-of-day city timeline. A flight arrival or a local POI on
+    /// a day advances the current city; empty days inherit the previous city.
+    /// Reverse-geocoded values fill gaps where persisted places only contain
+    /// coordinates and an address that cannot be safely parsed.
+    static func cityLabels(
+        in days: [TripDaySnapshot],
+        resolvedCityByDate: [String: String] = [:],
+        fallbackDestination: String? = nil
+    ) -> [String: String] {
+        let sortedDays = days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+        var explicitByDate: [String: String] = [:]
+        for day in sortedDays {
+            if let city = immediateCity(for: day)
+                ?? normalizedCity(resolvedCityByDate[day.date]) {
+                explicitByDate[day.date] = city
+            }
+        }
+
+        let firstKnownCity = sortedDays.lazy.compactMap { explicitByDate[$0.date] }.first
+        var currentCity = firstKnownCity ?? normalizedCity(fallbackDestination)
+        var result: [String: String] = [:]
+        for day in sortedDays {
+            if let explicit = explicitByDate[day.date] {
+                currentCity = explicit
+            }
+            if let currentCity {
+                result[day.date] = currentCity
+            }
+        }
+        return result
+    }
+
+    static func cityResolutionKey(for days: [TripDaySnapshot]) -> String {
+        days.sorted { ($0.date, $0.position) < ($1.date, $1.position) }
+            .map { day in
+                let cards = orderedCards(day.cards).map { card in
+                    let point = card.place?.point
+                    return [
+                        card.id.uuidString,
+                        String(card.updatedAt.timeIntervalSince1970),
+                        point.map { "\($0.latitude),\($0.longitude)" } ?? "",
+                        card.toAirportLocation?.city ?? "",
+                    ].joined(separator: "|")
+                }
+                return "\(day.date):\(cards.joined(separator: ";"))"
+            }
+            .joined(separator: "/")
+    }
+
+    static func immediateCity(for day: TripDaySnapshot) -> String? {
+        var current: String?
+        for card in orderedCards(day.cards) {
+            if card.kind == .flight {
+                if let arrivalCity = normalizedCity(card.toAirportLocation?.city) {
+                    current = arrivalCity
+                }
+                continue
+            }
+            if let city = cityFromAddress(card.place?.address) {
+                current = city
+            }
+        }
+        return current
+    }
+
+    static func cityFromAddress(_ address: String?) -> String? {
+        guard var value = address?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+
+        // Remove a province-level prefix before looking for a city-level
+        // suffix, e.g. “云南省丽江市古城区” -> “丽江”.
+        for marker in ["自治区", "省"] {
+            if let range = value.range(of: marker, options: .backwards) {
+                value = String(value[range.upperBound...])
+                break
+            }
+        }
+        for suffix in ["特别行政区", "自治州", "地区", "市", "都", "府"] {
+            guard let range = value.range(of: suffix) else { continue }
+            let city = String(value[..<range.upperBound])
+            if let normalized = normalizedCity(city), normalized.count >= 2 {
+                return normalized
+            }
+        }
+
+        let compact = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let containsStreetDetail = compact.rangeOfCharacter(from: .decimalDigits) != nil
+            || compact.contains("区") || compact.contains("县")
+            || compact.contains(",") || compact.contains("，")
+        guard !containsStreetDetail, compact.count <= 16 else { return nil }
+        return normalizedCity(compact)
+    }
+
+    static func normalizedCity(_ value: String?) -> String? {
+        guard var city = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !city.isEmpty else { return nil }
+        for suffix in ["特别行政区", "自治州", "地区"] where city.hasSuffix(suffix) {
+            city.removeLast(suffix.count)
+        }
+        if city.count > 2, let suffix = city.last, ["市", "都", "府"].contains(String(suffix)) {
+            city.removeLast()
+        }
+        return city.isEmpty ? nil : city
     }
 
     static func daySummary(for day: TripDaySnapshot) -> String {
@@ -3494,6 +3685,42 @@ enum ItineraryListPresentation {
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar
     }()
+}
+
+@MainActor
+private enum ItineraryDayCityResolver {
+    static func resolveCities(for days: [TripDaySnapshot]) async -> [String: String] {
+        var resolved: [String: String] = [:]
+        for day in days.sorted(by: { ($0.date, $0.position) < ($1.date, $1.position) }) {
+            guard !Task.isCancelled,
+                  ItineraryListPresentation.immediateCity(for: day) == nil,
+                  let point = representativePoint(for: day) else { continue }
+            guard let request = MKReverseGeocodingRequest(
+                location: CLLocation(latitude: point.latitude, longitude: point.longitude)
+            ) else { continue }
+            request.preferredLocale = .autoupdatingCurrent
+            do {
+                let mapItems = try await request.mapItems
+                guard !Task.isCancelled, let mapItem = mapItems.first else { continue }
+                let city = mapItem.addressRepresentations?.cityName
+                    ?? mapItem.addressRepresentations?.cityWithContext
+                if let city = ItineraryListPresentation.normalizedCity(city) {
+                    resolved[day.date] = city
+                }
+            } catch {
+                continue
+            }
+        }
+        return resolved
+    }
+
+    private static func representativePoint(for day: TripDaySnapshot) -> RoutePoint? {
+        let cards = ItineraryListPresentation.orderedCards(day.cards)
+        if let arrival = cards.reversed().compactMap(\.toAirportLocation).first(where: \.hasValidCoordinate) {
+            return RoutePoint(latitude: arrival.latitude, longitude: arrival.longitude)
+        }
+        return cards.lazy.compactMap(\.place?.point).first
+    }
 }
 
 private extension Image {

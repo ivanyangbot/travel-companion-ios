@@ -133,6 +133,10 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var kind: TravelCardSnapshot.Kind
     var title: String
     var images: [String] = []
+    /// Server-owned presentation decision derived from verified image-tool
+    /// dimensions. It survives draft confirmation into the persisted card.
+    var imageScore: Int = 0
+    var showLargeImage: Bool = false
     var sourceText: String? = nil
     var allowsUnverifiedPlace: Bool? = nil
     var date: String
@@ -227,6 +231,9 @@ extension AgentV2Candidate {
         kind = try container.decode(TravelCardSnapshot.Kind.self, forKey: .kind)
         title = try container.decode(String.self, forKey: .title)
         images = try container.decodeIfPresent([String].self, forKey: .images) ?? []
+        imageScore = max(0, min(100, try container.decodeIfPresent(Int.self, forKey: .imageScore) ?? 0))
+        showLargeImage = (try container.decodeIfPresent(Bool.self, forKey: .showLargeImage) ?? false)
+            && !images.isEmpty
         sourceText = try container.decodeIfPresent(String.self, forKey: .sourceText)
         allowsUnverifiedPlace = try container.decodeIfPresent(Bool.self, forKey: .allowsUnverifiedPlace)
         date = try container.decodeIfPresent(String.self, forKey: .date) ?? ""

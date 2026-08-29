@@ -742,7 +742,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
                 for try await event in stream {
                     switch event {
                     case .status(let text): state.status = text
-                    case .reasoningSummary(let text): state.reasoningSummary += text
+                    case .reasoningSummary(let text): state.appendReasoningSummary(text)
                     case .assistantDelta(let text):
                         state.status = nil
                         state.appendStreamingReply(text)
@@ -762,6 +762,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
                     case .fliggySearchCompleted(let completion):
                         state.fliggySearchCompleted(completion)
                     case .done:
+                        state.flushReasoningSummary()
                         state.flushStreamingReply()
                         let completedReply = state.streamingReply.isEmpty ? state.stagedSummaryText : state.streamingReply
                         if !completedReply.isEmpty {

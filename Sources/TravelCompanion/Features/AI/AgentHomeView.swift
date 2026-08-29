@@ -2320,7 +2320,7 @@ struct AgentHomeView: View {
                     for try await event in stream {
                         switch event {
                         case .status(let text): state.status = text
-                        case .reasoningSummary(let text): state.reasoningSummary += text
+                        case .reasoningSummary(let text): state.appendReasoningSummary(text)
                         case .assistantDelta(let text):
                             state.status = nil
                             state.appendStreamingReply(text)
@@ -2341,6 +2341,7 @@ struct AgentHomeView: View {
                         case .fliggySearchCompleted(let completion):
                             state.fliggySearchCompleted(completion)
                         case .done:
+                            state.flushReasoningSummary()
                             state.flushStreamingReply()
                             for question in pendingQuestions {
                                 sessionStore.append(.init(id: UUID(), role: "assistant", content: question, createdAt: .now))
@@ -3176,7 +3177,11 @@ struct AgentV2CandidateCard: View {
     private var standardCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !imageURLs.isEmpty {
-                AgentCandidateImagePager(urls: imageURLs, selection: $imageIndex, height: 174)
+                AgentCandidateImagePager(
+                    urls: imageURLs,
+                    selection: $imageIndex,
+                    height: candidate.showLargeImage ? 248 : 174
+                )
                     .overlay(alignment: .topLeading) {
                         Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
                             .font(.caption.weight(.bold))
