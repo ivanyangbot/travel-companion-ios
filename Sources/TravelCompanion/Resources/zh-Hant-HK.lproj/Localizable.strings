@@ -350,6 +350,8 @@
 "travelcard.planRoute" = "規劃路線";
 "travelcard.placeActionsA11y" = "地點操作";
 "travelcard.viewDetails" = "查看詳情";
+"itinerary.passengersRow" = "乘機人：%@";
+"carddetail.passengers" = "乘機人";
 "kind.flight" = "機票";
 "kind.hotel" = "酒店";
 "kind.activity" = "活動";

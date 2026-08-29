@@ -6,6 +6,9 @@ import UIKit
 struct CardDetailView: View {
     let card: TravelCardSnapshot
     let currency: String?
+    /// Shared-trip gate: passengers render only when the viewer is signed in
+    /// and the trip has at least one companion.
+    var showsPassengers: Bool = false
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var linkHandler = ExternalLinkHandler()
@@ -185,6 +188,10 @@ struct CardDetailView: View {
             }
             if card.kind == .flight, let to = card.toAirport, !to.isEmpty {
                 detailRow(String(localized: "carddetail.arrivalAirport"), value: to, icon: "airplane.arrival")
+            }
+            if card.kind == .flight, showsPassengers,
+               let passengers = card.passengers, !passengers.isEmpty {
+                detailRow(String(localized: "carddetail.passengers"), value: passengers, icon: "person.2.fill")
             }
             if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: currency) {
                 detailRow(String(localized: "carddetail.actualPrice"), value: actual, icon: "creditcard.fill")

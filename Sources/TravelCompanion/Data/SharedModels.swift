@@ -224,6 +224,10 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     /// Flight-only structured airports (e.g. "HND" -> "KIX").
     var fromAirport: String?
     var toAirport: String?
+    /// Flight-only passenger names copied from the ticket source; multiple
+    /// names are separated by "、". Nil when nobody is named, so shared trips
+    /// can hide the row instead of showing a placeholder.
+    var passengers: String?
     /// Estimated price in the trip currency's minor units; nil when the card
     /// has none. The UI renders at most one of estimated/actual price.
     var priceMinor: Int64?
@@ -252,7 +256,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case serverID = "id", dayID = "dayId", kind, title, startAt, endAt, place, bookingCode
         case airlineCode, airlineName, airlineLogoURL, url, sources
-        case description, fromAirport = "fromAirport", toAirport = "toAirport", priceMinor
+        case description, fromAirport = "fromAirport", toAirport = "toAirport", passengers, priceMinor
         case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips
         case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
     }
@@ -274,6 +278,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         description: String? = nil,
         fromAirport: String? = nil,
         toAirport: String? = nil,
+        passengers: String? = nil,
         priceMinor: Int64? = nil,
         actualPriceMinor: Int64? = nil,
         ticketPriceMinor: Int64? = nil,
@@ -303,6 +308,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.description = description
         self.fromAirport = fromAirport
         self.toAirport = toAirport
+        self.passengers = passengers
         self.priceMinor = priceMinor
         self.actualPriceMinor = actualPriceMinor
         self.ticketPriceMinor = ticketPriceMinor
@@ -335,6 +341,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         fromAirport = try container.decodeIfPresent(String.self, forKey: .fromAirport)
         toAirport = try container.decodeIfPresent(String.self, forKey: .toAirport)
+        passengers = try container.decodeIfPresent(String.self, forKey: .passengers)
         priceMinor = try container.decodeIfPresent(Int64.self, forKey: .priceMinor)
         actualPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .actualPriceMinor)
         ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)
@@ -373,6 +380,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(description, forKey: .description)
         try container.encodeIfPresent(fromAirport, forKey: .fromAirport)
         try container.encodeIfPresent(toAirport, forKey: .toAirport)
+        try container.encodeIfPresent(passengers, forKey: .passengers)
         try container.encodeIfPresent(priceMinor, forKey: .priceMinor)
         try container.encodeIfPresent(actualPriceMinor, forKey: .actualPriceMinor)
         try container.encodeIfPresent(ticketPriceMinor, forKey: .ticketPriceMinor)

@@ -350,6 +350,8 @@
 "travelcard.planRoute" = "Plan Route";
 "travelcard.placeActionsA11y" = "Place actions";
 "travelcard.viewDetails" = "View details";
+"itinerary.passengersRow" = "Passengers: %@";
+"carddetail.passengers" = "Passengers";
 "kind.flight" = "Flight";
 "kind.hotel" = "Hotel";
 "kind.activity" = "Activity";

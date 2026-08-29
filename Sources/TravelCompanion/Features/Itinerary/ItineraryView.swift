@@ -18,6 +18,13 @@ struct ItineraryView: View {
     @State private var cardPendingDeletion: TravelCardSnapshot?
     @State private var expenseEditorDate: Date?
     @State private var showsSharingSheet = false
+    @State private var isHeaderMenuExpanded = true
+    @State private var headerQuickAction: TodayQuickAction?
+    @State private var isReloading = false
+    @State private var showsTripPicker = false
+    @State private var tripBeingSelectedID: Int?
+    @State private var showsSettings = false
+    @State private var showsSignIn = false
     @State private var inviteBeingJoined: String?
     @State private var signOutErrorMessage: String?
     @State private var selectedListDate: String?
@@ -52,6 +59,9 @@ struct ItineraryView: View {
     @State private var dragAutoScrollTask: Task<Void, Never>?
     @State private var itineraryScrollPosition = ScrollPosition()
     @State private var itineraryNow = Date.now
+    /// Members of the selected shared trip (signed-in only); >1 means the
+    /// trip has companions and flight cards may reveal ticket passengers.
+    @State private var sharedMemberCount = 0
     @StateObject private var itineraryListScrollController = ItineraryListScrollController()
     @StateObject private var linkHandler = ExternalLinkHandler()
 
@@ -112,11 +122,97 @@ struct ItineraryView: View {
                 guard token != nil else { return }
                 joinPendingInviteIfPossible()
             }
-            .sheet(isPresented: $showsSharingSheet) {
+            .sheet(isPresented: Binding(
+                get: { showsSharingSheet },
+                set: {
+                    showsSharingSheet = $0
+                    if !$0 { clearHeaderQuickAction(.addCompanion) }
+                }
+            )) {
                 TripSharingSheet(syncEngine: syncEngine)
+            }
+            .sheet(isPresented: Binding(
+                get: { showsTripPicker },
+                set: {
+                    showsTripPicker = $0
+                    if !$0 {
+                        clearHeaderQuickAction(.tripSelection)
+                        withAnimation(.snappy(duration: 0.28)) {
+                            isHeaderMenuExpanded = true
+                        }
+                    }
+                }
+            )) {
+                TodayTripPickerSheet(
+                    trips: syncEngine.trips,
+                    selectedTripID: syncEngine.selectedTripID,
+                    tripBeingSelectedID: tripBeingSelectedID,
+                    isStartingNewTrip: false,
+                    onSelect: selectTripFromPicker,
+                    onCreate: {
+                        showsTripPicker = false
+                        showsNewTripEditor = true
+                    },
+                    onEdit: { summary, destination, startDate, endDate, currency in
+                        Task {
+                            await syncEngine.updateTrip(
+                                summary,
+                                destination: destination,
+                                startDate: startDate,
+                                endDate: endDate,
+                                currency: currency
+                            )
+                        }
+                    },
+                    onDelete: { summary in
+                        Task { await syncEngine.deleteTrip(summary) }
+                    },
+                    onDismiss: { showsTripPicker = false }
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(28)
+                .presentationBackground(PrimaryTabPalette.background)
+                .presentationContentInteraction(.scrolls)
+                .interactiveDismissDisabled(tripBeingSelectedID != nil)
+            }
+            .sheet(isPresented: Binding(
+                get: { showsSettings },
+                set: {
+                    showsSettings = $0
+                    if !$0 { clearHeaderQuickAction(.settings) }
+                }
+            )) {
+                TodaySettingsSheet(
+                    appleSignIn: appleSignIn,
+                    onDismiss: { showsSettings = false }
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(28)
+                .presentationBackground(PrimaryTabPalette.background)
+                .presentationContentInteraction(.scrolls)
+            }
+            .sheet(isPresented: Binding(
+                get: { showsSignIn },
+                set: {
+                    showsSignIn = $0
+                    if !$0 { clearHeaderQuickAction(.signIn) }
+                }
+            )) {
+                AgentHomeSignInSheet(appleSignIn: appleSignIn)
+                    .presentationDetents([.height(300)])
+                    .presentationDragIndicator(.visible)
             }
             .task {
                 joinPendingInviteIfPossible()
+            }
+            .task(id: "\(syncEngine.selectedTripID)-\(syncEngine.isUserAuthenticated)") {
+                guard syncEngine.isUserAuthenticated, syncEngine.selectedTripID != nil else {
+                    sharedMemberCount = 0
+                    return
+                }
+                sharedMemberCount = (try? await syncEngine.fetchTripMembers())?.count ?? 0
             }
             .onChange(of: syncEngine.isUserAuthenticated) { _, isAuthenticated in
                 guard isAuthenticated else { return }
@@ -168,7 +264,7 @@ struct ItineraryView: View {
                 .presentationBackground(PrimaryTabPalette.background)
             }
             .sheet(item: $detailCard) { card in
-                CardDetailView(card: card, currency: syncEngine.trip?.currency)
+                CardDetailView(card: card, currency: syncEngine.trip?.currency, showsPassengers: syncEngine.isUserAuthenticated && sharedMemberCount > 1)
                     .presentationDetents([.fraction(0.82), .large])
                     .presentationDragIndicator(.visible)
                     .presentationCornerRadius(30)
@@ -404,7 +500,7 @@ struct ItineraryView: View {
         timelineWidth: CGFloat
     ) -> some View {
         VStack(spacing: 9) {
-            ZStack {
+            ZStack(alignment: .top) {
                 Text(
                     days.indices.contains(selectedIndex)
                         ? ItineraryListPresentation.timelineLabel(
@@ -415,22 +511,17 @@ struct ItineraryView: View {
                 )
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
+                    .frame(height: 48)
 
-                HStack(spacing: 0) {
-                    Button {
-                        showsSharingSheet = true
-                    } label: {
-                        Image("icon-link-outline")
-                            .resizable()
-                            .renderingMode(.template)
-                            .scaledToFit()
-                            .foregroundStyle(.white)
-                            .frame(width: 24, height: 24)
-                            .frame(width: 40, height: 40)
-                    }
-                    .itineraryHeaderButtonStyle()
-                    .disabled(!syncEngine.isUserAuthenticated || syncEngine.selectedTripID == nil)
-                    .accessibilityLabel(Text("itinerary.shareTripA11y"))
+                HStack(alignment: .top, spacing: 0) {
+                    TodayHomeDropdownMenu(
+                        isPOIOverlayExpanded: $isHeaderMenuExpanded,
+                        activeAction: headerQuickAction,
+                        isReloading: isReloading,
+                        actions: TodayQuickAction.visibleActions(isAuthenticated: appleSignIn.isAuthenticated),
+                        onAction: { action in handleHeaderQuickAction(action) },
+                        onOverlayExpansionChanged: { _ in }
+                    )
 
                     Spacer(minLength: 0)
 
@@ -449,7 +540,8 @@ struct ItineraryView: View {
                     .accessibilityLabel(Text("itinerary.mapModeA11y"))
                 }
             }
-            .frame(height: 48)
+            .zIndex(1)
+            .frame(height: 48, alignment: .top)
             .padding(.horizontal, 4)
 
             HStack(spacing: 6) {
@@ -1084,6 +1176,15 @@ struct ItineraryView: View {
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    if let passengers = itinerarySharedPassengers(for: card) {
+                        Text(passengers)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(14)
 
@@ -1136,6 +1237,13 @@ struct ItineraryView: View {
             }
         }
         .buttonStyle(ItineraryCardNoFadeButtonStyle())
+    }
+
+    private func itinerarySharedPassengers(for card: TravelCardSnapshot) -> String? {
+        guard syncEngine.isUserAuthenticated, sharedMemberCount > 1,
+              card.kind == .flight,
+              let passengers = card.passengers?.nilIfEmpty else { return nil }
+        return String(format: String(localized: "itinerary.passengersRow"), passengers)
     }
 
     private func itineraryFlightAirportBlock(
@@ -1508,6 +1616,54 @@ struct ItineraryView: View {
         agentSheet = ItineraryAgentSheet(
             initialMessage: ItineraryListPresentation.agentPrompt(for: card, date: day.date)
         )
+    }
+
+    private func handleHeaderQuickAction(_ action: TodayQuickAction) {
+        switch action {
+        case .addCompanion:
+            headerQuickAction = .addCompanion
+            showsSharingSheet = true
+        case .tripSelection:
+            headerQuickAction = .tripSelection
+            showsTripPicker = true
+        case .reload:
+            guard !isReloading else { return }
+            headerQuickAction = .reload
+            isReloading = true
+            Task {
+                async let retry: Void = syncEngine.retry()
+                try? await Task.sleep(for: .seconds(0.75))
+                await retry
+                isReloading = false
+                clearHeaderQuickAction(.reload)
+            }
+        case .settings:
+            headerQuickAction = .settings
+            showsSettings = true
+        case .signIn:
+            headerQuickAction = .signIn
+            appleSignIn.errorMessage = nil
+            showsSignIn = true
+        }
+    }
+
+    private func clearHeaderQuickAction(_ action: TodayQuickAction) {
+        guard headerQuickAction == action else { return }
+        headerQuickAction = nil
+    }
+
+    private func selectTripFromPicker(_ summary: TripSummary) {
+        guard tripBeingSelectedID == nil else { return }
+        guard summary.id != syncEngine.selectedTripID else {
+            showsTripPicker = false
+            return
+        }
+        tripBeingSelectedID = summary.id
+        Task {
+            await syncEngine.selectTrip(summary.id)
+            tripBeingSelectedID = nil
+            showsTripPicker = false
+        }
     }
 
     private func resetListCardSwipeGesture() {
