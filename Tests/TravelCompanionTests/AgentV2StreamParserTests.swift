@@ -153,6 +153,32 @@ final class AgentV2StreamParserTests: XCTestCase {
         XCTAssertTrue(decoded.isCommitReady)
     }
 
+    func testHotelCheckoutDateSurvivesStreamAndCommitEncoding() throws {
+        let candidateID = UUID().uuidString.lowercased()
+        let fixture = """
+        event: candidate_upsert
+        data: {"id":"\(candidateID)","kind":"hotel","title":"机场酒店","date":"2026-10-01","dateStatus":"inRange","startAt":"15:00","endAt":"11:00","endDate":"2026-10-03","place":{"name":"机场酒店","address":"雅加达","latitude":-6.12,"longitude":106.65,"placeId":"hotel-1"},"placeStatus":"verified","tips":[],"risks":[],"missingFields":[],"selected":true}
+
+        event: done
+        data: {}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var candidate: AgentV2Candidate?
+        for byte in fixture.utf8 {
+            guard let event = try parser.consume(byte) else { continue }
+            if case .candidateUpsert(let value) = event { candidate = value }
+        }
+
+        let decoded = try XCTUnwrap(candidate)
+        XCTAssertEqual(decoded.endDate, "2026-10-03")
+
+        let encoded = try JSONEncoder().encode(decoded)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(object["endDate"] as? String, "2026-10-03")
+    }
+
     func testFliggyEventsDecodeAsPairedStructuredSignals() throws {
         // Mirrors the backend's observed ordering: flight start → hotel start
         // (term picked from `origin`) → two completions → done.

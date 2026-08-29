@@ -139,6 +139,9 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var dateStatus: DateStatus? = nil
     var startAt: String
     var endAt: String?
+    /// Hotel checkout date. Kept separate from the local checkout clock so
+    /// multi-night stays survive draft persistence and commit round-trips.
+    var endDate: String? = nil
     var place: AIChatPlace?
     var placeStatus: PlaceStatus
     var description: String?
@@ -222,6 +225,7 @@ extension AgentV2Candidate {
         dateStatus = try container.decodeIfPresent(DateStatus.self, forKey: .dateStatus)
         startAt = try container.decodeIfPresent(String.self, forKey: .startAt) ?? ""
         endAt = try container.decodeIfPresent(String.self, forKey: .endAt)
+        endDate = try container.decodeIfPresent(String.self, forKey: .endDate)
         place = try container.decodeIfPresent(AIChatPlace.self, forKey: .place)
         placeStatus = try container.decode(PlaceStatus.self, forKey: .placeStatus)
         description = try container.decodeIfPresent(String.self, forKey: .description)
