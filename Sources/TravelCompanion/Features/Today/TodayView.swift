@@ -18,6 +18,8 @@ struct TodayView: View {
     @State private var cameraFocusPointID: UUID?
     @State private var cameraRequestID = 0
     @State private var detailCard: TravelCardSnapshot?
+    @State private var selectedFlightCard: TravelCardSnapshot?
+    @State private var resolvedFlightRoutes: [TodayFlightRoute] = []
     @State private var hasCenteredOnPOIs = false
     /// 相对于排序后 days 的当前选中索引；nil 表示跟随“今日”基准。
     @State private var selectedDayIndex: Int?
@@ -85,6 +87,23 @@ struct TodayView: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(30)
                 .presentationBackground(PrimaryTabPalette.background)
+        }
+        .sheet(item: $selectedFlightCard) { card in
+            TodayMapFlightCard(
+                card: card,
+                currency: syncEngine.trip?.currency,
+                onShowDetails: {
+                    selectedFlightCard = nil
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(320))
+                        detailCard = card
+                    }
+                }
+            )
+            .presentationDetents([.height(390)])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(30)
+            .presentationBackground(PrimaryTabPalette.background)
         }
         .sheet(isPresented: Binding(
             get: { showsSharingSheet },
@@ -208,11 +227,15 @@ struct TodayView: View {
     private func mapContent(days: [TripDaySnapshot], currentIndex: Int, baseIndex: Int) -> some View {
         let day = days[currentIndex]
         let pois = poiCards(in: day)
+        let flights = flightCards(in: day)
+        let flightIDs = Set(flights.map(\.id))
+        let flightRoutes = resolvedFlightRoutes.filter { flightIDs.contains($0.cardID) }
         let showsPOISwiper = !pois.isEmpty && isPOIOverlayExpanded
         let showsTimeline = pois.isEmpty || isPOIOverlayExpanded
         ZStack(alignment: .top) {
             MapLibreTodayMapCanvas(
                 points: mapPoints(pois: pois),
+                flightRoutes: flightRoutes,
                 // A selected map marker is the visual counterpart of the
                 // visible POI card. Keep every marker compact and neutral
                 // while the user has collapsed the bottom overlay.
@@ -225,7 +248,11 @@ struct TodayView: View {
                 // keeps this boundary because its timeline remains on screen.
                 timelineTopInGlobal: showsTimeline ? lastTimelineTopInGlobal : nil,
                 overviewBottomInset: isPOIOverlayExpanded ? 240 : 112,
-                routeRefreshID: 0
+                routeRefreshID: 0,
+                onFlightSelected: { cardID in
+                    guard let card = flights.first(where: { $0.id == cardID }) else { return }
+                    selectedFlightCard = card
+                }
             ) { _ in
             } onViewportStateChanged: { _, _ in
             }
@@ -252,6 +279,7 @@ struct TodayView: View {
                     days: days,
                     for: day,
                     pois: pois,
+                    flightRoutes: flightRoutes,
                     currentIndex: currentIndex,
                     baseIndex: baseIndex
                 )
@@ -300,9 +328,12 @@ struct TodayView: View {
                 lastTimelineTopInGlobal = top
             }
         }
-        .task(id: "\(day.id)-\(poisKey(pois))") {
+        .task(id: "\(day.id)-\(cardsKey(pois + flights))") {
             hasCenteredOnPOIs = false
-            fitAll(pois: pois)
+            let routes = await AppleMapService.resolveFlightRoutes(cards: flights)
+            guard !Task.isCancelled else { return }
+            resolvedFlightRoutes = routes
+            fitAll(pois: pois, flightRoutes: routes)
             hasCenteredOnPOIs = true
         }
     }
@@ -326,6 +357,7 @@ struct TodayView: View {
         days: [TripDaySnapshot],
         for day: TripDaySnapshot,
         pois: [TravelCardSnapshot],
+        flightRoutes: [TodayFlightRoute],
         currentIndex: Int,
         baseIndex: Int
     ) -> some View {
@@ -343,10 +375,10 @@ struct TodayView: View {
                     activeAction: activeQuickAction,
                     isReloading: isReloading,
                     actions: TodayQuickAction.visibleActions(isAuthenticated: appleSignIn.isAuthenticated),
-                    onAction: { action in handleQuickAction(action, pois: pois) },
+                    onAction: { action in handleQuickAction(action, pois: pois, flightRoutes: flightRoutes) },
                     onOverlayExpansionChanged: { isExpanded in
                         guard isExpanded else { return }
-                        fitAll(pois: pois)
+                        fitAll(pois: pois, flightRoutes: flightRoutes)
                     }
                 )
 
@@ -383,7 +415,11 @@ struct TodayView: View {
         .padding(.horizontal, 20)
     }
 
-    private func handleQuickAction(_ action: TodayQuickAction, pois: [TravelCardSnapshot]) {
+    private func handleQuickAction(
+        _ action: TodayQuickAction,
+        pois: [TravelCardSnapshot],
+        flightRoutes: [TodayFlightRoute]
+    ) {
         switch action {
         case .addCompanion:
             activeQuickAction = .addCompanion
@@ -400,7 +436,7 @@ struct TodayView: View {
                 // Preserve the old drawer's visible full-turn reload animation.
                 try? await Task.sleep(for: .seconds(0.75))
                 await retry
-                fitAll(pois: pois)
+                fitAll(pois: pois, flightRoutes: flightRoutes)
                 isReloading = false
                 clearQuickAction(.reload)
             }
@@ -776,7 +812,17 @@ struct TodayView: View {
 
     private func poiCards(in day: TripDaySnapshot) -> [TravelCardSnapshot] {
         day.cards
-            .filter { $0.place?.latitude != nil && $0.place?.longitude != nil }
+            .filter {
+                $0.kind != .flight
+                    && $0.place?.latitude != nil
+                    && $0.place?.longitude != nil
+            }
+            .sorted { $0.startAt < $1.startAt }
+    }
+
+    private func flightCards(in day: TripDaySnapshot) -> [TravelCardSnapshot] {
+        day.cards
+            .filter { $0.kind == .flight }
             .sorted { $0.startAt < $1.startAt }
     }
 
@@ -802,8 +848,8 @@ struct TodayView: View {
         min(max(0, selectedPOIIndex), max(0, pois.count - 1))
     }
 
-    private func poisKey(_ pois: [TravelCardSnapshot]) -> String {
-        pois.map { "\($0.id.uuidString)-\($0.updatedAt.timeIntervalSince1970)" }.joined(separator: "|")
+    private func cardsKey(_ cards: [TravelCardSnapshot]) -> String {
+        cards.map { "\($0.id.uuidString)-\($0.updatedAt.timeIntervalSince1970)" }.joined(separator: "|")
     }
 
     private func dayLabel(for day: TripDaySnapshot) -> String? {
@@ -830,9 +876,14 @@ struct TodayView: View {
         return symbol
     }
 
-    private func fitAll(pois: [TravelCardSnapshot]) {
-        guard !pois.isEmpty else { return }
-        if pois.count == 1, let coordinate = coordinate(of: pois[0]) {
+    private func fitAll(
+        pois: [TravelCardSnapshot],
+        flightRoutes: [TodayFlightRoute]
+    ) {
+        guard !pois.isEmpty || !flightRoutes.isEmpty else { return }
+        if pois.count == 1,
+           flightRoutes.isEmpty,
+           let coordinate = coordinate(of: pois[0]) {
             cameraFocus = coordinate
             cameraFocusPointID = pois[0].id
         } else {
@@ -2079,6 +2130,183 @@ private struct TodayTimelineChipFramesPreferenceKey: PreferenceKey {
     static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
     }
+}
+
+/// Compact ticket surfaced by tapping the flight arc or its aircraft marker.
+/// It intentionally contains no itinerary edit affordances: the map interaction
+/// is for orientation first, with the existing detail sheet one tap away.
+private struct TodayMapFlightCard: View {
+    let card: TravelCardSnapshot
+    let currency: String?
+    let onShowDetails: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 10) {
+                Label(card.kind.title, systemImage: "point.topleft.down.curvedto.point.bottomright.up")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                Spacer()
+                Text(Self.dateFormatter.string(from: card.startAt))
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top, spacing: 11) {
+                        AirlineLogoBadge(logoURL: airlineLogoURL, size: 38, cornerRadius: 11)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(AgentFlightDisplay.routeTitle(
+                                from: card.fromAirport,
+                                to: card.toAirport,
+                                fallback: card.title
+                            ))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            Text(flightNumber)
+                                .font(.caption.monospaced().weight(.medium))
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        }
+                        Spacer(minLength: 8)
+                        if let price {
+                            Text(price)
+                                .font(.subheadline.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+
+                    HStack(alignment: .center, spacing: 10) {
+                        airport(card.fromAirport, time: Self.timeFormatter.string(from: card.startAt), alignment: .leading)
+                        VStack(spacing: 7) {
+                            Image(systemName: "airplane")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(PrimaryTabPalette.accent)
+                            HStack(spacing: 4) {
+                                Circle().fill(.white.opacity(0.26)).frame(width: 4, height: 4)
+                                Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+                                Circle().fill(.white.opacity(0.26)).frame(width: 4, height: 4)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        airport(
+                            card.toAirport,
+                            time: card.endAt.map { Self.timeFormatter.string(from: $0) }
+                                ?? String(localized: "agent.timePending"),
+                            alignment: .trailing
+                        )
+                    }
+                }
+                .padding(16)
+
+                ticketDivider
+
+                Button(action: onShowDetails) {
+                    HStack {
+                        Text("travelcard.viewDetails")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption.weight(.bold))
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(height: 48)
+                    .padding(.horizontal, 16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .background {
+                LinearGradient(
+                    colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(.white.opacity(0.10), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.28), radius: 20, y: 10)
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 18)
+    }
+
+    private func airport(
+        _ value: String?,
+        time: String,
+        alignment: HorizontalAlignment
+    ) -> some View {
+        VStack(alignment: alignment, spacing: 4) {
+            Text(AgentFlightDisplay.airportCode(value))
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            Text(nonEmpty(value) ?? String(localized: "agent.airportPending"))
+                .font(.caption2)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+            Text(time)
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white.opacity(0.88))
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private var ticketDivider: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<20, id: \.self) { _ in
+                Capsule().fill(.white.opacity(0.10)).frame(maxWidth: .infinity).frame(height: 1)
+            }
+        }
+        .overlay(alignment: .leading) {
+            Circle().fill(PrimaryTabPalette.background).frame(width: 18, height: 18).offset(x: -9)
+        }
+        .overlay(alignment: .trailing) {
+            Circle().fill(PrimaryTabPalette.background).frame(width: 18, height: 18).offset(x: 9)
+        }
+    }
+
+    private var airlineLogoURL: URL? {
+        if let url = CardImageURL.resolve(card.airlineLogoURL) { return url }
+        let code = card.airlineCode ?? AgentFlightDisplay.airlineCode(fromBookingCode: card.bookingCode)
+        guard let code else { return nil }
+        return CardImageURL.resolve("/v1/airlines/logos/\(code).png")
+    }
+
+    private var flightNumber: String {
+        nonEmpty(card.bookingCode)
+            ?? nonEmpty(card.airlineCode)
+            ?? String(localized: "agent.flightNumberPending")
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    private var price: String? {
+        CardPrice.format(minor: card.actualPriceMinor ?? card.priceMinor, currency: currency)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("yMMMd")
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
 }
 
 private struct POICard: View {

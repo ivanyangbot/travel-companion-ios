@@ -1378,6 +1378,7 @@ private final class MapLibreGeometryTrackingMapView: MLNMapView {
 
 struct MapLibreTodayMapCanvas: UIViewRepresentable {
     let points: [TodayMapPoint]
+    let flightRoutes: [TodayFlightRoute]
     /// `nil` renders all POIs as compact number pins, for example while the
     /// action drawer is open and the POI swiper is hidden.
     let selectedIndex: Int?
@@ -1393,6 +1394,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     /// The card occupies the lower map area only while the POI swiper is visible.
     let overviewBottomInset: CGFloat
     let routeRefreshID: Int
+    let onFlightSelected: (UUID) -> Void
     let onRouteLoadingChanged: (Bool) -> Void
     /// Reports whether the viewport is actively moving and whether a real
     /// itinerary POI (not an edge proxy) is currently visible in it.
@@ -1424,9 +1426,11 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         context.coordinator.updateContent(
             on: mapView,
             points: points,
+            flightRoutes: flightRoutes,
             selectedIndex: selectedIndex,
             timelineTopInGlobal: timelineTopInGlobal,
             routeRefreshID: routeRefreshID,
+            onFlightSelected: onFlightSelected,
             onRouteLoadingChanged: onRouteLoadingChanged,
             onViewportStateChanged: onViewportStateChanged
         )
@@ -1437,15 +1441,17 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         context.coordinator.updateContent(
             on: mapView,
             points: points,
+            flightRoutes: flightRoutes,
             selectedIndex: selectedIndex,
             timelineTopInGlobal: timelineTopInGlobal,
             routeRefreshID: routeRefreshID,
+            onFlightSelected: onFlightSelected,
             onRouteLoadingChanged: onRouteLoadingChanged,
             onViewportStateChanged: onViewportStateChanged
         )
         context.coordinator.updateCamera(
             on: mapView,
-            points: points,
+            points: points + flightRoutes.flatMap(\.cameraPoints),
             focus: cameraFocus,
             focusPointID: cameraFocusPointID,
             requestID: cameraRequestID,
@@ -1463,9 +1469,11 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     final class Coordinator: NSObject, @MainActor MLNMapViewDelegate {
         private struct PendingContentUpdate {
             let points: [TodayMapPoint]
+            let flightRoutes: [TodayFlightRoute]
             let selectedIndex: Int?
             let timelineTopInGlobal: CGFloat?
             let routeRefreshID: Int
+            let onFlightSelected: (UUID) -> Void
             let onRouteLoadingChanged: (Bool) -> Void
             let onViewportStateChanged: (Bool, Bool) -> Void
         }
@@ -1484,11 +1492,16 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         )
         private var pointAnnotations: [MapLibreNumberedAnnotation] = []
         private var routeAnnotations: [MLNPolyline] = []
+        private var flightShapeAnnotations: [MLNPolyline] = []
+        private var flightPlaneAnnotations: [MapLibreFlightAnnotation] = []
+        private var flightShapeMetadata: [ObjectIdentifier: MapLibreFlightShapeMetadata] = [:]
         private var displayedRouteCoordinates: [CLLocationCoordinate2D] = []
+        private var displayedFlightCoordinates: [CLLocationCoordinate2D] = []
         private var routeTask: Task<Void, Never>?
         private var activeDirections: MKDirections?
         private var routeGeneration = 0
         private var renderedPoints: [TodayMapPoint] = []
+        private var renderedFlightRoutes: [TodayFlightRoute] = []
         private var renderedSelection: Int?
         private var handledCameraRequestID = -1
         private var handledRouteRefreshID = -1
@@ -1505,6 +1518,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var pendingContentUpdate: PendingContentUpdate?
         private var pendingCameraUpdate: PendingCameraUpdate?
         private var onViewportStateChanged: ((Bool, Bool) -> Void)?
+        private var onFlightSelected: ((UUID) -> Void)?
         private var lastReportedViewportIsMoving: Bool?
         private var lastReportedHasVisiblePOI: Bool?
         /// POIs that currently need an edge proxy while the user is dragging.
@@ -1549,22 +1563,27 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         fileprivate func updateContent(
             on mapView: MLNMapView,
             points: [TodayMapPoint],
+            flightRoutes: [TodayFlightRoute],
             selectedIndex: Int?,
             timelineTopInGlobal: CGFloat?,
             routeRefreshID: Int,
+            onFlightSelected: @escaping (UUID) -> Void,
             onRouteLoadingChanged: @escaping (Bool) -> Void,
             onViewportStateChanged: @escaping (Bool, Bool) -> Void
         ) {
             self.onViewportStateChanged = onViewportStateChanged
-            let pointsChanged = points != renderedPoints
+            self.onFlightSelected = onFlightSelected
+            let pointsChanged = points != renderedPoints || flightRoutes != renderedFlightRoutes
             let cameraTransitionIsActive = isMapRegionChanging || isProgrammaticCameraChange
             if pendingContentUpdate != nil || (pointsChanged && cameraTransitionIsActive) {
                 let isFirstDeferredUpdate = pendingContentUpdate == nil
                 pendingContentUpdate = PendingContentUpdate(
                     points: points,
+                    flightRoutes: flightRoutes,
                     selectedIndex: selectedIndex,
                     timelineTopInGlobal: timelineTopInGlobal,
                     routeRefreshID: routeRefreshID,
+                    onFlightSelected: onFlightSelected,
                     onRouteLoadingChanged: onRouteLoadingChanged,
                     onViewportStateChanged: onViewportStateChanged
                 )
@@ -1582,9 +1601,11 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             applyContent(
                 on: mapView,
                 points: points,
+                flightRoutes: flightRoutes,
                 selectedIndex: selectedIndex,
                 timelineTopInGlobal: timelineTopInGlobal,
                 routeRefreshID: routeRefreshID,
+                onFlightSelected: onFlightSelected,
                 onRouteLoadingChanged: onRouteLoadingChanged,
                 onViewportStateChanged: onViewportStateChanged
             )
@@ -1593,17 +1614,21 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private func applyContent(
             on mapView: MLNMapView,
             points: [TodayMapPoint],
+            flightRoutes: [TodayFlightRoute],
             selectedIndex: Int?,
             timelineTopInGlobal: CGFloat?,
             routeRefreshID: Int,
+            onFlightSelected: @escaping (UUID) -> Void,
             onRouteLoadingChanged: @escaping (Bool) -> Void,
             onViewportStateChanged: @escaping (Bool, Bool) -> Void
         ) {
             self.onViewportStateChanged = onViewportStateChanged
+            self.onFlightSelected = onFlightSelected
             let refreshRequested = routeRefreshID != handledRouteRefreshID
             let pointsChanged = points != renderedPoints
+            let flightsChanged = flightRoutes != renderedFlightRoutes
             let selectionChanged = selectedIndex != renderedSelection
-            let contentChanged = pointsChanged || selectionChanged
+            let contentChanged = pointsChanged || flightsChanged || selectionChanged
             let safeAreaChanged = !MapLibreEdgePinGeometry.nearlyEqual(
                 self.timelineTopInGlobal,
                 timelineTopInGlobal
@@ -1652,7 +1677,12 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 handledRouteRefreshID = routeRefreshID
             }
 
+            if flightsChanged {
+                rebuildFlightRoutes(on: mapView, flightRoutes: flightRoutes)
+            }
+
             renderedPoints = points
+            renderedFlightRoutes = flightRoutes
             renderedSelection = selectedIndex
             updatePinPlacements(
                 on: mapView,
@@ -1686,9 +1716,11 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             applyContent(
                 on: mapView,
                 points: content.points,
+                flightRoutes: content.flightRoutes,
                 selectedIndex: content.selectedIndex,
                 timelineTopInGlobal: content.timelineTopInGlobal,
                 routeRefreshID: content.routeRefreshID,
+                onFlightSelected: content.onFlightSelected,
                 onRouteLoadingChanged: content.onRouteLoadingChanged,
                 onViewportStateChanged: content.onViewportStateChanged
             )
@@ -1816,6 +1848,69 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 } else {
                     self.updatePinPlacements(on: mapView)
                 }
+            }
+        }
+
+        private func rebuildFlightRoutes(
+            on mapView: MLNMapView,
+            flightRoutes: [TodayFlightRoute]
+        ) {
+            if !flightShapeAnnotations.isEmpty {
+                mapView.removeAnnotations(flightShapeAnnotations)
+            }
+            if !flightPlaneAnnotations.isEmpty {
+                mapView.removeAnnotations(flightPlaneAnnotations)
+            }
+            flightShapeAnnotations.removeAll(keepingCapacity: true)
+            flightPlaneAnnotations.removeAll(keepingCapacity: true)
+            flightShapeMetadata.removeAll(keepingCapacity: true)
+            displayedFlightCoordinates.removeAll(keepingCapacity: true)
+
+            for route in flightRoutes {
+                let sourceCoordinates = TodayFlightArcGeometry.coordinates(
+                    from: route.originCoordinate,
+                    to: route.destinationCoordinate
+                )
+                let displayCoordinates = MapLibreCoordinateTransform.displayCoordinates(
+                    for: sourceCoordinates
+                )
+                guard displayCoordinates.count > 2 else { continue }
+                displayedFlightCoordinates.append(contentsOf: displayCoordinates)
+
+                for style in MapLibreFlightShapeStyle.allCases {
+                    var coordinates = displayCoordinates
+                    let annotation = MLNPolyline(
+                        coordinates: &coordinates,
+                        count: UInt(coordinates.count)
+                    )
+                    flightShapeAnnotations.append(annotation)
+                    flightShapeMetadata[ObjectIdentifier(annotation)] = MapLibreFlightShapeMetadata(
+                        routeID: route.cardID,
+                        style: style
+                    )
+                }
+
+                if let placement = TodayFlightArcGeometry.midpointAndScreenAngle(
+                    for: displayCoordinates
+                ) {
+                    flightPlaneAnnotations.append(
+                        MapLibreFlightAnnotation(
+                            routeID: route.cardID,
+                            coordinate: placement.coordinate,
+                            screenAngle: placement.angle,
+                            title: "\(route.fromAirport) → \(route.toAirport)"
+                        )
+                    )
+                }
+            }
+
+            // Shape order is halo, accent stroke, then an almost transparent
+            // generous hit target. The plane annotations sit above all three.
+            if !flightShapeAnnotations.isEmpty {
+                mapView.addAnnotations(flightShapeAnnotations)
+            }
+            if !flightPlaneAnnotations.isEmpty {
+                mapView.addAnnotations(flightPlaneAnnotations)
             }
         }
 
@@ -2132,6 +2227,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 MapLibreCoordinateTransform.displayCoordinate(for: $0.coordinate)
             }
             coordinates.append(contentsOf: displayedRouteCoordinates)
+            coordinates.append(contentsOf: displayedFlightCoordinates)
             if coordinates.count == 1, let coordinate = coordinates.first {
                 if animated { isProgrammaticCameraChange = true }
                 mapView.setCenter(coordinate, zoomLevel: 12, animated: animated)
@@ -2161,6 +2257,14 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             _ mapView: MLNMapView,
             viewFor annotation: any MLNAnnotation
         ) -> MLNAnnotationView? {
+            if let annotation = annotation as? MapLibreFlightAnnotation {
+                let identifier = MapLibreFlightAnnotationView.reuseIdentifier
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    as? MapLibreFlightAnnotationView
+                    ?? MapLibreFlightAnnotationView(reuseIdentifier: identifier)
+                view.configure(screenAngle: annotation.screenAngle)
+                return view
+            }
             guard let annotation = annotation as? MapLibreNumberedAnnotation else { return nil }
             let identifier = MapLibreNumberedAnnotationView.reuseIdentifier
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
@@ -2174,6 +2278,28 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             )
             view.isHidden = hasAppliedPinPlacements && pinPlacements[annotation.pointID] == nil
             return view
+        }
+
+        func mapView(
+            _ mapView: MLNMapView,
+            shapeAnnotationIsEnabled annotation: MLNShape
+        ) -> Bool {
+            flightShapeMetadata[ObjectIdentifier(annotation)] != nil
+        }
+
+        func mapView(_ mapView: MLNMapView, didSelect annotation: any MLNAnnotation) {
+            let routeID: UUID?
+            if let plane = annotation as? MapLibreFlightAnnotation {
+                routeID = plane.routeID
+            } else if let shape = annotation as? MLNShape {
+                routeID = flightShapeMetadata[ObjectIdentifier(shape)]?.routeID
+            } else {
+                routeID = nil
+            }
+            guard let routeID else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onFlightSelected?(routeID)
+            mapView.deselectAnnotation(annotation, animated: false)
         }
 
         func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
@@ -2331,6 +2457,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             pendingContentUpdate = nil
             pendingCameraUpdate = nil
             onViewportStateChanged = nil
+            onFlightSelected = nil
         }
 
         private func reportViewportState(on mapView: MLNMapView, isMoving: Bool) {
@@ -2656,14 +2783,31 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             _ mapView: MLNMapView,
             strokeColorForShapeAnnotation annotation: MLNShape
         ) -> UIColor {
-            UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
+            if let metadata = flightShapeMetadata[ObjectIdentifier(annotation)] {
+                switch metadata.style {
+                case .halo:
+                    return UIColor.black.withAlphaComponent(0.46)
+                case .route:
+                    return UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 0.96)
+                case .hitTarget:
+                    return UIColor.white.withAlphaComponent(0.01)
+                }
+            }
+            return UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
         }
 
         func mapView(
             _ mapView: MLNMapView,
             lineWidthForPolylineAnnotation annotation: MLNPolyline
         ) -> CGFloat {
-            4
+            if let metadata = flightShapeMetadata[ObjectIdentifier(annotation)] {
+                switch metadata.style {
+                case .halo: return 9
+                case .route: return 3.5
+                case .hitTarget: return 24
+                }
+            }
+            return 4
         }
 
         func mapView(
@@ -2785,6 +2929,39 @@ private final class MapLibreNumberedAnnotation: MLNPointAnnotation {
         super.init()
         coordinate = sourceCoordinate
         title = point.title
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+private enum MapLibreFlightShapeStyle: CaseIterable {
+    case halo
+    case route
+    case hitTarget
+}
+
+private struct MapLibreFlightShapeMetadata {
+    let routeID: UUID
+    let style: MapLibreFlightShapeStyle
+}
+
+private final class MapLibreFlightAnnotation: MLNPointAnnotation {
+    let routeID: UUID
+    let screenAngle: CGFloat
+
+    init(
+        routeID: UUID,
+        coordinate: CLLocationCoordinate2D,
+        screenAngle: CGFloat,
+        title: String
+    ) {
+        self.routeID = routeID
+        self.screenAngle = screenAngle
+        super.init()
+        self.coordinate = coordinate
+        self.title = title
     }
 
     required init?(coder: NSCoder) {
@@ -3061,6 +3238,80 @@ private final class MapLibrePinShapeView: UIView {
             in: bounds.insetBy(dx: inset, dy: inset),
             pointingCorner: corner
         )
+    }
+}
+
+private final class MapLibreFlightAnnotationView: MLNAnnotationView {
+    static let reuseIdentifier = "MapLibreTodayFlight"
+
+    private let backgroundView = UIView()
+    private let planeImageView = UIImageView()
+    private let pulseLayer = CAShapeLayer()
+
+    override init(reuseIdentifier: String?) {
+        super.init(reuseIdentifier: reuseIdentifier)
+        scalesWithViewingDistance = false
+        backgroundColor = .clear
+        bounds = CGRect(x: 0, y: 0, width: 50, height: 50)
+
+        pulseLayer.fillColor = UIColor.clear.cgColor
+        pulseLayer.strokeColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 0.42).cgColor
+        pulseLayer.lineWidth = 1.5
+        layer.addSublayer(pulseLayer)
+
+        backgroundView.backgroundColor = UIColor(red: 24 / 255, green: 27 / 255, blue: 34 / 255, alpha: 0.94)
+        backgroundView.layer.cornerRadius = 18
+        backgroundView.layer.borderWidth = 1
+        backgroundView.layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
+        backgroundView.layer.shadowColor = UIColor.black.cgColor
+        backgroundView.layer.shadowOpacity = 0.34
+        backgroundView.layer.shadowRadius = 8
+        backgroundView.layer.shadowOffset = CGSize(width: 0, height: 4)
+
+        planeImageView.image = UIImage(
+            systemName: "airplane",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .bold)
+        )
+        planeImageView.tintColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
+        planeImageView.contentMode = .center
+
+        addSubview(backgroundView)
+        backgroundView.addSubview(planeImageView)
+        isAccessibilityElement = true
+        accessibilityTraits = [.button]
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let badgeFrame = CGRect(x: 7, y: 7, width: 36, height: 36)
+        backgroundView.frame = badgeFrame
+        planeImageView.frame = backgroundView.bounds
+        pulseLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2)).cgPath
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        pulseLayer.removeAllAnimations()
+        transform = .identity
+    }
+
+    func configure(screenAngle: CGFloat) {
+        planeImageView.transform = CGAffineTransform(rotationAngle: screenAngle)
+        accessibilityLabel = String(localized: "travelcard.viewDetails")
+        if pulseLayer.animation(forKey: "flightPulse") == nil {
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 0.8
+            pulse.toValue = 0.16
+            pulse.duration = 1.6
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            pulseLayer.add(pulse, forKey: "flightPulse")
+        }
     }
 }
 

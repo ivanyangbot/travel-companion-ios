@@ -4,6 +4,106 @@ import SwiftData
 @testable import TravelCompanion
 
 final class MapsTests: XCTestCase {
+    func testFlightArcIsCurvedAndKeepsExactEndpoints() throws {
+        let origin = CLLocationCoordinate2D(latitude: 39.941, longitude: 116.455)
+        let destination = CLLocationCoordinate2D(latitude: 35.549, longitude: 139.779)
+        let coordinates = TodayFlightArcGeometry.coordinates(
+            from: origin,
+            to: destination
+        )
+
+        XCTAssertEqual(coordinates.count, 49)
+        XCTAssertEqual(try XCTUnwrap(coordinates.first).latitude, origin.latitude, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(coordinates.first).longitude, origin.longitude, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(coordinates.last).latitude, destination.latitude, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(coordinates.last).longitude, destination.longitude, accuracy: 0.000_001)
+        let midpoint = coordinates[coordinates.count / 2]
+        XCTAssertGreaterThan(
+            abs(midpoint.latitude - (origin.latitude + destination.latitude) / 2),
+            0.5
+        )
+        XCTAssertNotNil(TodayFlightArcGeometry.midpointAndScreenAngle(for: coordinates))
+    }
+
+    func testFlightArcUsesShortAntimeridianPath() {
+        let coordinates = TodayFlightArcGeometry.coordinates(
+            from: CLLocationCoordinate2D(latitude: 35, longitude: 170),
+            to: CLLocationCoordinate2D(latitude: 37, longitude: -170)
+        )
+
+        for (left, right) in zip(coordinates, coordinates.dropFirst()) {
+            XCTAssertLessThan(abs(right.longitude - left.longitude), 2)
+        }
+        XCTAssertEqual(coordinates.last!.longitude, 190, accuracy: 0.000_001)
+    }
+
+    func testFlightRouteResolverIgnoresPOIsAndPreservesCardIdentity() async throws {
+        let flight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "CA181",
+            startAt: .now,
+            fromAirport: "北京首都国际机场 PEK",
+            toAirport: "东京羽田机场 HND"
+        )
+        let poi = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "浅草寺",
+            startAt: .now
+        )
+
+        let routes = await AppleMapService.resolveFlightRoutes(cards: [poi, flight]) { airport in
+            if airport.contains("PEK") {
+                return PlaceSearchResult(
+                    id: "pek",
+                    name: "Beijing Capital International Airport",
+                    address: nil,
+                    latitude: 40.0799,
+                    longitude: 116.6031,
+                    placeId: nil
+                )
+            }
+            if airport.contains("HND") {
+                return PlaceSearchResult(
+                    id: "hnd",
+                    name: "Haneda Airport",
+                    address: nil,
+                    latitude: 35.5494,
+                    longitude: 139.7798,
+                    placeId: nil
+                )
+            }
+            return nil
+        }
+
+        let route = try XCTUnwrap(routes.first)
+        XCTAssertEqual(routes.count, 1)
+        XCTAssertEqual(route.cardID, flight.id)
+        XCTAssertEqual(route.fromAirport, flight.fromAirport)
+        XCTAssertEqual(route.toAirport, flight.toAirport)
+        XCTAssertEqual(route.originLatitude, 40.0799, accuracy: 0.000_001)
+        XCTAssertEqual(route.destinationLongitude, 139.7798, accuracy: 0.000_001)
+    }
+
+    func testFlightRouteResolverKeepsIncompleteFlightOffMap() async {
+        let flight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "待确认航班",
+            startAt: .now,
+            fromAirport: "PEK",
+            toAirport: nil
+        )
+
+        let routes = await AppleMapService.resolveFlightRoutes(cards: [flight]) { _ in
+            XCTFail("Incomplete flight must not start a map search")
+            return nil
+        }
+
+        XCTAssertTrue(routes.isEmpty)
+    }
+
     private func edgeMember(
         _ suffix: Int,
         order: Int,

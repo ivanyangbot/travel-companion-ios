@@ -16,6 +16,122 @@ struct TodayMapPoint: Identifiable, Equatable {
     }
 }
 
+/// A resolved flight leg rendered independently from the numbered POI route.
+/// Airport coordinates are display-only and are never written back to the
+/// itinerary card, whose structured airport names remain the source of truth.
+struct TodayFlightRoute: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let cardID: UUID
+    let title: String
+    let fromAirport: String
+    let toAirport: String
+    let originLatitude: Double
+    let originLongitude: Double
+    let destinationLatitude: Double
+    let destinationLongitude: Double
+
+    var originCoordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: originLatitude, longitude: originLongitude)
+    }
+
+    var destinationCoordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: destinationLatitude, longitude: destinationLongitude)
+    }
+
+    var cameraPoints: [TodayMapPoint] {
+        [
+            TodayMapPoint(
+                id: UUID(uuidString: derivedUUIDString(suffix: "0001")) ?? id,
+                title: fromAirport,
+                categorySymbolName: "airplane.departure",
+                latitude: originLatitude,
+                longitude: originLongitude
+            ),
+            TodayMapPoint(
+                id: UUID(uuidString: derivedUUIDString(suffix: "0002")) ?? id,
+                title: toAirport,
+                categorySymbolName: "airplane.arrival",
+                latitude: destinationLatitude,
+                longitude: destinationLongitude
+            )
+        ]
+    }
+
+    private func derivedUUIDString(suffix: String) -> String {
+        let prefix = String(id.uuidString.dropLast(4))
+        return prefix + suffix
+    }
+}
+
+/// Produces a deliberately curved, dateline-safe flight path. Road routes use
+/// actual navigation geometry; flights instead need a stable visual arc whose
+/// midpoint can carry the aircraft affordance at every zoom level.
+enum TodayFlightArcGeometry {
+    static func coordinates(
+        from origin: CLLocationCoordinate2D,
+        to destination: CLLocationCoordinate2D,
+        segmentCount: Int = 48
+    ) -> [CLLocationCoordinate2D] {
+        let segments = max(8, segmentCount)
+        let destinationLongitude = unwrappedLongitude(destination.longitude, relativeTo: origin.longitude)
+        let deltaLongitude = destinationLongitude - origin.longitude
+        let deltaLatitude = destination.latitude - origin.latitude
+        let scaledLongitude = deltaLongitude * cos((origin.latitude + destination.latitude) * .pi / 360)
+        let distance = hypot(scaledLongitude, deltaLatitude)
+        guard distance > 0.000_001 else { return [origin, destination] }
+
+        let bend = min(12, max(1.2, distance * 0.14))
+        var controlLatitude = (origin.latitude + destination.latitude) / 2
+        var controlLongitude = (origin.longitude + destinationLongitude) / 2
+        if abs(scaledLongitude) >= abs(deltaLatitude) {
+            controlLatitude += (controlLatitude >= 0 ? bend : -bend)
+        } else {
+            controlLongitude += (deltaLatitude >= 0 ? bend : -bend)
+        }
+
+        return (0...segments).map { index in
+            let t = Double(index) / Double(segments)
+            let inverse = 1 - t
+            let latitude = inverse * inverse * origin.latitude
+                + 2 * inverse * t * controlLatitude
+                + t * t * destination.latitude
+            let longitude = inverse * inverse * origin.longitude
+                + 2 * inverse * t * controlLongitude
+                + t * t * destinationLongitude
+            return CLLocationCoordinate2D(
+                latitude: min(84, max(-84, latitude)),
+                // Keep longitudes unwrapped across the antimeridian so the
+                // renderer follows the short arc instead of drawing through
+                // every intermediate longitude around the world.
+                longitude: longitude
+            )
+        }
+    }
+
+    static func midpointAndScreenAngle(
+        for coordinates: [CLLocationCoordinate2D]
+    ) -> (coordinate: CLLocationCoordinate2D, angle: CGFloat)? {
+        guard coordinates.count >= 3 else { return nil }
+        let midpoint = coordinates.count / 2
+        let before = coordinates[max(0, midpoint - 1)]
+        let after = coordinates[min(coordinates.count - 1, midpoint + 1)]
+        let deltaLongitude = unwrappedLongitude(after.longitude, relativeTo: before.longitude) - before.longitude
+        let deltaLatitude = after.latitude - before.latitude
+        return (
+            coordinates[midpoint],
+            CGFloat(atan2(-deltaLatitude, deltaLongitude))
+        )
+    }
+
+    private static func unwrappedLongitude(_ longitude: Double, relativeTo origin: Double) -> Double {
+        var result = longitude
+        while result - origin > 180 { result -= 360 }
+        while result - origin < -180 { result += 360 }
+        return result
+    }
+
+}
+
 /// Road geometry plus the travel mode that produced it. Keeping the mode in
 /// the cache lets the map preserve the dashed treatment for walking-only legs
 /// after the screen is recreated.
