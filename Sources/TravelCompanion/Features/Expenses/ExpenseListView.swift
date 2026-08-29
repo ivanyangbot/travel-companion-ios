@@ -77,7 +77,7 @@ struct ExpenseListView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
 
-            HStack {
+            HStack { 
                 Spacer(minLength: 0)
 
                 if section == .expenses {
