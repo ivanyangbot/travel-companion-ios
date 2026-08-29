@@ -165,6 +165,8 @@
 "itinerary.swipeAskA11y" = "询问豆奶";
 "itinerary.swipeEditA11y" = "编辑行程卡片";
 "itinerary.cardTitle" = "%lld.%@";
+"itinerary.hotelNightProgress" = "第%lld晚 · 共%lld晚";
+"itinerary.projectedHotelNightHint" = "打开同一住宿详情；编辑住宿后，所有夜晚会同步更新。";
 "itinerary.newTripMenu" = "新建旅程";
 "itinerary.switchTripA11y" = "切换旅程";
 "itinerary.membersA11y" = "查看共享成员";

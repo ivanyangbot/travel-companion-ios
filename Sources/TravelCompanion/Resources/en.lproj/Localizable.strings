@@ -165,6 +165,8 @@
 "itinerary.swipeAskA11y" = "Ask Dounai";
 "itinerary.swipeEditA11y" = "Edit itinerary card";
 "itinerary.cardTitle" = "%lld. %@";
+"itinerary.hotelNightProgress" = "Night %lld of %lld";
+"itinerary.projectedHotelNightHint" = "Opens the same hotel stay details. Editing this stay updates every displayed night.";
 "itinerary.newTripMenu" = "New Trip";
 "itinerary.switchTripA11y" = "Switch trip";
 "itinerary.membersA11y" = "View shared members";

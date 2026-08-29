@@ -88,6 +88,102 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(ItineraryListPresentation.daySummary(for: day), "抵达丽江，古城夜")
     }
 
+    func testItineraryListProjectsOneHotelStayAcrossEveryOccupiedNight() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "机场万枫酒店",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-01T15:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-10-03T11:00:00Z")),
+            position: 0
+        )
+        let checkInDay = TripDaySnapshot(
+            date: "2026-10-01",
+            position: 0,
+            cards: [hotel]
+        )
+        let secondNight = TripDaySnapshot(date: "2026-10-02", position: 1)
+        let checkoutDay = TripDaySnapshot(date: "2026-10-03", position: 2)
+        let days = [checkInDay, secondNight, checkoutDay]
+
+        XCTAssertEqual(
+            ItineraryListPresentation.hotelNightProgress(
+                for: hotel,
+                on: checkInDay,
+                in: days,
+                timeZone: timeZone
+            ),
+            .init(nightIndex: 1, totalNights: 2)
+        )
+
+        let projectedSecondNight = ItineraryListPresentation.projectedHotelNights(
+            for: secondNight,
+            in: days,
+            timeZone: timeZone
+        )
+        XCTAssertEqual(projectedSecondNight.count, 1)
+        XCTAssertEqual(projectedSecondNight.first?.card.id, hotel.id)
+        XCTAssertEqual(projectedSecondNight.first?.progress, .init(nightIndex: 2, totalNights: 2))
+        XCTAssertTrue(projectedSecondNight.first?.id.hasSuffix("-2026-10-02") == true)
+        XCTAssertEqual(
+            ItineraryListPresentation.daySummary(
+                for: secondNight,
+                in: days,
+                timeZone: timeZone
+            ),
+            "机场万枫酒店"
+        )
+
+        XCTAssertTrue(
+            ItineraryListPresentation.projectedHotelNights(
+                for: checkInDay,
+                in: days,
+                timeZone: timeZone
+            ).isEmpty
+        )
+        XCTAssertTrue(
+            ItineraryListPresentation.projectedHotelNights(
+                for: checkoutDay,
+                in: days,
+                timeZone: timeZone
+            ).isEmpty
+        )
+    }
+
+    func testItineraryListDoesNotProjectCheckoutDayOrSingleNightStay() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "一晚酒店",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-01T15:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-10-02T11:00:00Z")),
+            position: 0
+        )
+        let checkInDay = TripDaySnapshot(date: "2026-10-01", position: 0, cards: [hotel])
+        let checkoutDay = TripDaySnapshot(date: "2026-10-02", position: 1)
+        let days = [checkInDay, checkoutDay]
+
+        XCTAssertNil(
+            ItineraryListPresentation.hotelNightProgress(
+                for: hotel,
+                on: checkInDay,
+                in: days,
+                timeZone: timeZone
+            )
+        )
+        XCTAssertTrue(
+            ItineraryListPresentation.projectedHotelNights(
+                for: checkoutDay,
+                in: days,
+                timeZone: timeZone
+            ).isEmpty
+        )
+    }
+
     func testItineraryListFallsBackToFirstDayAndFindsToday() {
         let days = [
             TripDaySnapshot(date: "2026-09-12", position: 0),
