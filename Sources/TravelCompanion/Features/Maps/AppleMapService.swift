@@ -39,6 +39,59 @@ enum AppleMapService {
         }
     }
 
+    /// Resolves the two structured airport labels on each flight into a
+    /// display-only map route. Failures omit only the map decoration; the
+    /// itinerary flight card itself remains untouched and available elsewhere.
+    static func resolveFlightRoutes(
+        cards: [TravelCardSnapshot]
+    ) async -> [TodayFlightRoute] {
+        await resolveFlightRoutes(cards: cards) { airport in
+            await TodayFlightAirportSearchCache.shared.result(for: airport)
+        }
+    }
+
+    static func resolveFlightRoutes(
+        cards: [TravelCardSnapshot],
+        search: @escaping @Sendable (String) async -> PlaceSearchResult?
+    ) async -> [TodayFlightRoute] {
+        await withTaskGroup(of: (Int, TodayFlightRoute?).self, returning: [TodayFlightRoute].self) { group in
+            for (index, card) in cards.enumerated() where card.kind == .flight {
+                group.addTask {
+                    guard let fromAirport = nonEmptyAirport(card.fromAirport),
+                          let toAirport = nonEmptyAirport(card.toAirport) else {
+                        return (index, nil)
+                    }
+                    async let origin = search(fromAirport)
+                    async let destination = search(toAirport)
+                    guard let originResult = await origin,
+                          let destinationResult = await destination else {
+                        return (index, nil)
+                    }
+                    return (
+                        index,
+                        TodayFlightRoute(
+                            id: card.id,
+                            cardID: card.id,
+                            title: card.title,
+                            fromAirport: fromAirport,
+                            toAirport: toAirport,
+                            originLatitude: originResult.latitude,
+                            originLongitude: originResult.longitude,
+                            destinationLatitude: destinationResult.latitude,
+                            destinationLongitude: destinationResult.longitude
+                        )
+                    )
+                }
+            }
+
+            var resolved: [(Int, TodayFlightRoute)] = []
+            for await (index, route) in group {
+                if let route { resolved.append((index, route)) }
+            }
+            return resolved.sorted { $0.0 < $1.0 }.map { $0.1 }
+        }
+    }
+
     /// Converts model-generated place names into destination-scoped Apple Maps
     /// POIs before they reach the chat UI. A model hint is never treated as a
     /// verified location. Activity and hotel cards with no matching POI remain
@@ -158,6 +211,64 @@ enum AppleMapService {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         return parts.isEmpty ? nil : parts.joined(separator: "")
+    }
+
+    private static func nonEmptyAirport(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+}
+
+private actor TodayFlightAirportSearchCache {
+    static let shared = TodayFlightAirportSearchCache()
+
+    private var results: [String: PlaceSearchResult] = [:]
+    private var misses: Set<String> = []
+
+    func result(for airport: String) async -> PlaceSearchResult? {
+        let key = airport
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let cached = results[key] { return cached }
+        if misses.contains(key) { return nil }
+
+        let code = AgentFlightDisplay.airportCode(airport)
+        let codeHint = code == "—" ? "" : " \(code)"
+        let query = "\(airport)\(codeHint) airport 机场"
+        let candidates = (try? await AppleMapService.searchPlaces(query: query, city: nil)) ?? []
+        let selected = preferredResult(in: candidates, airport: airport, code: code)
+        if let selected {
+            results[key] = selected
+        } else {
+            misses.insert(key)
+        }
+        return selected
+    }
+
+    private func preferredResult(
+        in candidates: [PlaceSearchResult],
+        airport: String,
+        code: String
+    ) -> PlaceSearchResult? {
+        guard !candidates.isEmpty else { return nil }
+        if code != "—", let codeMatch = candidates.first(where: {
+            [$0.name, $0.address].compactMap { $0 }.contains(where: {
+                $0.localizedCaseInsensitiveContains(code)
+            })
+        }) {
+            return codeMatch
+        }
+        let airportName = airport
+            .replacingOccurrences(of: code == "—" ? "" : code, with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if airportName.count >= 2, let nameMatch = candidates.first(where: {
+            $0.name.localizedCaseInsensitiveContains(airportName)
+                || airportName.localizedCaseInsensitiveContains($0.name)
+        }) {
+            return nameMatch
+        }
+        return candidates.first
     }
 }
 
