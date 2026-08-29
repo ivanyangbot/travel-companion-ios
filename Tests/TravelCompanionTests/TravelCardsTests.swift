@@ -286,6 +286,98 @@ final class TravelCardsTests: XCTestCase {
         )
     }
 
+    func testMultiDayActivityProjectsThroughItsInclusiveEndDate() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let activity = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "三日潜水课程",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-01T09:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-10-03T17:00:00Z")),
+            position: 0
+        )
+        let firstDay = TripDaySnapshot(date: "2026-10-01", position: 0, cards: [activity])
+        let secondDay = TripDaySnapshot(date: "2026-10-02", position: 1)
+        let finalDay = TripDaySnapshot(date: "2026-10-03", position: 2)
+        let followingDay = TripDaySnapshot(date: "2026-10-04", position: 3)
+        let days = [firstDay, secondDay, finalDay, followingDay]
+
+        XCTAssertEqual(
+            ItineraryListPresentation.cardProgress(
+                for: activity,
+                on: firstDay,
+                in: days,
+                timeZone: timeZone
+            ),
+            .day(.init(dayIndex: 1, totalDays: 3))
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.projectedMultiDayCards(
+                for: secondDay,
+                in: days,
+                timeZone: timeZone
+            ).first?.progress,
+            .day(.init(dayIndex: 2, totalDays: 3))
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.projectedMultiDayCards(
+                for: finalDay,
+                in: days,
+                timeZone: timeZone
+            ).first?.progress,
+            .day(.init(dayIndex: 3, totalDays: 3))
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.daySummary(
+                for: finalDay,
+                in: days,
+                timeZone: timeZone
+            ),
+            "三日潜水课程"
+        )
+        XCTAssertTrue(
+            ItineraryListPresentation.projectedMultiDayCards(
+                for: followingDay,
+                in: days,
+                timeZone: timeZone
+            ).isEmpty
+        )
+    }
+
+    func testUnifiedProjectionKeepsHotelCheckoutDayExclusive() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "两晚酒店",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-10-01T15:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-10-03T11:00:00Z")),
+            position: 0
+        )
+        let checkInDay = TripDaySnapshot(date: "2026-10-01", position: 0, cards: [hotel])
+        let secondNight = TripDaySnapshot(date: "2026-10-02", position: 1)
+        let checkoutDay = TripDaySnapshot(date: "2026-10-03", position: 2)
+        let days = [checkInDay, secondNight, checkoutDay]
+
+        XCTAssertEqual(
+            ItineraryListPresentation.projectedMultiDayCards(
+                for: secondNight,
+                in: days,
+                timeZone: timeZone
+            ).first?.progress,
+            .hotelNight(.init(nightIndex: 2, totalNights: 2))
+        )
+        XCTAssertTrue(
+            ItineraryListPresentation.projectedMultiDayCards(
+                for: checkoutDay,
+                in: days,
+                timeZone: timeZone
+            ).isEmpty
+        )
+    }
+
     func testItineraryListFallsBackToFirstDayAndFindsToday() {
         let days = [
             TripDaySnapshot(date: "2026-09-12", position: 0),

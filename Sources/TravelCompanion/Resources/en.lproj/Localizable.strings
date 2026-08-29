@@ -167,6 +167,8 @@
 "itinerary.cardTitle" = "%lld. %@";
 "itinerary.hotelNightProgress" = "Night %lld of %lld";
 "itinerary.projectedHotelNightHint" = "Opens the same hotel stay details. Editing this stay updates every displayed night.";
+"itinerary.multiDayProgress" = "Day %lld of %lld";
+"itinerary.projectedMultiDayHint" = "Opens the same itinerary item. Editing it updates the card shown on every date.";
 "itinerary.newTripMenu" = "New Trip";
 "itinerary.switchTripA11y" = "Switch trip";
 "itinerary.membersA11y" = "View shared members";

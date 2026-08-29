@@ -222,8 +222,28 @@ struct TodayView: View {
     @ViewBuilder
     private func mapContent(days: [TripDaySnapshot], currentIndex: Int, baseIndex: Int) -> some View {
         let day = days[currentIndex]
-        let pois = poiCards(in: day)
-        let flights = flightCards(in: day)
+        let projectedOccurrences = ItineraryListPresentation.projectedMultiDayCards(
+            for: day,
+            in: days
+        )
+        let projectedCards = projectedOccurrences.map(\.card)
+        let progressLabels = Dictionary(
+            (day.cards.compactMap { card -> (UUID, String)? in
+                let progress = ItineraryListPresentation.cardProgress(
+                    for: card,
+                    on: day,
+                    in: days
+                )
+                guard let label = ItineraryListPresentation.progressLabel(progress) else { return nil }
+                return (card.id, label)
+            } + projectedOccurrences.compactMap { occurrence -> (UUID, String)? in
+                guard let label = ItineraryListPresentation.progressLabel(occurrence.progress) else { return nil }
+                return (occurrence.card.id, label)
+            }),
+            uniquingKeysWith: { first, _ in first }
+        )
+        let pois = poiCards(in: day, projectedCards: projectedCards)
+        let flights = flightCards(in: day, projectedCards: projectedCards)
         let flightIDs = Set(flights.map(\.id))
         let flightRoutes = resolvedFlightRoutes.filter { flightIDs.contains($0.cardID) }
         let showsPOISwiper = !pois.isEmpty && isPOIOverlayExpanded
@@ -308,7 +328,8 @@ struct TodayView: View {
                                 pois: pois,
                                 days: days,
                                 currentDayIndex: currentIndex,
-                                userLocation: userLocationProvider.coordinate
+                                userLocation: userLocationProvider.coordinate,
+                                progressLabels: progressLabels
                             )
                         }
                     }
@@ -605,7 +626,8 @@ struct TodayView: View {
         pois: [TravelCardSnapshot],
         days: [TripDaySnapshot],
         currentDayIndex: Int,
-        userLocation: CLLocationCoordinate2D?
+        userLocation: CLLocationCoordinate2D?,
+        progressLabels: [UUID: String]
     ) -> some View {
         // Match the timeline's visible width exactly. Card-to-card spacing is
         // part of the paging stride instead of being subtracted from the card.
@@ -638,6 +660,7 @@ struct TodayView: View {
                     width: cardWidth,
                     userLocation: userLocation,
                     expansionProgress: expandedPOICardID == card.id ? poiExpansionProgress : 0,
+                    progressLabel: progressLabels[card.id],
                     onToggleExpanded: {
                         let willExpand = expandedPOICardID != card.id || poiExpansionProgress < 0.5
                         withAnimation(.smooth(duration: 0.28)) {
@@ -807,20 +830,38 @@ struct TodayView: View {
         return dayLabel(for: sorted[currentIndex]) ?? sorted[currentIndex].date
     }
 
-    private func poiCards(in day: TripDaySnapshot) -> [TravelCardSnapshot] {
-        day.cards
+    private func poiCards(
+        in day: TripDaySnapshot,
+        projectedCards: [TravelCardSnapshot]
+    ) -> [TravelCardSnapshot] {
+        let persisted = day.cards
             .filter {
                 $0.kind != .flight
                     && $0.place?.latitude != nil
                     && $0.place?.longitude != nil
             }
             .sorted { $0.startAt < $1.startAt }
+        let projected = projectedCards
+            .filter {
+                $0.kind != .flight
+                    && $0.place?.latitude != nil
+                    && $0.place?.longitude != nil
+            }
+            .sorted { $0.startAt < $1.startAt }
+        return persisted + projected
     }
 
-    private func flightCards(in day: TripDaySnapshot) -> [TravelCardSnapshot] {
-        day.cards
+    private func flightCards(
+        in day: TripDaySnapshot,
+        projectedCards: [TravelCardSnapshot]
+    ) -> [TravelCardSnapshot] {
+        let persisted = day.cards
             .filter { $0.kind == .flight }
             .sorted { $0.startAt < $1.startAt }
+        let projected = projectedCards
+            .filter { $0.kind == .flight }
+            .sorted { $0.startAt < $1.startAt }
+        return persisted + projected
     }
 
     private func coordinate(of card: TravelCardSnapshot) -> CLLocationCoordinate2D? {
@@ -2323,6 +2364,7 @@ private struct POICard: View {
     let width: CGFloat
     let userLocation: CLLocationCoordinate2D?
     let expansionProgress: CGFloat
+    let progressLabel: String?
     let onToggleExpanded: () -> Void
     private static let horizontalPadding: CGFloat = 12
     private static let summarySpacing: CGFloat = 4
@@ -2679,7 +2721,18 @@ private struct POICard: View {
                 .allowsHitTesting(false)
 
                 // 左上角类型徽章：与 CardDetailView hero 的类型胶囊同一套配色。
-                kindBadge
+                HStack(spacing: 7) {
+                    kindBadge
+                    if let progressLabel {
+                        Text(progressLabel)
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(.black.opacity(0.48), in: Capsule())
+                            .overlay { Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1) }
+                    }
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(.top, 10)
                     .padding(.leading, 12)

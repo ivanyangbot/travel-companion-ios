@@ -805,12 +805,12 @@ struct ItineraryView: View {
         currentOrNextCardID: UUID?
     ) -> some View {
         let cards = orderedListCards(for: day)
-        let projectedHotelNights = ItineraryListPresentation.projectedHotelNights(
+        let projectedMultiDayCards = ItineraryListPresentation.projectedMultiDayCards(
             for: day,
             in: days
         )
         VStack(alignment: .leading, spacing: 10) {
-            if cards.isEmpty, projectedHotelNights.isEmpty {
+            if cards.isEmpty, projectedMultiDayCards.isEmpty {
                 Button {
                     activeCardEditor = .create(day)
                 } label: {
@@ -855,15 +855,19 @@ struct ItineraryView: View {
                     .zIndex(draggedListCard?.cardID == card.id ? 100 : 0)
                 }
 
-                ForEach(Array(projectedHotelNights.enumerated()), id: \.element.id) { offset, occurrence in
+                ForEach(Array(projectedMultiDayCards.enumerated()), id: \.element.id) { offset, occurrence in
                     itineraryCompactCardContent(
                         occurrence.card,
                         index: cards.count + offset,
                         showsTimeAccent: false,
-                        hotelNightLabel: itineraryHotelNightLabel(occurrence.progress)
+                        progressLabel: itineraryCardProgressLabel(occurrence.progress)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                    .accessibilityHint(Text("itinerary.projectedHotelNightHint"))
+                    .accessibilityHint(
+                        occurrence.isHotelNight
+                            ? Text("itinerary.projectedHotelNightHint")
+                            : Text("itinerary.projectedMultiDayHint")
+                    )
                 }
             }
 
@@ -1091,8 +1095,8 @@ struct ItineraryView: View {
                 card,
                 index: index,
                 showsTimeAccent: currentOrNextCardID == card.id,
-                hotelNightLabel: itineraryHotelNightLabel(
-                    ItineraryListPresentation.hotelNightProgress(
+                progressLabel: itineraryCardProgressLabel(
+                    ItineraryListPresentation.cardProgress(
                         for: card,
                         on: day,
                         in: days
@@ -1148,10 +1152,10 @@ struct ItineraryView: View {
         _ card: TravelCardSnapshot,
         index: Int,
         showsTimeAccent: Bool,
-        hotelNightLabel: String? = nil
+        progressLabel: String? = nil
     ) -> some View {
         if card.kind == .flight {
-            itineraryFlightCardContent(card, isActive: showsTimeAccent)
+            itineraryFlightCardContent(card, isActive: showsTimeAccent, progressLabel: progressLabel)
         } else {
             ZStack(alignment: .leading) {
                 if showsTimeAccent {
@@ -1164,13 +1168,13 @@ struct ItineraryView: View {
                         itineraryLargeImageCardContent(
                             card,
                             index: index,
-                            hotelNightLabel: hotelNightLabel
+                            progressLabel: progressLabel
                         )
                     } else {
                         itineraryOrdinaryCardContent(
                             card,
                             index: index,
-                            hotelNightLabel: hotelNightLabel
+                            progressLabel: progressLabel
                         )
                     }
                 }
@@ -1182,7 +1186,8 @@ struct ItineraryView: View {
 
     private func itineraryFlightCardContent(
         _ card: TravelCardSnapshot,
-        isActive: Bool
+        isActive: Bool,
+        progressLabel: String?
     ) -> some View {
         let price = compactCardPrice(for: card)
         let summary = ItineraryListPresentation.cardSummary(for: card)
@@ -1197,6 +1202,9 @@ struct ItineraryView: View {
         } label: {
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 16) {
+                    if let progressLabel {
+                        itineraryProgressBadge(progressLabel)
+                    }
                     HStack(alignment: .top, spacing: 11) {
                         AirlineLogoBadge(
                             logoURL: itineraryAirlineLogoURL(for: card),
@@ -1409,18 +1417,13 @@ struct ItineraryView: View {
         return formatter
     }()
 
-    private func itineraryHotelNightLabel(
-        _ progress: ItineraryListPresentation.HotelNightProgress?
+    private func itineraryCardProgressLabel(
+        _ progress: ItineraryListPresentation.CardProgress?
     ) -> String? {
-        guard let progress else { return nil }
-        return String(
-            format: String(localized: "itinerary.hotelNightProgress"),
-            progress.nightIndex,
-            progress.totalNights
-        )
+        ItineraryListPresentation.progressLabel(progress)
     }
 
-    private func itineraryHotelNightBadge(_ label: String) -> some View {
+    private func itineraryProgressBadge(_ label: String) -> some View {
         Text(label)
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(PrimaryTabPalette.accent)
@@ -1435,7 +1438,7 @@ struct ItineraryView: View {
     private func itineraryOrdinaryCardContent(
         _ card: TravelCardSnapshot,
         index: Int,
-        hotelNightLabel: String? = nil
+        progressLabel: String? = nil
     ) -> some View {
         let summary = ItineraryListPresentation.cardSummary(for: card)
         let price = compactCardPrice(for: card)
@@ -1468,8 +1471,8 @@ struct ItineraryView: View {
                 .frame(width: 64)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    if let hotelNightLabel {
-                        itineraryHotelNightBadge(hotelNightLabel)
+                    if let progressLabel {
+                        itineraryProgressBadge(progressLabel)
                     }
 
                     Text(String(format: String(localized: "itinerary.cardTitle"), index + 1, card.title))
@@ -1521,7 +1524,7 @@ struct ItineraryView: View {
     private func itineraryLargeImageCardContent(
         _ card: TravelCardSnapshot,
         index: Int,
-        hotelNightLabel: String? = nil
+        progressLabel: String? = nil
     ) -> some View {
         let summary = ItineraryListPresentation.cardSummary(for: card)
         let price = compactCardPrice(for: card)
@@ -1551,8 +1554,8 @@ struct ItineraryView: View {
                         )
 
                         VStack(alignment: .leading, spacing: 7) {
-                            if let hotelNightLabel {
-                                itineraryHotelNightBadge(hotelNightLabel)
+                            if let progressLabel {
+                                itineraryProgressBadge(progressLabel)
                             }
 
                             Text(String(format: String(localized: "itinerary.cardTitle"), index + 1, card.title))
@@ -3329,12 +3332,34 @@ enum ItineraryListPresentation {
         let totalNights: Int
     }
 
+    struct MultiDayProgress: Equatable {
+        let dayIndex: Int
+        let totalDays: Int
+    }
+
+    enum CardProgress: Equatable {
+        case hotelNight(HotelNightProgress)
+        case day(MultiDayProgress)
+    }
+
     struct HotelNightOccurrence: Identifiable, Equatable {
         let card: TravelCardSnapshot
         let dayDate: String
         let progress: HotelNightProgress
 
         var id: String { "\(card.id.uuidString)-\(dayDate)" }
+    }
+
+    struct ProjectedCardOccurrence: Identifiable, Equatable {
+        let card: TravelCardSnapshot
+        let dayDate: String
+        let progress: CardProgress
+
+        var id: String { "\(card.id.uuidString)-\(dayDate)" }
+        var isHotelNight: Bool {
+            if case .hotelNight = progress { return true }
+            return false
+        }
     }
 
     private static let weekdaySymbols = [
@@ -3495,7 +3520,7 @@ enum ItineraryListPresentation {
         in days: [TripDaySnapshot],
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> String {
-        let projectedCards = projectedHotelNights(for: day, in: days, timeZone: timeZone).map(\.card)
+        let projectedCards = projectedMultiDayCards(for: day, in: days, timeZone: timeZone).map(\.card)
         return daySummary(for: orderedCards(day.cards) + projectedCards)
     }
 
@@ -3549,22 +3574,130 @@ enum ItineraryListPresentation {
         in days: [TripDaySnapshot],
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> [HotelNightOccurrence] {
+        projectedMultiDayCards(for: targetDay, in: days, timeZone: timeZone).compactMap { occurrence in
+            guard case .hotelNight(let progress) = occurrence.progress else { return nil }
+            return HotelNightOccurrence(
+                card: occurrence.card,
+                dayDate: occurrence.dayDate,
+                progress: progress
+            )
+        }
+    }
+
+    static func multiDayProgress(
+        for card: TravelCardSnapshot,
+        on targetDay: TripDaySnapshot,
+        in days: [TripDaySnapshot],
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> MultiDayProgress? {
+        guard card.kind != .hotel,
+              let endAt = card.endAt,
+              let sourceDay = days.first(where: { day in
+                  day.cards.contains(where: { $0.id == card.id })
+              }),
+              let sourceDate = dayFormatter.date(from: sourceDay.date),
+              let targetDate = dayFormatter.date(from: targetDay.date),
+              let endDate = dayFormatter.date(
+                  from: localDayString(for: endAt, timeZone: timeZone)
+              ),
+              sourceDate <= targetDate,
+              targetDate <= endDate,
+              let elapsedDays = calendar.dateComponents(
+                  [.day],
+                  from: sourceDate,
+                  to: targetDate
+              ).day,
+              let daySpan = calendar.dateComponents(
+                  [.day],
+                  from: sourceDate,
+                  to: endDate
+              ).day,
+              daySpan > 0 else { return nil }
+
+        return MultiDayProgress(
+            dayIndex: elapsedDays + 1,
+            totalDays: daySpan + 1
+        )
+    }
+
+    static func cardProgress(
+        for card: TravelCardSnapshot,
+        on targetDay: TripDaySnapshot,
+        in days: [TripDaySnapshot],
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> CardProgress? {
+        if let hotel = hotelNightProgress(
+            for: card,
+            on: targetDay,
+            in: days,
+            timeZone: timeZone
+        ) {
+            return .hotelNight(hotel)
+        }
+        if let day = multiDayProgress(
+            for: card,
+            on: targetDay,
+            in: days,
+            timeZone: timeZone
+        ) {
+            return .day(day)
+        }
+        return nil
+    }
+
+    static func progressLabel(_ progress: CardProgress?) -> String? {
+        guard let progress else { return nil }
+        switch progress {
+        case .hotelNight(let progress):
+            return String(
+                format: String(localized: "itinerary.hotelNightProgress"),
+                progress.nightIndex,
+                progress.totalNights
+            )
+        case .day(let progress):
+            return String(
+                format: String(localized: "itinerary.multiDayProgress"),
+                progress.dayIndex,
+                progress.totalDays
+            )
+        }
+    }
+
+    /// Projects one persisted card into every itinerary day it occupies. A
+    /// hotel occupies nights and excludes checkout day; all other card kinds
+    /// include their end date. The projection is display-only and keeps the
+    /// original card identity so edits remain single-source.
+    static func projectedMultiDayCards(
+        for targetDay: TripDaySnapshot,
+        in days: [TripDaySnapshot],
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> [ProjectedCardOccurrence] {
         days.flatMap { sourceDay in
             orderedCards(sourceDay.cards).compactMap { card in
                 guard sourceDay.id != targetDay.id,
-                      let progress = hotelNightProgress(
+                      let progress = cardProgress(
                           for: card,
                           on: targetDay,
                           in: days,
                           timeZone: timeZone
-                      ),
-                      progress.nightIndex > 1 else { return nil }
+                      ) else { return nil }
 
-                return HotelNightOccurrence(
-                    card: card,
-                    dayDate: targetDay.date,
-                    progress: progress
-                )
+                switch progress {
+                case .hotelNight(let value) where value.nightIndex > 1:
+                    return ProjectedCardOccurrence(
+                        card: card,
+                        dayDate: targetDay.date,
+                        progress: progress
+                    )
+                case .day(let value) where value.dayIndex > 1:
+                    return ProjectedCardOccurrence(
+                        card: card,
+                        dayDate: targetDay.date,
+                        progress: progress
+                    )
+                default:
+                    return nil
+                }
             }
         }
     }
