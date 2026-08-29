@@ -941,27 +941,32 @@ struct ItineraryView: View {
         index: Int,
         showsTimeAccent: Bool
     ) -> some View {
-        ZStack(alignment: .leading) {
-            if showsTimeAccent {
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .fill(PrimaryTabPalette.accent)
-            }
-
-            Group {
-                if card.kind == .flight {
-                    itineraryFlightCardContent(card)
-                } else if card.showLargeImage, CardImageURL.resolve(card.images?.first) != nil {
-                    itineraryLargeImageCardContent(card, index: index)
-                } else {
-                    itineraryOrdinaryCardContent(card, index: index)
+        if card.kind == .flight {
+            itineraryFlightCardContent(card, isActive: showsTimeAccent)
+        } else {
+            ZStack(alignment: .leading) {
+                if showsTimeAccent {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(PrimaryTabPalette.accent)
                 }
+
+                Group {
+                    if card.showLargeImage, CardImageURL.resolve(card.images?.first) != nil {
+                        itineraryLargeImageCardContent(card, index: index)
+                    } else {
+                        itineraryOrdinaryCardContent(card, index: index)
+                    }
+                }
+                .padding(.leading, showsTimeAccent ? 6 : 0)
             }
-            .padding(.leading, showsTimeAccent ? 6 : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func itineraryFlightCardContent(_ card: TravelCardSnapshot) -> some View {
+    private func itineraryFlightCardContent(
+        _ card: TravelCardSnapshot,
+        isActive: Bool
+    ) -> some View {
         let price = compactCardPrice(for: card)
         let summary = ItineraryListPresentation.cardSummary(for: card)
 
@@ -1044,7 +1049,7 @@ struct ItineraryView: View {
                 }
                 .padding(14)
 
-                itineraryFlightTicketDivider
+                itineraryFlightTicketDivider(isActive: isActive)
 
                 HStack(spacing: 8) {
                     if let airlineName = card.airlineName?.nilIfEmpty {
@@ -1082,6 +1087,15 @@ struct ItineraryView: View {
                 RoundedRectangle(cornerRadius: 15, style: .continuous)
                     .stroke(Color.white.opacity(0.09), lineWidth: 1)
             }
+            .overlay(alignment: .leading) {
+                if isActive {
+                    Rectangle()
+                        .fill(PrimaryTabPalette.accent)
+                        .frame(width: 5)
+                        .padding(.vertical, 12)
+                        .accessibilityHidden(true)
+                }
+            }
         }
         .buttonStyle(ItineraryCardNoFadeButtonStyle())
     }
@@ -1108,17 +1122,21 @@ struct ItineraryView: View {
         .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
     }
 
-    private var itineraryFlightTicketDivider: some View {
+    private func itineraryFlightTicketDivider(isActive: Bool) -> some View {
         HStack(spacing: 5) {
             ForEach(0..<18, id: \.self) { _ in
                 Capsule().fill(Color.white.opacity(0.10)).frame(maxWidth: .infinity).frame(height: 1)
             }
         }
         .overlay(alignment: .leading) {
-            Circle().fill(JourneyPalette.listSurface).frame(width: 16, height: 16).offset(x: -8)
+            if !isActive {
+                Circle().fill(JourneyPalette.listSurface).frame(width: 16, height: 16).offset(x: -8)
+            }
         }
         .overlay(alignment: .trailing) {
-            Circle().fill(JourneyPalette.listSurface).frame(width: 16, height: 16).offset(x: 8)
+            if !isActive {
+                Circle().fill(JourneyPalette.listSurface).frame(width: 16, height: 16).offset(x: 8)
+            }
         }
     }
 
