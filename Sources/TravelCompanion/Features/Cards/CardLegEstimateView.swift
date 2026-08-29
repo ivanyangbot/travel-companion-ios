@@ -7,7 +7,8 @@ enum CardLegEstimatePresentation {
 }
 
 /// 相邻两张有坐标的卡片之间的出行时间预估。默认驾车，每段可单独切换并持久化；
-/// 首次无缓存时通过 Apple MapKit 静默估算一次，之后仅显示缓存值（含过期），点刷新才再次请求。
+/// 首次无缓存时通过 Apple MapKit 静默估算一次，之后始终显示本地缓存值；
+/// 只有页面右上角菜单的刷新动作会统一清除缓存并重新请求。
 struct CardLegEstimateView: View {
     let originCard: TravelCardSnapshot
     let destinationCard: TravelCardSnapshot
@@ -86,15 +87,6 @@ struct CardLegEstimateView: View {
                     .frame(minWidth: 28, minHeight: 28)
             }
             .accessibilityLabel(Text("leg.navigateA11y"))
-            Button {
-                Task { await refresh() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .foregroundStyle(estimate.map { $0.isFresh() ? Color.secondary : Color.orange } ?? Color.secondary)
-                    .frame(minWidth: 28, minHeight: 28)
-            }
-            .disabled(isFetching)
-            .accessibilityLabel(Text("leg.refreshA11y"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -149,12 +141,6 @@ struct CardLegEstimateView: View {
                 }
             }
 
-            Button {
-                Task { await refresh() }
-            } label: {
-                Label("leg.refreshMenu", systemImage: "arrow.clockwise")
-            }
-            .disabled(isFetching)
         }
         .accessibilityLabel(itineraryListAccessibilityLabel)
         .accessibilityHint(Text("leg.hint"))
@@ -212,7 +198,7 @@ struct CardLegEstimateView: View {
             estimate = cached
             fetchFailed = false
         } else {
-            await fetch(force: false)
+            await fetch()
         }
     }
 
@@ -226,19 +212,15 @@ struct CardLegEstimateView: View {
             fetchFailed = false
         } else {
             estimate = nil
-            Task { await fetch(force: false) }
+            Task { await fetch() }
         }
     }
 
-    private func refresh() async {
-        await fetch(force: true)
-    }
-
-    private func fetch(force: Bool) async {
+    private func fetch() async {
         isFetching = true
         defer { isFetching = false }
         let cache = RouteCache(modelContext: modelContext)
-        if !force, let cached = cache.cached(origin: originPoint, destination: destinationPoint, mode: mode, includeExpired: true) {
+        if let cached = cache.cached(origin: originPoint, destination: destinationPoint, mode: mode, includeExpired: true) {
             estimate = cached
             fetchFailed = false
             return

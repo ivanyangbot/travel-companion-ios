@@ -1,5 +1,6 @@
 import AuthenticationServices
 import MapKit
+import SwiftData
 import SwiftUI
 import UIKit
 
@@ -8,6 +9,7 @@ struct ItineraryView: View {
     @ObservedObject var sharedLinkStore: PendingSharedLinkStore
     @ObservedObject var appleSignIn: AppleSignInStore
     @Binding var section: JourneyView.Section
+    @Environment(\.modelContext) private var modelContext
     @State private var activeDaySheet: DaySheet?
     @State private var editingTrip: TripSummary?
     @State private var showsNewTripEditor = false
@@ -59,6 +61,7 @@ struct ItineraryView: View {
     @State private var dragAutoScrollTask: Task<Void, Never>?
     @State private var itineraryScrollPosition = ScrollPosition()
     @State private var itineraryNow = Date.now
+    @State private var routeRefreshRevision = 0
     @State private var itineraryResolvedCityByDate: [String: String] = [:]
     /// Members of the selected shared trip (signed-in only); >1 means the
     /// trip has companions and flight cards may reveal ticket passengers.
@@ -852,7 +855,7 @@ struct ItineraryView: View {
                                 destinationPoint: destinationPoint,
                                 presentation: .itineraryList
                             )
-                            .id(CardLegStore.legKey(origin: card, destination: cards[index + 1]))
+                            .id("\(CardLegStore.legKey(origin: card, destination: cards[index + 1]))-\(routeRefreshRevision)")
                             .padding(.horizontal, 2)
                         }
                     }
@@ -1743,6 +1746,8 @@ struct ItineraryView: View {
             guard !isReloading else { return }
             headerQuickAction = .reload
             isReloading = true
+            try? RouteCache(modelContext: modelContext).removeAll()
+            routeRefreshRevision &+= 1
             Task {
                 async let retry: Void = syncEngine.retry()
                 try? await Task.sleep(for: .seconds(0.75))
@@ -2627,6 +2632,7 @@ struct ItineraryView: View {
                                         originPoint: originPoint,
                                         destinationPoint: destinationPoint
                                     )
+                                    .id("\(CardLegStore.legKey(origin: card, destination: cards[cardIndex + 1]))-\(routeRefreshRevision)")
                                     .padding(.vertical, 2)
                                 }
                             }

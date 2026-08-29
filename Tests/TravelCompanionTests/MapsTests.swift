@@ -1355,6 +1355,24 @@ final class MapsTests: XCTestCase {
     }
 
     @MainActor
+    func testRouteCacheIsRemovedOnlyByExplicitInvalidation() throws {
+        let container = try ModelContainer(for: Schema([RouteCacheRecord.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let cache = RouteCache(modelContext: container.mainContext)
+        let origin = RoutePoint(latitude: -8.7482, longitude: 115.1672)
+        let destination = RoutePoint(latitude: -8.708446, longitude: 115.439565)
+        let estimate = RouteEstimate(distanceMeters: 31_200, durationSeconds: 3_900, mode: .driving, updatedAt: .now, source: "Apple 地图")
+        let oldCacheDate = Date.now.addingTimeInterval(-30 * 24 * 60 * 60)
+
+        try cache.store(estimate, origin: origin, destination: destination, mode: .driving, cachedAt: oldCacheDate)
+        XCTAssertNotNil(cache.cached(origin: origin, destination: destination, mode: .driving, includeExpired: true))
+
+        try cache.removeAll()
+
+        XCTAssertNil(cache.cached(origin: origin, destination: destination, mode: .driving, includeExpired: true))
+        XCTAssertTrue(try container.mainContext.fetch(FetchDescriptor<RouteCacheRecord>()).isEmpty)
+    }
+
+    @MainActor
     func testCardLegPreferenceDefaultsToDrivingAndPersistsAcrossLegs() throws {
         let container = try ModelContainer(for: Schema([CardLegPreference.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let store = CardLegStore(modelContext: container.mainContext)

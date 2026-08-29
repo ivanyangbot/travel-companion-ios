@@ -55,6 +55,17 @@ final class RouteCache {
         }
         try modelContext.save()
     }
+
+    /// Route estimates remain available across launches until the user uses
+    /// the page-level refresh action. Travel-mode preferences are stored in a
+    /// separate model and intentionally survive this invalidation.
+    func removeAll() throws {
+        let records = try modelContext.fetch(FetchDescriptor<RouteCacheRecord>())
+        for record in records {
+            modelContext.delete(record)
+        }
+        try modelContext.save()
+    }
 }
 
 private extension Double {

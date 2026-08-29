@@ -449,6 +449,7 @@ struct TodayView: View {
             guard !isReloading else { return }
             activeQuickAction = .reload
             isReloading = true
+            try? RouteCache(modelContext: modelContext).removeAll()
             Task {
                 async let retry: Void = syncEngine.retry()
                 // Preserve the old drawer's visible full-turn reload animation.
