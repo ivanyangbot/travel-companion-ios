@@ -189,6 +189,22 @@ struct RouteDirections: Codable, Sendable, Equatable {
     let source: String
 }
 
+struct AirportReference: Codable, Sendable, Equatable {
+    let iata: String
+    let icao: String?
+    let name: String
+    let city: String
+    let country: String
+    let latitude: Double
+    let longitude: Double
+    let elevationFt: Int?
+    let timeZone: String?
+}
+
+struct AirportSearchResult: Codable, Sendable, Equatable {
+    let airports: [AirportReference]
+}
+
 struct CardRequest: Encodable, Sendable {
     var dayId: Int?
     var kind: TravelCardSnapshot.Kind?

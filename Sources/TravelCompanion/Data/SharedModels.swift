@@ -181,6 +181,38 @@ struct TravelCardSource: Codable, Sendable, Equatable, Identifiable {
     let author: String?
 }
 
+/// Client-side airport resolution persisted with a flight card. The backend's
+/// airport reference data is static, but the one-day timestamp follows its
+/// Cache-Control contract and lets the client refresh stale coordinates.
+struct FlightAirportLocationSnapshot: Codable, Sendable, Equatable {
+    var query: String
+    var iata: String?
+    var icao: String?
+    var name: String
+    var city: String?
+    var country: String?
+    var latitude: Double
+    var longitude: Double
+    var resolvedAt: Date
+
+    var hasValidCoordinate: Bool {
+        (-90...90).contains(latitude)
+            && (-180...180).contains(longitude)
+            && !(latitude == 0 && longitude == 0)
+    }
+
+    func isFresh(for airport: String, now: Date = .now) -> Bool {
+        guard hasValidCoordinate,
+              now.timeIntervalSince(resolvedAt) < 24 * 60 * 60 else { return false }
+        let requestedCode = AgentFlightDisplay.airportCode(airport)
+        if requestedCode != "—", let iata {
+            return requestedCode.caseInsensitiveCompare(iata) == .orderedSame
+        }
+        return query.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            == airport.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+    }
+}
+
 struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     enum Kind: String, Codable, CaseIterable, Sendable, Identifiable {
         case flight, hotel, activity
@@ -224,6 +256,10 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     /// Flight-only structured airports (e.g. "HND" -> "KIX").
     var fromAirport: String?
     var toAirport: String?
+    /// On-device enrichment from `/v1/airports`, with MapKit as fallback.
+    /// These fields are local cache data and are never included in card PATCHes.
+    var fromAirportLocation: FlightAirportLocationSnapshot?
+    var toAirportLocation: FlightAirportLocationSnapshot?
     /// Flight-only passenger names copied from the ticket source; multiple
     /// names are separated by "、". Nil when nobody is named, so shared trips
     /// can hide the row instead of showing a placeholder.
@@ -256,7 +292,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case serverID = "id", dayID = "dayId", kind, title, startAt, endAt, place, bookingCode
         case airlineCode, airlineName, airlineLogoURL, url, sources
-        case description, fromAirport = "fromAirport", toAirport = "toAirport", passengers, priceMinor
+        case description, fromAirport = "fromAirport", toAirport = "toAirport"
+        case fromAirportLocation, toAirportLocation, passengers, priceMinor
         case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips
         case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
     }
@@ -278,6 +315,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         description: String? = nil,
         fromAirport: String? = nil,
         toAirport: String? = nil,
+        fromAirportLocation: FlightAirportLocationSnapshot? = nil,
+        toAirportLocation: FlightAirportLocationSnapshot? = nil,
         passengers: String? = nil,
         priceMinor: Int64? = nil,
         actualPriceMinor: Int64? = nil,
@@ -308,6 +347,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.description = description
         self.fromAirport = fromAirport
         self.toAirport = toAirport
+        self.fromAirportLocation = fromAirportLocation
+        self.toAirportLocation = toAirportLocation
         self.passengers = passengers
         self.priceMinor = priceMinor
         self.actualPriceMinor = actualPriceMinor
@@ -341,6 +382,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         fromAirport = try container.decodeIfPresent(String.self, forKey: .fromAirport)
         toAirport = try container.decodeIfPresent(String.self, forKey: .toAirport)
+        fromAirportLocation = try container.decodeIfPresent(FlightAirportLocationSnapshot.self, forKey: .fromAirportLocation)
+        toAirportLocation = try container.decodeIfPresent(FlightAirportLocationSnapshot.self, forKey: .toAirportLocation)
         passengers = try container.decodeIfPresent(String.self, forKey: .passengers)
         priceMinor = try container.decodeIfPresent(Int64.self, forKey: .priceMinor)
         actualPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .actualPriceMinor)
@@ -380,6 +423,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(description, forKey: .description)
         try container.encodeIfPresent(fromAirport, forKey: .fromAirport)
         try container.encodeIfPresent(toAirport, forKey: .toAirport)
+        try container.encodeIfPresent(fromAirportLocation, forKey: .fromAirportLocation)
+        try container.encodeIfPresent(toAirportLocation, forKey: .toAirportLocation)
         try container.encodeIfPresent(passengers, forKey: .passengers)
         try container.encodeIfPresent(priceMinor, forKey: .priceMinor)
         try container.encodeIfPresent(actualPriceMinor, forKey: .actualPriceMinor)

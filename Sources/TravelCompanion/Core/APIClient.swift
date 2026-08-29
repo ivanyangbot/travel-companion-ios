@@ -197,6 +197,40 @@ actor APIClient {
         return try decoder.decode(APIEnvelope<RouteDirections>.self, from: data).data
     }
 
+    /// Public static airport reference endpoint. Its response is deliberately
+    /// not wrapped in `APIEnvelope`, per the `/v1/airports` contract.
+    func airport(code: String) async throws -> AirportReference {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        var request = URLRequest(url: baseURL.appending(path: "/v1/airports/\(normalized)"))
+        request.httpMethod = "GET"
+        request.cachePolicy = .useProtocolCachePolicy
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(AirportReference.self, from: data)
+    }
+
+    /// Name/city fallback for airport labels that contain no IATA/ICAO code.
+    func searchAirports(query: String, limit: Int = 10) async throws -> [AirportReference] {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        guard var components = URLComponents(
+            url: baseURL.appending(path: "/v1/airports"),
+            resolvingAgainstBaseURL: false
+        ) else { throw URLError(.badURL) }
+        components.queryItems = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "limit", value: String(min(25, max(1, limit))))
+        ]
+        var request = URLRequest(url: try requiredURL(components))
+        request.httpMethod = "GET"
+        request.cachePolicy = .useProtocolCachePolicy
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(AirportSearchResult.self, from: data).airports
+    }
+
     func send(_ operation: PendingOperationPayload, tripID: Int) async throws -> APIMeta {
         guard let baseURL else { throw APIConfigurationError.missingBaseURL }
         var request = URLRequest(url: baseURL.appending(path: operation.path))

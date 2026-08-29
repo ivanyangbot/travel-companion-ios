@@ -104,6 +104,187 @@ final class MapsTests: XCTestCase {
         XCTAssertTrue(routes.isEmpty)
     }
 
+    func testAirportSearchUsesIATACodeFirstWithoutChineseLocationBias() {
+        let queries = AppleMapService.airportSearchQueries(
+            for: "纽约约翰·肯尼迪国际机场（JFK）"
+        )
+
+        XCTAssertEqual(queries.first, "JFK airport")
+        XCTAssertFalse(queries.first?.contains("机场") == true)
+        XCTAssertFalse(queries.first?.contains("JFK JFK") == true)
+    }
+
+    func testAirportResolutionUsesReferenceAPIBeforeMapKit() async throws {
+        let cgk = AirportReference(
+            iata: "CGK",
+            icao: "WIII",
+            name: "Soekarno-Hatta International Airport",
+            city: "Jakarta",
+            country: "ID",
+            latitude: -6.12557,
+            longitude: 106.655998,
+            elevationFt: 34,
+            timeZone: nil
+        )
+
+        let location = await AppleMapService.resolveAirportLocation(
+            "雅加达苏加诺-哈达国际机场 CGK",
+            lookupByCode: { code in
+                XCTAssertEqual(code, "CGK")
+                return cgk
+            },
+            searchAPI: { _ in
+                XCTFail("Exact IATA lookup should finish API resolution")
+                return []
+            },
+            searchMap: { _, _ in
+                XCTFail("MapKit must not run after an API hit")
+                return []
+            }
+        )
+
+        XCTAssertEqual(try XCTUnwrap(location).iata, "CGK")
+        XCTAssertEqual(location?.country, "ID")
+        XCTAssertEqual(location?.latitude ?? 0, -6.12557, accuracy: 0.000_001)
+        XCTAssertEqual(location?.longitude ?? 0, 106.655998, accuracy: 0.000_001)
+    }
+
+    func testAirportResolutionFallsBackToMapKitAfterAPIMiss() async throws {
+        let location = await AppleMapService.resolveAirportLocation(
+            "东京羽田机场 HND",
+            lookupByCode: { _ in nil },
+            searchAPI: { _ in [] },
+            searchMap: { query, _ in
+                guard query == "HND airport" else { return [] }
+                return [PlaceSearchResult(
+                    id: "hnd",
+                    name: "Tokyo International Airport (HND)",
+                    address: "Tokyo, Japan",
+                    latitude: 35.5494,
+                    longitude: 139.7798,
+                    placeId: nil
+                )]
+            }
+        )
+
+        XCTAssertEqual(try XCTUnwrap(location).iata, "HND")
+        XCTAssertEqual(location?.latitude ?? 0, 35.5494, accuracy: 0.000_001)
+        XCTAssertEqual(location?.longitude ?? 0, 139.7798, accuracy: 0.000_001)
+    }
+
+    func testFlightRouteUsesFreshCoordinatesStoredOnCard() async throws {
+        let resolvedAt = Date()
+        let origin = FlightAirportLocationSnapshot(
+            query: "CGK",
+            iata: "CGK",
+            icao: "WIII",
+            name: "Soekarno-Hatta International Airport",
+            city: "Jakarta",
+            country: "ID",
+            latitude: -6.12557,
+            longitude: 106.655998,
+            resolvedAt: resolvedAt
+        )
+        let destination = FlightAirportLocationSnapshot(
+            query: "DPS",
+            iata: "DPS",
+            icao: "WADD",
+            name: "I Gusti Ngurah Rai International Airport",
+            city: "Denpasar",
+            country: "ID",
+            latitude: -8.74817,
+            longitude: 115.167,
+            resolvedAt: resolvedAt
+        )
+        let card = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "GA402",
+            startAt: .now,
+            fromAirport: "CGK",
+            toAirport: "DPS",
+            fromAirportLocation: origin,
+            toAirportLocation: destination
+        )
+
+        let routes = await AppleMapService.resolveFlightRoutes(cards: [card]) { _ in
+            XCTFail("Fresh coordinates stored on the card must skip lookup")
+            return nil
+        }
+
+        let route = try XCTUnwrap(routes.first)
+        XCTAssertEqual(route.originLocation, origin)
+        XCTAssertEqual(route.destinationLocation, destination)
+    }
+
+    func testAirportResultPrefersExactIATACodeOverDomesticFirstResult() throws {
+        let domesticWrongResult = PlaceSearchResult(
+            id: "wrong",
+            name: "虹桥机场城市航站楼",
+            address: "中国上海",
+            latitude: 31.2304,
+            longitude: 121.4737,
+            placeId: nil
+        )
+        let jfk = PlaceSearchResult(
+            id: "jfk",
+            name: "John F. Kennedy International Airport (JFK)",
+            address: "Queens, NY, United States",
+            latitude: 40.6413,
+            longitude: -73.7781,
+            placeId: nil
+        )
+
+        let selected = AppleMapService.preferredAirportResult(
+            in: [domesticWrongResult, jfk],
+            airport: "纽约约翰·肯尼迪国际机场 JFK",
+            code: "JFK",
+            allowsCodeQueryFallback: true
+        )
+
+        XCTAssertEqual(try XCTUnwrap(selected).id, "jfk")
+    }
+
+    func testAirportResultAllowsLocalizedAirportForDedicatedIATAQuery() throws {
+        let localized = PlaceSearchResult(
+            id: "hnd",
+            name: "東京国際空港",
+            address: "東京都大田区",
+            latitude: 35.5494,
+            longitude: 139.7798,
+            placeId: nil
+        )
+
+        let selected = AppleMapService.preferredAirportResult(
+            in: [localized],
+            airport: "东京羽田机场 HND",
+            code: "HND",
+            allowsCodeQueryFallback: true
+        )
+
+        XCTAssertEqual(try XCTUnwrap(selected).id, "hnd")
+    }
+
+    func testAirportResultRejectsUnrelatedFallbackForFullNameQuery() {
+        let wrongResult = PlaceSearchResult(
+            id: "wrong",
+            name: "虹桥机场城市航站楼",
+            address: "中国上海",
+            latitude: 31.2304,
+            longitude: 121.4737,
+            placeId: nil
+        )
+
+        let selected = AppleMapService.preferredAirportResult(
+            in: [wrongResult],
+            airport: "纽约约翰·肯尼迪国际机场 JFK",
+            code: "JFK",
+            allowsCodeQueryFallback: false
+        )
+
+        XCTAssertNil(selected)
+    }
+
     private func edgeMember(
         _ suffix: Int,
         order: Int,

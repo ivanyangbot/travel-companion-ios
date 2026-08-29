@@ -332,6 +332,7 @@ struct TodayView: View {
             hasCenteredOnPOIs = false
             let routes = await AppleMapService.resolveFlightRoutes(cards: flights)
             guard !Task.isCancelled else { return }
+            syncEngine.cacheFlightAirportLocations(from: routes)
             resolvedFlightRoutes = routes
             fitAll(pois: pois, flightRoutes: routes)
             hasCenteredOnPOIs = true

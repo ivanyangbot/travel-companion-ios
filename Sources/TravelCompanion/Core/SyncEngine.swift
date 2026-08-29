@@ -170,7 +170,10 @@ final class SyncEngine: ObservableObject {
                 status = .synced
                 return
             }
-            if let snapshot = try await apiClient.fetchTrip(id: selectedTripID, afterVersion: trip?.id == selectedTripID ? trip?.version : nil) {
+            if var snapshot = try await apiClient.fetchTrip(id: selectedTripID, afterVersion: trip?.id == selectedTripID ? trip?.version : nil) {
+                if let cached = trip, cached.id == snapshot.id {
+                    snapshot = Self.mergingFlightAirportLocations(from: cached, into: snapshot)
+                }
                 trip = snapshot
                 try repository.save(snapshot)
                 try await queueConfirmedAIDraftCardsIfReady()
@@ -603,6 +606,37 @@ final class SyncEngine: ObservableObject {
         await replayPendingOperations()
     }
 
+    /// Persists airport coordinates resolved for map flight arcs directly on
+    /// their cards. This is local enrichment only; it does not create a card
+    /// PATCH or alter the server-owned trip version.
+    func cacheFlightAirportLocations(from routes: [TodayFlightRoute]) {
+        guard var current = trip, !routes.isEmpty else { return }
+        var changed = false
+        for route in routes {
+            guard let dayIndex = current.days.firstIndex(where: { day in
+                day.cards.contains(where: { $0.id == route.cardID })
+            }), let cardIndex = current.days[dayIndex].cards.firstIndex(where: { $0.id == route.cardID }) else {
+                continue
+            }
+            if current.days[dayIndex].cards[cardIndex].fromAirportLocation != route.originLocation {
+                current.days[dayIndex].cards[cardIndex].fromAirportLocation = route.originLocation
+                changed = true
+            }
+            if current.days[dayIndex].cards[cardIndex].toAirportLocation != route.destinationLocation {
+                current.days[dayIndex].cards[cardIndex].toAirportLocation = route.destinationLocation
+                changed = true
+            }
+        }
+        guard changed else { return }
+        do {
+            trip = current
+            try repository.save(current)
+        } catch {
+            // Airport enrichment is opportunistic; the map route remains valid
+            // for this view even if the local cache cannot be written.
+        }
+    }
+
     private static func localSummary(for snapshot: SharedTripSnapshot) -> TripSummary {
         TripSummary(
             id: snapshot.id,
@@ -615,6 +649,29 @@ final class SyncEngine: ObservableObject {
             role: "owner",
             joinedAt: snapshot.updatedAt
         )
+    }
+
+    private static func mergingFlightAirportLocations(
+        from cached: SharedTripSnapshot,
+        into remote: SharedTripSnapshot
+    ) -> SharedTripSnapshot {
+        var merged = remote
+        let cachedCards = cached.days.flatMap(\.cards)
+        for dayIndex in merged.days.indices {
+            for cardIndex in merged.days[dayIndex].cards.indices {
+                guard let serverID = merged.days[dayIndex].cards[cardIndex].serverID,
+                      let old = cachedCards.first(where: { $0.serverID == serverID }) else { continue }
+                let fromAirport = merged.days[dayIndex].cards[cardIndex].fromAirport ?? ""
+                let toAirport = merged.days[dayIndex].cards[cardIndex].toAirport ?? ""
+                if let location = old.fromAirportLocation, location.isFresh(for: fromAirport) {
+                    merged.days[dayIndex].cards[cardIndex].fromAirportLocation = location
+                }
+                if let location = old.toAirportLocation, location.isFresh(for: toAirport) {
+                    merged.days[dayIndex].cards[cardIndex].toAirportLocation = location
+                }
+            }
+        }
+        return merged
     }
 
     private func activateLocalOnlyTrips() {

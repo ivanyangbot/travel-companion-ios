@@ -17,18 +17,19 @@ struct TodayMapPoint: Identifiable, Equatable {
 }
 
 /// A resolved flight leg rendered independently from the numbered POI route.
-/// Airport coordinates are display-only and are never written back to the
-/// itinerary card, whose structured airport names remain the source of truth.
 struct TodayFlightRoute: Identifiable, Equatable, Sendable {
     let id: UUID
     let cardID: UUID
     let title: String
     let fromAirport: String
     let toAirport: String
-    let originLatitude: Double
-    let originLongitude: Double
-    let destinationLatitude: Double
-    let destinationLongitude: Double
+    let originLocation: FlightAirportLocationSnapshot
+    let destinationLocation: FlightAirportLocationSnapshot
+
+    var originLatitude: Double { originLocation.latitude }
+    var originLongitude: Double { originLocation.longitude }
+    var destinationLatitude: Double { destinationLocation.latitude }
+    var destinationLongitude: Double { destinationLocation.longitude }
 
     var originCoordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: originLatitude, longitude: originLongitude)

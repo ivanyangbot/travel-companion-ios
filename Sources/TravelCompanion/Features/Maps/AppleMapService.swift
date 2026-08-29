@@ -1,8 +1,8 @@
 import CoreLocation
 import MapKit
 
-/// All interactive map work stays on-device through Apple's MapKit services.
-/// No POI keyword or route query is sent to the travel backend.
+/// Interactive POI and route work stays on-device through MapKit. Airports use
+/// the backend's static reference dataset first and fall back to MapKit.
 enum AppleMapService {
     static let unverifiedPlaceNote = String(localized: "mapservice.unverified")
 
@@ -45,7 +45,7 @@ enum AppleMapService {
     static func resolveFlightRoutes(
         cards: [TravelCardSnapshot]
     ) async -> [TodayFlightRoute] {
-        await resolveFlightRoutes(cards: cards) { airport in
+        await resolveFlightRoutesWithLocations(cards: cards) { airport in
             await TodayFlightAirportSearchCache.shared.result(for: airport)
         }
     }
@@ -54,6 +54,16 @@ enum AppleMapService {
         cards: [TravelCardSnapshot],
         search: @escaping @Sendable (String) async -> PlaceSearchResult?
     ) async -> [TodayFlightRoute] {
+        await resolveFlightRoutesWithLocations(cards: cards) { airport in
+            guard let result = await search(airport) else { return nil }
+            return mapLocation(for: airport, result: result)
+        }
+    }
+
+    private static func resolveFlightRoutesWithLocations(
+        cards: [TravelCardSnapshot],
+        resolve: @escaping @Sendable (String) async -> FlightAirportLocationSnapshot?
+    ) async -> [TodayFlightRoute] {
         await withTaskGroup(of: (Int, TodayFlightRoute?).self, returning: [TodayFlightRoute].self) { group in
             for (index, card) in cards.enumerated() where card.kind == .flight {
                 group.addTask {
@@ -61,10 +71,14 @@ enum AppleMapService {
                           let toAirport = nonEmptyAirport(card.toAirport) else {
                         return (index, nil)
                     }
-                    async let origin = search(fromAirport)
-                    async let destination = search(toAirport)
-                    guard let originResult = await origin,
-                          let destinationResult = await destination else {
+                    async let origin = card.fromAirportLocation?.isFresh(for: fromAirport) == true
+                        ? card.fromAirportLocation
+                        : resolve(fromAirport)
+                    async let destination = card.toAirportLocation?.isFresh(for: toAirport) == true
+                        ? card.toAirportLocation
+                        : resolve(toAirport)
+                    guard let originLocation = await origin,
+                          let destinationLocation = await destination else {
                         return (index, nil)
                     }
                     return (
@@ -75,10 +89,8 @@ enum AppleMapService {
                             title: card.title,
                             fromAirport: fromAirport,
                             toAirport: toAirport,
-                            originLatitude: originResult.latitude,
-                            originLongitude: originResult.longitude,
-                            destinationLatitude: destinationResult.latitude,
-                            destinationLongitude: destinationResult.longitude
+                            originLocation: originLocation,
+                            destinationLocation: destinationLocation
                         )
                     )
                 }
@@ -90,6 +102,142 @@ enum AppleMapService {
             }
             return resolved.sorted { $0.0 < $1.0 }.map { $0.1 }
         }
+    }
+
+    /// Resolves through `/v1/airports` before MapKit. Injected closures keep the
+    /// ordering deterministic in tests and make every backend failure a normal
+    /// fallback rather than a reason for the flight route to disappear.
+    static func resolveAirportLocation(
+        _ airport: String,
+        lookupByCode: @escaping @Sendable (String) async -> AirportReference? = { code in
+            try? await APIClient().airport(code: code)
+        },
+        searchAPI: @escaping @Sendable (String) async -> [AirportReference] = { query in
+            (try? await APIClient().searchAirports(query: query, limit: 10)) ?? []
+        },
+        searchMap: @escaping @Sendable (String, String?) async throws -> [PlaceSearchResult] = { query, city in
+            try await searchPlaces(query: query, city: city)
+        }
+    ) async -> FlightAirportLocationSnapshot? {
+        let trimmed = airport.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let code = validIATACode(in: airport)
+
+        if let code,
+           let reference = await lookupByCode(code),
+           hasValidCoordinate(reference) {
+            return apiLocation(for: trimmed, reference: reference)
+        }
+
+        let apiQuery = code ?? trimmed
+        if let reference = await searchAPI(apiQuery).first(where: { reference in
+            guard hasValidCoordinate(reference) else { return false }
+            if let code { return reference.iata.caseInsensitiveCompare(code) == .orderedSame }
+            return true
+        }) {
+            return apiLocation(for: trimmed, reference: reference)
+        }
+
+        for query in airportSearchQueries(for: airport) {
+            guard let candidates = try? await searchMap(query, nil) else { continue }
+            let allowsCodeQueryFallback = code.map { query.caseInsensitiveCompare("\($0) airport") == .orderedSame } ?? false
+            if let result = preferredAirportResult(
+                in: candidates,
+                airport: airport,
+                code: code,
+                allowsCodeQueryFallback: allowsCodeQueryFallback
+            ) {
+                return mapLocation(for: trimmed, result: result)
+            }
+        }
+        return nil
+    }
+
+    private static func apiLocation(
+        for query: String,
+        reference: AirportReference
+    ) -> FlightAirportLocationSnapshot {
+        FlightAirportLocationSnapshot(
+            query: query,
+            iata: reference.iata,
+            icao: reference.icao,
+            name: reference.name,
+            city: reference.city,
+            country: reference.country,
+            latitude: reference.latitude,
+            longitude: reference.longitude,
+            resolvedAt: .now
+        )
+    }
+
+    private static func mapLocation(
+        for query: String,
+        result: PlaceSearchResult
+    ) -> FlightAirportLocationSnapshot {
+        FlightAirportLocationSnapshot(
+            query: query,
+            iata: validIATACode(in: query),
+            icao: nil,
+            name: result.name,
+            city: nil,
+            country: nil,
+            latitude: result.latitude,
+            longitude: result.longitude,
+            resolvedAt: .now
+        )
+    }
+
+    static func airportSearchQueries(for airport: String) -> [String] {
+        let trimmed = airport.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var queries: [String] = []
+        if let code = validIATACode(in: trimmed) {
+            queries.append("\(code) airport")
+        }
+        queries.append(trimmed)
+
+        let title = AgentFlightDisplay.airportTitle(trimmed)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let title, !title.isEmpty, title.caseInsensitiveCompare(trimmed) != .orderedSame {
+            queries.append("\(title) airport")
+        }
+
+        var seen: Set<String> = []
+        return queries.filter {
+            seen.insert($0.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)).inserted
+        }
+    }
+
+    static func preferredAirportResult(
+        in candidates: [PlaceSearchResult],
+        airport: String,
+        code: String?,
+        allowsCodeQueryFallback: Bool
+    ) -> PlaceSearchResult? {
+        let validCandidates = candidates.filter(hasValidCoordinate)
+        guard !validCandidates.isEmpty else { return nil }
+
+        if let code, let exactCodeMatch = validCandidates.first(where: {
+            containsExactToken(code, in: [$0.name, $0.address].compactMap { $0 }.joined(separator: " "))
+        }) {
+            return exactCodeMatch
+        }
+
+        let airportTitle = AgentFlightDisplay.airportTitle(airport) ?? airport
+        if let semanticMatch = validCandidates.first(where: {
+            isSemanticAirportMatch(query: airportTitle, candidate: $0)
+        }) {
+            return semanticMatch
+        }
+
+        // MapKit often localizes an overseas airport's name and omits its IATA
+        // code from both name and address. The first airport POI is acceptable
+        // only for the dedicated, unambiguous `<IATA> airport` query.
+        if allowsCodeQueryFallback {
+            return validCandidates.first(where: looksLikeAirport)
+        }
+        return nil
     }
 
     /// Converts model-generated place names into destination-scoped Apple Maps
@@ -195,6 +343,57 @@ enum AppleMapService {
             .joined()
     }
 
+    private static func validIATACode(in airport: String) -> String? {
+        let code = AgentFlightDisplay.airportCode(airport)
+        guard code.range(of: "^[A-Z]{3}$", options: .regularExpression) != nil else { return nil }
+        return code
+    }
+
+    private static func containsExactToken(_ token: String, in value: String) -> Bool {
+        let escaped = NSRegularExpression.escapedPattern(for: token)
+        return value.range(
+            of: "(?<![A-Z])\(escaped)(?![A-Z])",
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private static func isSemanticAirportMatch(query: String, candidate: PlaceSearchResult) -> Bool {
+        let normalizedQuery = normalizeAirportName(query)
+        let normalizedCandidate = normalizeAirportName(candidate.name)
+        guard normalizedQuery.count >= 2, normalizedCandidate.count >= 2 else { return false }
+        return normalizedCandidate.contains(normalizedQuery) || normalizedQuery.contains(normalizedCandidate)
+    }
+
+    private static func normalizeAirportName(_ value: String) -> String {
+        let genericWords = try! NSRegularExpression(
+            pattern: "international|intl|airport|aeroport|aéroport|aeropuerto|aeroporto|flughafen|国际机场|國際機場|机场|機場|空港",
+            options: [.caseInsensitive]
+        )
+        let range = NSRange(value.startIndex..., in: value)
+        let withoutGenericWords = genericWords.stringByReplacingMatches(in: value, range: range, withTemplate: " ")
+        return normalizePlaceName(withoutGenericWords)
+    }
+
+    private static func looksLikeAirport(_ candidate: PlaceSearchResult) -> Bool {
+        let value = [candidate.name, candidate.address].compactMap { $0 }.joined(separator: " ")
+        return value.range(
+            of: "airport|aeroport|aéroport|aeropuerto|aeroporto|flughafen|机场|機場|空港",
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private static func hasValidCoordinate(_ candidate: PlaceSearchResult) -> Bool {
+        (-90...90).contains(candidate.latitude)
+            && (-180...180).contains(candidate.longitude)
+            && !(candidate.latitude == 0 && candidate.longitude == 0)
+    }
+
+    private static func hasValidCoordinate(_ airport: AirportReference) -> Bool {
+        (-90...90).contains(airport.latitude)
+            && (-180...180).contains(airport.longitude)
+            && !(airport.latitude == 0 && airport.longitude == 0)
+    }
+
     private static func appendUnverifiedPlaceNote(to notes: String?) -> String {
         let existing = notes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !existing.contains(unverifiedPlaceNote) else { return existing }
@@ -223,52 +422,19 @@ enum AppleMapService {
 private actor TodayFlightAirportSearchCache {
     static let shared = TodayFlightAirportSearchCache()
 
-    private var results: [String: PlaceSearchResult] = [:]
-    private var misses: Set<String> = []
+    private var results: [String: FlightAirportLocationSnapshot] = [:]
 
-    func result(for airport: String) async -> PlaceSearchResult? {
+    func result(for airport: String) async -> FlightAirportLocationSnapshot? {
         let key = airport
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let cached = results[key] { return cached }
-        if misses.contains(key) { return nil }
+        if let cached = results[key], cached.isFresh(for: airport) { return cached }
 
-        let code = AgentFlightDisplay.airportCode(airport)
-        let codeHint = code == "—" ? "" : " \(code)"
-        let query = "\(airport)\(codeHint) airport 机场"
-        let candidates = (try? await AppleMapService.searchPlaces(query: query, city: nil)) ?? []
-        let selected = preferredResult(in: candidates, airport: airport, code: code)
+        let selected = await AppleMapService.resolveAirportLocation(airport)
         if let selected {
             results[key] = selected
-        } else {
-            misses.insert(key)
         }
         return selected
-    }
-
-    private func preferredResult(
-        in candidates: [PlaceSearchResult],
-        airport: String,
-        code: String
-    ) -> PlaceSearchResult? {
-        guard !candidates.isEmpty else { return nil }
-        if code != "—", let codeMatch = candidates.first(where: {
-            [$0.name, $0.address].compactMap { $0 }.contains(where: {
-                $0.localizedCaseInsensitiveContains(code)
-            })
-        }) {
-            return codeMatch
-        }
-        let airportName = airport
-            .replacingOccurrences(of: code == "—" ? "" : code, with: "", options: .caseInsensitive)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if airportName.count >= 2, let nameMatch = candidates.first(where: {
-            $0.name.localizedCaseInsensitiveContains(airportName)
-                || airportName.localizedCaseInsensitiveContains($0.name)
-        }) {
-            return nameMatch
-        }
-        return candidates.first
     }
 }
 
