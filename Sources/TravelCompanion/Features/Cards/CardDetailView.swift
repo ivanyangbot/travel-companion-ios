@@ -433,14 +433,13 @@ struct FlightTicketPopup: View {
     let onDismiss: () -> Void
 
     @StateObject private var linkHandler = ExternalLinkHandler()
+    @State private var popupFrame = CGRect.null
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 Color.black.opacity(0.72)
                     .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: onDismiss)
 
                 VStack(spacing: 14) {
                     HStack {
@@ -468,8 +467,22 @@ struct FlightTicketPopup: View {
                 .frame(maxHeight: min(geometry.size.height * 0.9, 790))
                 .background(.black.opacity(0.30), in: RoundedRectangle(cornerRadius: 32, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named("flight-ticket-popup"))
+                } action: { frame in
+                    popupFrame = frame
+                }
                 .padding(.vertical, max(10, geometry.safeAreaInsets.top * 0.25))
             }
+            .coordinateSpace(name: "flight-ticket-popup")
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { value in
+                    guard !popupFrame.contains(value.location) else { return }
+                    onDismiss()
+                },
+                including: .all
+            )
         }
         .sheet(isPresented: Binding(
             get: { linkHandler.browserURL != nil },
@@ -487,6 +500,7 @@ struct FlightTicketPopup: View {
         }
         .preferredColorScheme(.dark)
         .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape, onDismiss)
     }
 
     private var ticket: some View {
