@@ -913,6 +913,31 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(card.baggageAllowance, "20 kg")
     }
 
+    func testHotelSnapshotDecodesStayFields() throws {
+        let json = Data("""
+        {"id":12,"dayId":1,"kind":"hotel","title":"乌鲁瓦图悬崖酒店","startAt":"2026-10-01T14:00:00Z","endAt":"2026-10-03T12:00:00Z",
+         "roomType":"海景大床房","checkInTime":"14:00","checkOutTime":"12:00","stayDurationMinutes":2880,
+         "position":0,"updatedAt":"2026-09-20T08:00:00Z"}
+        """.utf8)
+
+        let card = try JSONDecoder.sharedTrip.decode(TravelCardSnapshot.self, from: json)
+
+        XCTAssertEqual(card.roomType, "海景大床房")
+        XCTAssertEqual(card.checkInTime, "14:00")
+        XCTAssertEqual(card.checkOutTime, "12:00")
+        XCTAssertEqual(card.stayDurationMinutes, 2880)
+
+        // 旧数据（无酒店字段）解码后保持 nil，不影响既有快照。
+        let legacyJSON = Data("""
+        {"id":13,"dayId":1,"kind":"hotel","title":"旧酒店","startAt":"2026-10-01T14:00:00Z",
+         "position":0,"updatedAt":"2026-09-20T08:00:00Z"}
+        """.utf8)
+        let legacy = try JSONDecoder.sharedTrip.decode(TravelCardSnapshot.self, from: legacyJSON)
+        XCTAssertNil(legacy.roomType)
+        XCTAssertNil(legacy.checkInTime)
+        XCTAssertNil(legacy.checkOutTime)
+    }
+
     func testCardSnapshotDecodesServerLargeImageDecisionAndKeepsOldSnapshotsCompact() throws {
         let immersiveJSON = Data("""
         {"id":8,"dayId":1,"kind":"activity","title":"丽江古城","startAt":"2026-10-01T09:00:00Z",

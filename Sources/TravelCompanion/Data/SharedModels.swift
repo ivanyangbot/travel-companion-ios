@@ -282,6 +282,14 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     var ticketPriceMinor: Int64?
     /// Planned stay length in whole minutes.
     var stayDurationMinutes: Int?
+    /// Hotel room type (e.g. "豪华大床房"). Nil for non-hotel cards or when
+    /// the source never mentioned one.
+    var roomType: String?
+    /// Hotel policy check-in time as "HH:mm"; nil when unknown. The stay
+    /// dates themselves keep living in ``startAt``/``endAt``.
+    var checkInTime: String?
+    /// Hotel policy check-out time as "HH:mm"; nil when unknown.
+    var checkOutTime: String?
     /// Ordered short visitor tips.
     var tips: [String]?
     /// Ordered server-hosted image paths for the card detail swiper. Older
@@ -302,7 +310,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         case description, fromAirport = "fromAirport", toAirport = "toAirport"
         case fromAirportLocation, toAirportLocation, passengers
         case ticketNumber, departureTerminal, arrivalTerminal, gate, seat, cabinClass, baggageAllowance, priceMinor
-        case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips
+        case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, roomType, checkInTime, checkOutTime, tips
         case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
     }
 
@@ -337,6 +345,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         actualPriceMinor: Int64? = nil,
         ticketPriceMinor: Int64? = nil,
         stayDurationMinutes: Int? = nil,
+        roomType: String? = nil,
+        checkInTime: String? = nil,
+        checkOutTime: String? = nil,
         tips: [String]? = nil,
         images: [String]? = nil,
         imageScore: Int = 0,
@@ -376,6 +387,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.actualPriceMinor = actualPriceMinor
         self.ticketPriceMinor = ticketPriceMinor
         self.stayDurationMinutes = stayDurationMinutes
+        self.roomType = roomType
+        self.checkInTime = checkInTime
+        self.checkOutTime = checkOutTime
         self.tips = tips
         self.images = images
         self.imageScore = max(0, min(100, imageScore))
@@ -418,6 +432,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         actualPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .actualPriceMinor)
         ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)
         stayDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .stayDurationMinutes)
+        roomType = try container.decodeIfPresent(String.self, forKey: .roomType)
+        checkInTime = try container.decodeIfPresent(String.self, forKey: .checkInTime)
+        checkOutTime = try container.decodeIfPresent(String.self, forKey: .checkOutTime)
         let decodedTips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
         tips = decodedTips.isEmpty ? nil : decodedTips
         var decodedImages = try container.decodeIfPresent([String].self, forKey: .images) ?? []
@@ -466,6 +483,9 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(actualPriceMinor, forKey: .actualPriceMinor)
         try container.encodeIfPresent(ticketPriceMinor, forKey: .ticketPriceMinor)
         try container.encodeIfPresent(stayDurationMinutes, forKey: .stayDurationMinutes)
+        try container.encodeIfPresent(roomType, forKey: .roomType)
+        try container.encodeIfPresent(checkInTime, forKey: .checkInTime)
+        try container.encodeIfPresent(checkOutTime, forKey: .checkOutTime)
         try container.encodeIfPresent(tips, forKey: .tips)
         try container.encodeIfPresent(images, forKey: .images)
         try container.encode(imageScore, forKey: .imageScore)

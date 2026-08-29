@@ -205,6 +205,15 @@ struct CardDetailView: View {
             if let stay = card.stayDurationMinutes {
                 detailRow(String(localized: "carddetail.plannedStay"), value: stayText(stay), icon: "hourglass")
             }
+            if card.kind == .hotel, let roomType = card.roomType, !roomType.isEmpty {
+                detailRow(String(localized: "hotelcard.roomType"), value: roomType, icon: "bed.double.fill")
+            }
+            if card.kind == .hotel, let checkIn = card.checkInTime, !checkIn.isEmpty {
+                detailRow(String(localized: "hotelcard.checkIn"), value: checkIn, icon: "arrow.down.circle")
+            }
+            if card.kind == .hotel, let checkOut = card.checkOutTime, !checkOut.isEmpty {
+                detailRow(String(localized: "hotelcard.checkOut"), value: checkOut, icon: "arrow.up.circle")
+            }
             if let booking = card.bookingCode, !booking.isEmpty {
                 copyableRow(String(localized: "carddetail.orderId"), value: booking, icon: "number")
             }

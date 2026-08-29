@@ -815,12 +815,19 @@ struct ItineraryView: View {
         currentOrNextCardID: UUID?
     ) -> some View {
         let cards = orderedListCards(for: day)
-        let projectedMultiDayCards = ItineraryListPresentation.projectedMultiDayCards(
+        let projectedOccurrences = ItineraryListPresentation.projectedMultiDayCards(
             for: day,
             in: days
         )
+        // Multi-day projections (an overnight flight, a hotel night) merge
+        // into the day's own chronological list instead of trailing after it.
+        let listItems = ItineraryListPresentation.mergedDayListItems(
+            ownCards: cards,
+            projectedOccurrences: projectedOccurrences,
+            day: day
+        )
         VStack(alignment: .leading, spacing: 10) {
-            if cards.isEmpty, projectedMultiDayCards.isEmpty {
+            if cards.isEmpty, projectedOccurrences.isEmpty {
                 Button {
                     activeCardEditor = .create(day)
                 } label: {
@@ -834,50 +841,54 @@ struct ItineraryView: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
-                    VStack(alignment: .leading, spacing: 10) {
-                        itineraryCompactCard(
-                            card,
-                            index: index,
-                            day: day,
-                            cards: cards,
-                            days: days,
-                            currentOrNextCardID: currentOrNextCardID
-                        )
-
-                        if index < cards.count - 1,
-                           let originPoint = ItineraryListPresentation.outgoingRoutePoint(for: card),
-                           let destinationPoint = ItineraryListPresentation.incomingRoutePoint(for: cards[index + 1]) {
-                            CardLegEstimateView(
-                                originCard: card,
-                                destinationCard: cards[index + 1],
-                                originPoint: originPoint,
-                                destinationPoint: destinationPoint,
-                                presentation: .itineraryList
+                ForEach(Array(listItems.enumerated()), id: \.element.id) { itemIndex, item in
+                    if let ownIndex = item.ownIndex {
+                        VStack(alignment: .leading, spacing: 10) {
+                            itineraryCompactCard(
+                                item.card,
+                                index: ownIndex,
+                                day: day,
+                                cards: cards,
+                                days: days,
+                                currentOrNextCardID: currentOrNextCardID
                             )
-                            .id("\(CardLegStore.legKey(origin: card, destination: cards[index + 1]))-\(routeRefreshRevision)")
-                            .padding(.horizontal, 2)
-                        }
-                    }
-                    .offset(y: placeholderOffset(for: card, in: day, cards: cards))
-                    .animation(.snappy(duration: 0.2), value: draggedListCardDestinationIndex)
-                    .animation(.snappy(duration: 0.2), value: draggedListCardDestinationDayID)
-                    .zIndex(draggedListCard?.cardID == card.id ? 100 : 0)
-                }
 
-                ForEach(Array(projectedMultiDayCards.enumerated()), id: \.element.id) { offset, occurrence in
-                    itineraryCompactCardContent(
-                        occurrence.card,
-                        index: cards.count + offset,
-                        showsTimeAccent: false,
-                        progressLabel: itineraryCardProgressLabel(occurrence.progress)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                    .accessibilityHint(
-                        occurrence.isHotelNight
-                            ? Text("itinerary.projectedHotelNightHint")
-                            : Text("itinerary.projectedMultiDayHint")
-                    )
+                            // Route legs only connect two own cards that are
+                            // still visually adjacent after the merge.
+                            if itemIndex + 1 < listItems.count,
+                               let nextIndex = listItems[itemIndex + 1].ownIndex,
+                               nextIndex == ownIndex + 1,
+                               let originPoint = ItineraryListPresentation.outgoingRoutePoint(for: item.card),
+                               let destinationPoint = ItineraryListPresentation.incomingRoutePoint(for: listItems[itemIndex + 1].card) {
+                                CardLegEstimateView(
+                                    originCard: item.card,
+                                    destinationCard: listItems[itemIndex + 1].card,
+                                    originPoint: originPoint,
+                                    destinationPoint: destinationPoint,
+                                    presentation: .itineraryList
+                                )
+                                .id("\(CardLegStore.legKey(origin: item.card, destination: listItems[itemIndex + 1].card))-\(routeRefreshRevision)")
+                                .padding(.horizontal, 2)
+                            }
+                        }
+                        .offset(y: placeholderOffset(for: item.card, in: day, cards: cards))
+                        .animation(.snappy(duration: 0.2), value: draggedListCardDestinationIndex)
+                        .animation(.snappy(duration: 0.2), value: draggedListCardDestinationDayID)
+                        .zIndex(draggedListCard?.cardID == item.card.id ? 100 : 0)
+                    } else {
+                        itineraryCompactCardContent(
+                            item.card,
+                            index: itemIndex,
+                            showsTimeAccent: false,
+                            progressLabel: itineraryCardProgressLabel(item.progress)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        .accessibilityHint(
+                            item.isHotelNight
+                                ? Text("itinerary.projectedHotelNightHint")
+                                : Text("itinerary.projectedMultiDayHint")
+                        )
+                    }
                 }
             }
 
@@ -1166,6 +1177,8 @@ struct ItineraryView: View {
     ) -> some View {
         if card.kind == .flight {
             itineraryFlightCardContent(card, isActive: showsTimeAccent, progressLabel: progressLabel)
+        } else if card.kind == .hotel {
+            itineraryHotelCardContent(card, isActive: showsTimeAccent, progressLabel: progressLabel)
         } else {
             ZStack(alignment: .leading) {
                 if showsTimeAccent {
@@ -1346,6 +1359,216 @@ struct ItineraryView: View {
             }
         }
         .buttonStyle(ItineraryCardNoFadeButtonStyle())
+    }
+
+    /// 酒店专属列表卡：突出房型、价格与入住/退房时间，结构对齐机票票根卡
+    /// （头部徽章+价格 → 关键字段 → 双端点时间线 → 打孔分隔线 → 信息底栏）。
+    private func itineraryHotelCardContent(
+        _ card: TravelCardSnapshot,
+        isActive: Bool,
+        progressLabel: String?
+    ) -> some View {
+        let price = compactCardPrice(for: card)
+        let summary = ItineraryListPresentation.cardSummary(for: card)
+        let nights = itineraryHotelNights(for: card)
+
+        return Button {
+            guard suppressedListCardTapID != card.id else { return }
+            if revealedListCardID != nil {
+                closeListCardActions()
+            } else {
+                showCardDetail(card)
+            }
+        } label: {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let progressLabel {
+                        itineraryProgressBadge(progressLabel)
+                    }
+                    HStack(alignment: .top, spacing: 11) {
+                        // 酒店没有航司徽章，用主题色床铺贴片保持同款头部节奏。
+                        Image(systemName: "bed.double.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(PrimaryTabPalette.accent)
+                            .frame(width: 38, height: 38)
+                            .background(
+                                PrimaryTabPalette.accent.opacity(0.15),
+                                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            )
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(card.title)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                            if let placeName = card.place?.name?.nilIfEmpty {
+                                Text(placeName)
+                                    .font(.caption)
+                                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        if let price {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(card.actualPriceMinor == nil ? String(localized: "travelcard.estimateLabel") : String(localized: "travelcard.actualLabel"))
+                                    .font(.caption2)
+                                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                Text(price)
+                                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                    }
+
+                    // 房型：酒店卡的核心字段，用主题色胶囊突出（同进度徽章样式）。
+                    if let roomType = card.roomType?.nilIfEmpty {
+                        Text(roomType)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(PrimaryTabPalette.accent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                PrimaryTabPalette.accent.opacity(0.14),
+                                in: Capsule(style: .continuous)
+                            )
+                    }
+
+                    // 入住/退房双端点 + 中段「N 晚」，对应机票卡的航线时间线。
+                    HStack(alignment: .center, spacing: 9) {
+                        itineraryHotelStayBlock(
+                            label: "hotelcard.checkIn",
+                            date: card.startAt,
+                            time: card.checkInTime,
+                            alignment: .leading
+                        )
+                        VStack(spacing: 6) {
+                            if let nights {
+                                Text(String(format: String(localized: "hotelcard.nights"), nights))
+                                    .font(.caption2.monospacedDigit().weight(.bold))
+                                    .foregroundStyle(.black)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 5)
+                                    .background(PrimaryTabPalette.accent, in: Capsule())
+                            }
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
+                                Rectangle().fill(Color.white.opacity(0.17)).frame(height: 1)
+                                Image(systemName: "bed.double")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(PrimaryTabPalette.accent)
+                                Rectangle().fill(Color.white.opacity(0.17)).frame(height: 1)
+                                Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        itineraryHotelStayBlock(
+                            label: "hotelcard.checkOut",
+                            date: card.endAt ?? card.startAt,
+                            time: card.checkOutTime,
+                            alignment: .trailing
+                        )
+                    }
+
+                    if let summary {
+                        Text(summary)
+                            .font(.footnote)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            .lineSpacing(2)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(14)
+
+                itineraryFlightTicketDivider(isActive: isActive)
+
+                HStack(spacing: 8) {
+                    if let bookingCode = card.bookingCode?.nilIfEmpty {
+                        Text(bookingCode)
+                            .font(.caption.monospaced().weight(.medium))
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            .lineLimit(1)
+                    } else {
+                        Label(card.kind.title, systemImage: "bed.double")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                    Spacer(minLength: 8)
+                    HStack(spacing: 5) {
+                        Text("travelcard.viewDetails")
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                }
+                .frame(minHeight: 40)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                LinearGradient(
+                    colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .stroke(Color.white.opacity(0.09), lineWidth: 1)
+            }
+            .overlay(alignment: .leading) {
+                if isActive {
+                    Rectangle()
+                        .fill(PrimaryTabPalette.accent)
+                        .frame(width: 5)
+                        .padding(.vertical, 12)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .buttonStyle(ItineraryCardNoFadeButtonStyle())
+    }
+
+    /// 入住/退房端点块：标签 + 日期（同机票机场码的圆角粗体）+ 政策时间。
+    private func itineraryHotelStayBlock(
+        label: LocalizedStringKey,
+        date: Date,
+        time: String?,
+        alignment: HorizontalAlignment
+    ) -> some View {
+        VStack(alignment: alignment, spacing: 4) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+            // 复用机票卡的月日格式，保证两种卡片时间线视觉一致。
+            Text(Self.itineraryFlightDateFormatter.string(from: date))
+                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            if let time {
+                Text(time)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.86))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    /// 入住到退房的整晚数：优先用 endAt-startAt 的日期差；缺失时退回
+    /// stayDurationMinutes 换算（不足一天按一晚计）。都无法确定时返回 nil，
+    /// 时间线中段只保留床铺虚线。
+    private func itineraryHotelNights(for card: TravelCardSnapshot) -> Int? {
+        if let end = card.endAt, end > card.startAt,
+           let days = Calendar.current.dateComponents([.day], from: card.startAt, to: end).day,
+           days > 0 {
+            return days
+        }
+        guard let minutes = card.stayDurationMinutes, minutes > 0 else { return nil }
+        return max(1, Int((Double(minutes) / 1440).rounded()))
     }
 
     private func itinerarySharedPassengers(for card: TravelCardSnapshot) -> String? {

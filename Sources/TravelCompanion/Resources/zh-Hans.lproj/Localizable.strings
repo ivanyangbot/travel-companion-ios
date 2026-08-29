@@ -1100,3 +1100,9 @@
 "agent.commitUpdated" = "行程已更新";
 "agent.commitSuccessCount" = "成功加入 %d 项，已同步到行程";
 "agent.commitRemovalSuccess" = "变更已同步到行程";
+
+/* ===== 酒店卡片 ===== */
+"hotelcard.roomType" = "房型";
+"hotelcard.checkIn" = "入住";
+"hotelcard.checkOut" = "退房";
+"hotelcard.nights" = "%lld 晚";

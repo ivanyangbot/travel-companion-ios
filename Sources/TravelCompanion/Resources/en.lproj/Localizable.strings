@@ -1100,3 +1100,9 @@
 "agent.commitUpdated" = "Trip Updated";
 "agent.commitSuccessCount" = "%d item(s) added and synced to your trip";
 "agent.commitRemovalSuccess" = "Your changes are synced to the trip";
+
+/* ===== Hotel Card ===== */
+"hotelcard.roomType" = "Room Type";
+"hotelcard.checkIn" = "Check-in";
+"hotelcard.checkOut" = "Check-out";
+"hotelcard.nights" = "%lld nights";
