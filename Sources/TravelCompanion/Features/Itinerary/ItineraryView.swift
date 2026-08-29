@@ -757,6 +757,13 @@ struct ItineraryView: View {
                 guard !Task.isCancelled else { return }
                 itineraryResolvedCityByDate = resolved
             }
+            .task(id: ItineraryListPresentation.flightAirportResolutionKey(for: days)) {
+                let flights = days.flatMap(\.cards).filter { $0.kind == .flight }
+                guard !flights.isEmpty else { return }
+                let routes = await AppleMapService.resolveFlightRoutes(cards: flights)
+                guard !Task.isCancelled else { return }
+                syncEngine.cacheFlightAirportLocations(from: routes)
+            }
         }
     }
 
@@ -836,8 +843,8 @@ struct ItineraryView: View {
                         )
 
                         if index < cards.count - 1,
-                           let originPoint = card.place?.point,
-                           let destinationPoint = cards[index + 1].place?.point {
+                           let originPoint = ItineraryListPresentation.outgoingRoutePoint(for: card),
+                           let destinationPoint = ItineraryListPresentation.incomingRoutePoint(for: cards[index + 1]) {
                             CardLegEstimateView(
                                 originCard: card,
                                 destinationCard: cards[index + 1],
@@ -2612,8 +2619,8 @@ struct ItineraryView: View {
                                     .accessibilityHint(Text(String(format: String(localized: "itinerary.openDetailHint"), card.title)))
                                 }
                                 if cardIndex < cards.count - 1,
-                                   let originPoint = card.place?.point,
-                                   let destinationPoint = cards[cardIndex + 1].place?.point {
+                                   let originPoint = ItineraryListPresentation.outgoingRoutePoint(for: card),
+                                   let destinationPoint = ItineraryListPresentation.incomingRoutePoint(for: cards[cardIndex + 1]) {
                                     CardLegEstimateView(
                                         originCard: card,
                                         destinationCard: cards[cardIndex + 1],
@@ -3454,6 +3461,39 @@ enum ItineraryListPresentation {
                 return "\(day.date):\(cards.joined(separator: ";"))"
             }
             .joined(separator: "/")
+    }
+
+    static func flightAirportResolutionKey(for days: [TripDaySnapshot]) -> String {
+        days
+            .flatMap(\.cards)
+            .filter { $0.kind == .flight }
+            .map { card in
+                [
+                    card.serverID.map(String.init) ?? card.id.uuidString,
+                    card.fromAirport ?? "",
+                    card.toAirport ?? "",
+                ].joined(separator: "|")
+            }
+            .joined(separator: ";")
+    }
+
+    /// Ground legs next to a flight start at its arrival airport and end at
+    /// its departure airport. Ordinary activity/hotel cards continue to use
+    /// their verified POI coordinate.
+    static func outgoingRoutePoint(for card: TravelCardSnapshot) -> RoutePoint? {
+        if card.kind == .flight {
+            guard let arrival = card.toAirportLocation, arrival.hasValidCoordinate else { return nil }
+            return RoutePoint(latitude: arrival.latitude, longitude: arrival.longitude)
+        }
+        return card.place?.point
+    }
+
+    static func incomingRoutePoint(for card: TravelCardSnapshot) -> RoutePoint? {
+        if card.kind == .flight {
+            guard let departure = card.fromAirportLocation, departure.hasValidCoordinate else { return nil }
+            return RoutePoint(latitude: departure.latitude, longitude: departure.longitude)
+        }
+        return card.place?.point
     }
 
     static func immediateCity(for day: TripDaySnapshot) -> String? {

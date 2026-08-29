@@ -147,6 +147,69 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(CardLegEstimateView.itineraryListDurationText(4_020), "67min")
     }
 
+    func testItineraryListConnectsFlightsAndHotelsThroughTheCorrectAirports() {
+        let departure = FlightAirportLocationSnapshot(
+            query: "CGK",
+            iata: "CGK",
+            icao: "WIII",
+            name: "Soekarno-Hatta International Airport",
+            city: "Jakarta",
+            country: "ID",
+            latitude: -6.1256,
+            longitude: 106.6559,
+            resolvedAt: .now
+        )
+        let arrival = FlightAirportLocationSnapshot(
+            query: "DPS",
+            iata: "DPS",
+            icao: "WADD",
+            name: "I Gusti Ngurah Rai International Airport",
+            city: "Denpasar",
+            country: "ID",
+            latitude: -8.7482,
+            longitude: 115.1672,
+            resolvedAt: .now
+        )
+        let flight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "雅加达 → 巴厘岛",
+            startAt: .now,
+            fromAirport: "CGK",
+            toAirport: "DPS",
+            fromAirportLocation: departure,
+            toAirportLocation: arrival
+        )
+        let hotelPlace = PlaceSnapshot(
+            id: 10,
+            name: "ARNA Suites and Ocean Lounge",
+            address: "Nusa Ceningan, Indonesia",
+            latitude: -8.708446,
+            longitude: 115.439565,
+            placeId: "IACE79771AC324E0A",
+            cityCode: nil,
+            updatedAt: .now
+        )
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "ARNA Suites and Ocean Lounge",
+            startAt: .now,
+            place: hotelPlace
+        )
+
+        XCTAssertEqual(
+            ItineraryListPresentation.outgoingRoutePoint(for: flight),
+            RoutePoint(latitude: arrival.latitude, longitude: arrival.longitude)
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.incomingRoutePoint(for: flight),
+            RoutePoint(latitude: departure.latitude, longitude: departure.longitude)
+        )
+        XCTAssertEqual(ItineraryListPresentation.outgoingRoutePoint(for: hotel), hotelPlace.point)
+        XCTAssertEqual(ItineraryListPresentation.incomingRoutePoint(for: hotel), hotelPlace.point)
+    }
+
     func testItineraryListDerivesEightCharacterSummaryInPersistedOrder() {
         let later = TravelCardSnapshot(
             dayID: 1,
