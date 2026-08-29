@@ -598,7 +598,7 @@ struct ItineraryView: View {
                     .font(.system(size: 23, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    .truncationMode(.tail)
 
                 Button { editSelectedTrip() } label: {
                     Image(systemName: "pencil")
@@ -778,7 +778,7 @@ struct ItineraryView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.68))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 0)
@@ -1354,7 +1354,8 @@ struct ItineraryView: View {
             Text(AgentFlightDisplay.airportCode(airport))
                 .font(.system(size: 27, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .minimumScaleFactor(0.72)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Text(airport?.nilIfEmpty ?? String(localized: "agent.airportPending"))
                 .font(.caption2)
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -1479,7 +1480,7 @@ struct ItineraryView: View {
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.78)
+                        .truncationMode(.tail)
 
                     HStack(spacing: 14) {
                         compactCardMetadata(
@@ -1562,7 +1563,7 @@ struct ItineraryView: View {
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.76)
+                                .truncationMode(.tail)
 
                             HStack(spacing: 14) {
                                 compactCardMetadata(
@@ -1624,7 +1625,7 @@ struct ItineraryView: View {
                 .frame(width: 16, height: 16)
             Text(text)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .truncationMode(.tail)
         }
         .font(.system(size: 15, weight: .medium))
         .foregroundStyle(.white.opacity(0.76))
@@ -2520,7 +2521,7 @@ struct ItineraryView: View {
             Text(trip.destination ?? String(localized: "itinerary.noDestination"))
                 .font(.system(size: 39, weight: .black, design: .rounded))
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .truncationMode(.tail)
             Text([trip.startDate, trip.endDate].compactMap { $0 }.joined(separator: " — "))
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.white.opacity(0.62))
