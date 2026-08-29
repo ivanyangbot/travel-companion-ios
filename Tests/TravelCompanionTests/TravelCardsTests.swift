@@ -6,6 +6,29 @@ import XCTest
 @testable import TravelCompanion
 
 final class TravelCardsTests: XCTestCase {
+    func testFlightRouteTitleOnlyKeepsDepartureAndDestination() {
+        XCTAssertEqual(
+            AgentFlightDisplay.routeTitle(
+                from: "丽江三义国际机场 (LJG)",
+                to: "北京首都国际机场 T2(PEK)",
+                fallback: "中国国航 CA9634 丽江 → 北京"
+            ),
+            "丽江三义 → 北京首都 T2"
+        )
+        XCTAssertEqual(
+            AgentFlightDisplay.routeTitle(
+                from: "Los Angeles International Airport (LAX)",
+                to: "Heathrow Airport T5 (LHR)",
+                fallback: "Fallback"
+            ),
+            "Los Angeles → Heathrow T5"
+        )
+        XCTAssertEqual(
+            AgentFlightDisplay.routeTitle(from: nil, to: "PEK", fallback: "原始标题"),
+            "原始标题"
+        )
+    }
+
     func testTodayQuickActionsSwapSharingForSignInWhenSignedOut() {
         XCTAssertEqual(
             TodayQuickAction.visibleActions(isAuthenticated: false),

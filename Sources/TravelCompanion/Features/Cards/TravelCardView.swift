@@ -132,7 +132,11 @@ struct TravelCardView: View {
         HStack(alignment: .top, spacing: 11) {
             AirlineLogoBadge(logoURL: persistedAirlineLogoURL, size: 38, cornerRadius: 11)
             VStack(alignment: .leading, spacing: 3) {
-                Text(card.title)
+                Text(AgentFlightDisplay.routeTitle(
+                    from: card.fromAirport,
+                    to: card.toAirport,
+                    fallback: card.title
+                ))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(2)

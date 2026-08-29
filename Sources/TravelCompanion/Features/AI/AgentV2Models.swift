@@ -273,8 +273,51 @@ enum AgentFlightDisplay {
         return nil
     }
 
+    /// 卡片大标题只保留路线地点，去掉三字码和“机场”冗余词；完整机场名仍在
+    /// 下方的起降信息中展示。例如“丽江三义国际机场 (LJG)”显示为“丽江三义”。
+    static func airportTitle(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let fullRange = NSRange(trimmed.startIndex..., in: trimmed)
+        var result = iataDecorationRegex.stringByReplacingMatches(
+            in: trimmed,
+            range: fullRange,
+            withTemplate: " "
+        )
+        let airportRange = NSRange(result.startIndex..., in: result)
+        result = airportWordRegex.stringByReplacingMatches(
+            in: result,
+            range: airportRange,
+            withTemplate: " "
+        )
+        result = result
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: routeTitleTrimCharacters)
+        return result.isEmpty ? trimmed : result
+    }
+
+    static func routeTitle(from: String?, to: String?, fallback: String) -> String {
+        guard let origin = airportTitle(from), let destination = airportTitle(to) else {
+            return fallback
+        }
+        return "\(origin) → \(destination)"
+    }
+
     private static let iataCodeRegex = try! NSRegularExpression(pattern: "(?:^|[^A-Z])([A-Z]{3})(?![A-Z])")
     private static let bookingCodeRegex = try! NSRegularExpression(pattern: "^\\s*([A-Z0-9]{2})\\s*[- ]?\\s*\\d{1,4}[A-Z]?\\s*$", options: [.caseInsensitive])
+    private static let iataDecorationRegex = try! NSRegularExpression(
+        pattern: "[（(]\\s*[A-Z]{3}\\s*[）)]|(?<![A-Z])[A-Z]{3}(?![A-Z])"
+    )
+    private static let airportWordRegex = try! NSRegularExpression(
+        pattern: "国际机场|机场|\\bInternational\\s+Airport\\b|\\bAirport\\b",
+        options: [.caseInsensitive]
+    )
+    private static let routeTitleTrimCharacters = CharacterSet.whitespacesAndNewlines.union(
+        CharacterSet(charactersIn: "-–—·,，()（）")
+    )
 }
 
 extension AgentV2Candidate {

@@ -987,7 +987,11 @@ struct ItineraryView: View {
                             cornerRadius: 11
                         )
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(card.title)
+                            Text(AgentFlightDisplay.routeTitle(
+                                from: card.fromAirport,
+                                to: card.toAirport,
+                                fallback: card.title
+                            ))
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .lineLimit(2)
