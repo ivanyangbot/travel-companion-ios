@@ -423,6 +423,350 @@ struct CardDetailView: View {
     }()
 }
 
+/// Shared modal used by the map and itinerary list. The surrounding dimmer
+/// keeps context visible while the ticket itself carries the complete flight
+/// hierarchy, matching the app's dark surfaces and brand orange accent.
+struct FlightTicketPopup: View {
+    let card: TravelCardSnapshot
+    let currency: String?
+    var showsPassengers = false
+    let onDismiss: () -> Void
+
+    @StateObject private var linkHandler = ExternalLinkHandler()
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.72)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onDismiss)
+
+                VStack(spacing: 14) {
+                    HStack {
+                        popupButton(systemImage: "xmark", label: "agent.closeDetailsA11y", action: onDismiss)
+                        Spacer()
+                        ShareLink(item: shareText) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 46, height: 46)
+                                .background(PrimaryTabPalette.elevatedSurface, in: Circle())
+                                .overlay { Circle().stroke(.white.opacity(0.10), lineWidth: 1) }
+                        }
+                        .accessibilityLabel(Text("carddetail.shareA11y"))
+                    }
+
+                    ScrollView(showsIndicators: false) {
+                        ticket
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 18)
+                .frame(maxWidth: 460)
+                .frame(maxHeight: min(geometry.size.height * 0.9, 790))
+                .background(.black.opacity(0.30), in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                .padding(.vertical, max(10, geometry.safeAreaInsets.top * 0.25))
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { linkHandler.browserURL != nil },
+            set: { if !$0 { linkHandler.browserURL = nil } }
+        )) {
+            if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
+        }
+        .alert("common.cannotOpenLink", isPresented: Binding(
+            get: { linkHandler.alertMessage != nil },
+            set: { if !$0 { linkHandler.alertMessage = nil } }
+        )) {
+            Button("common.ok", role: .cancel) { linkHandler.alertMessage = nil }
+        } message: {
+            Text(linkHandler.alertMessage ?? "")
+        }
+        .preferredColorScheme(.dark)
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private var ticket: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 24) {
+                airlineHeader
+                route
+            }
+            .padding(20)
+
+            perforatedDivider
+
+            if !ticketDetails.isEmpty {
+                LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 18) {
+                    ForEach(ticketDetails) { detail in
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(detail.label)
+                                .font(.caption)
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                            Text(detail.value)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+
+            if let notes = nonEmpty(card.notes) {
+                perforatedDivider
+                Text(notes)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineSpacing(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            }
+
+            if let source = sourceURL {
+                perforatedDivider
+                Button { linkHandler.openPublicLink(source.absoluteString) } label: {
+                    HStack {
+                        Label("carddetail.openWeb", systemImage: "safari.fill")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(height: 48)
+                    .padding(.horizontal, 20)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background {
+            LinearGradient(
+                colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.07, green: 0.09, blue: 0.13)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(PrimaryTabPalette.accent.opacity(0.64), lineWidth: 1.2)
+        }
+        .shadow(color: PrimaryTabPalette.accent.opacity(0.10), radius: 28, y: 16)
+    }
+
+    private var airlineHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            AirlineLogoBadge(logoURL: airlineLogoURL, size: 48, cornerRadius: 14)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(nonEmpty(card.airlineName) ?? String(localized: "kind.flight"))
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                Text(nonEmpty(card.bookingCode) ?? String(localized: "agent.flightNumberPending"))
+                    .font(.caption.monospaced().weight(.semibold))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+            Spacer(minLength: 8)
+            if let ticketNumber = nonEmpty(card.ticketNumber) {
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text("flightticket.ticketNumber")
+                        .font(.caption2)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    Text(ticketNumber)
+                        .font(.caption.monospaced().weight(.bold))
+                        .foregroundStyle(PrimaryTabPalette.accent)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private var route: some View {
+        HStack(alignment: .center, spacing: 12) {
+            airport(card.fromAirport, date: card.startAt, terminal: card.departureTerminal, alignment: .leading)
+            VStack(spacing: 8) {
+                if let durationText {
+                    Text(durationText)
+                        .font(.caption2.monospacedDigit().weight(.bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(PrimaryTabPalette.accent, in: Capsule())
+                }
+                HStack(spacing: 4) {
+                    Circle().fill(.white.opacity(0.30)).frame(width: 5, height: 5)
+                    Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+                    Image(systemName: "airplane")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(PrimaryTabPalette.accent)
+                    Rectangle().fill(.white.opacity(0.18)).frame(height: 1)
+                    Circle().fill(.white.opacity(0.30)).frame(width: 5, height: 5)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            airport(card.toAirport, date: card.endAt, terminal: card.arrivalTerminal, alignment: .trailing)
+        }
+    }
+
+    private func airport(_ value: String?, date: Date?, terminal: String?, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 5) {
+            Text(AgentFlightDisplay.airportCode(value))
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.7)
+                .lineLimit(1)
+            Text(nonEmpty(value) ?? String(localized: "agent.airportPending"))
+                .font(.caption2)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+            if let date {
+                Text(Self.timeFormatter.string(from: date))
+                    .font(.subheadline.monospacedDigit().weight(.bold))
+                    .foregroundStyle(.white)
+                Text(Self.dateFormatter.string(from: date))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            } else {
+                Text("agent.timePending")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+            if let terminal = nonEmpty(terminal) {
+                Text(String(format: String(localized: "flightticket.terminalFormat"), terminal))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private var perforatedDivider: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<22, id: \.self) { _ in
+                Capsule().fill(.white.opacity(0.12)).frame(maxWidth: .infinity).frame(height: 1)
+            }
+        }
+        .overlay(alignment: .leading) {
+            Circle().fill(.black.opacity(0.88)).frame(width: 20, height: 20).offset(x: -10)
+        }
+        .overlay(alignment: .trailing) {
+            Circle().fill(.black.opacity(0.88)).frame(width: 20, height: 20).offset(x: 10)
+        }
+    }
+
+    private var ticketDetails: [FlightTicketDetail] {
+        var details: [FlightTicketDetail] = []
+        appendDetail(&details, key: "airline", label: String(localized: "flightticket.airline"), value: card.airlineName)
+        appendDetail(&details, key: "flight", label: String(localized: "flightticket.flight"), value: card.bookingCode)
+        if showsPassengers {
+            appendDetail(&details, key: "passengers", label: String(localized: "carddetail.passengers"), value: card.passengers)
+        }
+        appendDetail(&details, key: "gate", label: String(localized: "flightticket.gate"), value: card.gate)
+        appendDetail(&details, key: "cabin", label: String(localized: "flightticket.cabinClass"), value: card.cabinClass)
+        appendDetail(&details, key: "seat", label: String(localized: "flightticket.seat"), value: card.seat)
+        appendDetail(&details, key: "baggage", label: String(localized: "flightticket.baggage"), value: card.baggageAllowance)
+        if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: currency) {
+            details.append(.init(id: "actualPrice", label: String(localized: "carddetail.actualPrice"), value: actual))
+        } else if let estimated = CardPrice.format(minor: card.priceMinor, currency: currency) {
+            details.append(.init(id: "price", label: String(localized: "carddetail.estimatedPrice"), value: estimated))
+        }
+        if let ticket = CardPrice.format(minor: card.ticketPriceMinor, currency: currency) {
+            details.append(.init(id: "ticketPrice", label: String(localized: "flightticket.ticketPrice"), value: ticket))
+        }
+        return details
+    }
+
+    private func appendDetail(_ details: inout [FlightTicketDetail], key: String, label: String, value: String?) {
+        guard let value = nonEmpty(value) else { return }
+        details.append(.init(id: key, label: label, value: value))
+    }
+
+    private func popupButton(systemImage: String, label: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 46, height: 46)
+                .background(PrimaryTabPalette.elevatedSurface, in: Circle())
+                .overlay { Circle().stroke(.white.opacity(0.10), lineWidth: 1) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
+    }
+
+    private var airlineLogoURL: URL? {
+        if let url = CardImageURL.resolve(card.airlineLogoURL) { return url }
+        let code = card.airlineCode ?? AgentFlightDisplay.airlineCode(fromBookingCode: card.bookingCode)
+        guard let code else { return nil }
+        return CardImageURL.resolve("/v1/airlines/logos/\(code).png")
+    }
+
+    private var sourceURL: URL? {
+        if let source = card.sources?.first,
+           let url = ExternalLinkHandler.validatedHTTPSURL(source.url) { return url }
+        guard let raw = card.url else { return nil }
+        return ExternalLinkHandler.validatedHTTPSURL(raw)
+    }
+
+    private var durationText: String? {
+        guard let endAt = card.endAt else { return nil }
+        let minutes = max(0, Int(endAt.timeIntervalSince(card.startAt) / 60))
+        guard minutes > 0, minutes <= 24 * 60 else { return nil }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        if hours > 0, remainder > 0 {
+            return String(format: String(localized: "common.durationHourMinute"), hours, remainder)
+        }
+        if hours > 0 { return String(format: String(localized: "common.durationHours"), hours) }
+        return String(format: String(localized: "common.durationMinutes"), remainder)
+    }
+
+    private var shareText: String {
+        let parts: [String?] = [
+            AgentFlightDisplay.routeTitle(from: card.fromAirport, to: card.toAirport, fallback: card.title),
+            nonEmpty(card.bookingCode),
+            Self.dateTimeFormatter.string(from: card.startAt),
+            sourceURL?.absoluteString
+        ]
+        return parts.compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("HH:mm")
+        return formatter
+    }()
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMM d, yyyy")
+        return formatter
+    }()
+
+    private static let dateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMM d, yyyy HH:mm")
+        return formatter
+    }()
+}
+
+private struct FlightTicketDetail: Identifiable {
+    let id: String
+    let label: String
+    let value: String
+}
+
 private struct CardDetailImagePager: View {
     let urls: [URL]
     @Binding var selection: Int

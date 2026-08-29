@@ -218,6 +218,14 @@ struct CardRequest: Encodable, Sendable {
     var description: String?
     var fromAirport: String?
     var toAirport: String?
+    var passengers: String?
+    var ticketNumber: String?
+    var departureTerminal: String?
+    var arrivalTerminal: String?
+    var gate: String?
+    var seat: String?
+    var cabinClass: String?
+    var baggageAllowance: String?
     var priceMinor: Int64?
     var actualPriceMinor: Int64?
     var ticketPriceMinor: Int64?
@@ -243,6 +251,14 @@ struct CardRequest: Encodable, Sendable {
         description: String? = nil,
         fromAirport: String? = nil,
         toAirport: String? = nil,
+        passengers: String? = nil,
+        ticketNumber: String? = nil,
+        departureTerminal: String? = nil,
+        arrivalTerminal: String? = nil,
+        gate: String? = nil,
+        seat: String? = nil,
+        cabinClass: String? = nil,
+        baggageAllowance: String? = nil,
         priceMinor: Int64? = nil,
         actualPriceMinor: Int64? = nil,
         ticketPriceMinor: Int64? = nil,
@@ -265,6 +281,14 @@ struct CardRequest: Encodable, Sendable {
         self.description = description
         self.fromAirport = fromAirport
         self.toAirport = toAirport
+        self.passengers = passengers
+        self.ticketNumber = ticketNumber
+        self.departureTerminal = departureTerminal
+        self.arrivalTerminal = arrivalTerminal
+        self.gate = gate
+        self.seat = seat
+        self.cabinClass = cabinClass
+        self.baggageAllowance = baggageAllowance
         self.priceMinor = priceMinor
         self.actualPriceMinor = actualPriceMinor
         self.ticketPriceMinor = ticketPriceMinor
@@ -276,7 +300,7 @@ struct CardRequest: Encodable, Sendable {
         self.fieldsToClear = fieldsToClear
     }
 
-    enum CodingKeys: String, CodingKey { case dayId, kind, title, startAt, endAt, place, placeId, bookingCode, url, description, fromAirport, toAirport, priceMinor, actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips, images, notes, position }
+    enum CodingKeys: String, CodingKey { case dayId, kind, title, startAt, endAt, place, placeId, bookingCode, url, description, fromAirport, toAirport, passengers, ticketNumber, departureTerminal, arrivalTerminal, gate, seat, cabinClass, baggageAllowance, priceMinor, actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips, images, notes, position }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -292,6 +316,14 @@ struct CardRequest: Encodable, Sendable {
         try encodeNullable(description, clearName: "description", key: .description, into: &container)
         try encodeNullable(fromAirport, clearName: "fromAirport", key: .fromAirport, into: &container)
         try encodeNullable(toAirport, clearName: "toAirport", key: .toAirport, into: &container)
+        try encodeNullable(passengers, clearName: "passengers", key: .passengers, into: &container)
+        try encodeNullable(ticketNumber, clearName: "ticketNumber", key: .ticketNumber, into: &container)
+        try encodeNullable(departureTerminal, clearName: "departureTerminal", key: .departureTerminal, into: &container)
+        try encodeNullable(arrivalTerminal, clearName: "arrivalTerminal", key: .arrivalTerminal, into: &container)
+        try encodeNullable(gate, clearName: "gate", key: .gate, into: &container)
+        try encodeNullable(seat, clearName: "seat", key: .seat, into: &container)
+        try encodeNullable(cabinClass, clearName: "cabinClass", key: .cabinClass, into: &container)
+        try encodeNullable(baggageAllowance, clearName: "baggageAllowance", key: .baggageAllowance, into: &container)
         try encodeNullable(priceMinor, clearName: "priceMinor", key: .priceMinor, into: &container)
         try encodeNullable(actualPriceMinor, clearName: "actualPriceMinor", key: .actualPriceMinor, into: &container)
         try encodeNullable(ticketPriceMinor, clearName: "ticketPriceMinor", key: .ticketPriceMinor, into: &container)

@@ -262,6 +262,15 @@
 "carddetail.ticketPrice" = "門票價格";
 "carddetail.plannedStay" = "計畫停留";
 "carddetail.orderId" = "訂單編號";
+"flightticket.ticketNumber" = "電子票號";
+"flightticket.ticketPrice" = "票價";
+"flightticket.airline" = "航空公司";
+"flightticket.flight" = "航班";
+"flightticket.gate" = "登機門";
+"flightticket.seat" = "座位";
+"flightticket.cabinClass" = "艙等";
+"flightticket.baggage" = "行李額";
+"flightticket.terminalFormat" = "航廈 %@";
 "carddetail.links" = "相關連結";
 "carddetail.openWeb" = "打開網頁";
 "carddetail.poiSection" = "目的地 POI";
@@ -351,6 +360,7 @@
 "travelcard.placeActionsA11y" = "地點操作";
 "travelcard.viewDetails" = "查看詳情";
 "itinerary.passengersRow" = "乘機人：%@";
+"carddetail.passengers" = "乘機人";
 "kind.flight" = "機票";
 "kind.hotel" = "飯店";
 "kind.activity" = "活動";

@@ -15,6 +15,7 @@ struct ItineraryView: View {
     @State private var dayPendingDeletion: TripDaySnapshot?
     @State private var activeCardEditor: CardEditorTarget?
     @State private var detailCard: TravelCardSnapshot?
+    @State private var flightDetailCard: TravelCardSnapshot?
     @State private var cardPendingDeletion: TravelCardSnapshot?
     @State private var expenseEditorDate: Date?
     @State private var showsSharingSheet = false
@@ -243,6 +244,20 @@ struct ItineraryView: View {
             .onChange(of: syncEngine.isUserAuthenticated) { _, isAuthenticated in
                 guard isAuthenticated else { return }
                 joinPendingInviteIfPossible()
+            }
+        }
+        .overlay {
+            if let card = flightDetailCard {
+                FlightTicketPopup(
+                    card: card,
+                    currency: syncEngine.trip?.currency,
+                    showsPassengers: syncEngine.isUserAuthenticated && sharedMemberCount > 1,
+                    onDismiss: {
+                        withAnimation(.snappy(duration: 0.24)) { flightDetailCard = nil }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(10_000)
             }
         }
     }
@@ -1121,7 +1136,7 @@ struct ItineraryView: View {
             if revealedListCardID != nil {
                 closeListCardActions()
             } else {
-                detailCard = card
+                showCardDetail(card)
             }
         } label: {
             VStack(spacing: 0) {
@@ -1374,7 +1389,7 @@ struct ItineraryView: View {
             if revealedListCardID != nil {
                 closeListCardActions()
             } else {
-                detailCard = card
+                showCardDetail(card)
             }
         } label: {
             HStack(alignment: .top, spacing: 12) {
@@ -1460,7 +1475,7 @@ struct ItineraryView: View {
             if revealedListCardID != nil {
                 closeListCardActions()
             } else {
-                detailCard = card
+                showCardDetail(card)
             }
         } label: {
             VStack(alignment: .leading, spacing: ItineraryLargeImageCardLayout.contentSpacing) {
@@ -1636,6 +1651,17 @@ struct ItineraryView: View {
         agentSheet = ItineraryAgentSheet(
             initialMessage: ItineraryListPresentation.agentPrompt(for: card, date: day.date)
         )
+    }
+
+    private func showCardDetail(_ card: TravelCardSnapshot) {
+        closeListCardActions()
+        withAnimation(.snappy(duration: 0.26)) {
+            if card.kind == .flight {
+                flightDetailCard = card
+            } else {
+                detailCard = card
+            }
+        }
     }
 
     private func handleHeaderQuickAction(_ action: TodayQuickAction) {
@@ -2510,7 +2536,7 @@ struct ItineraryView: View {
                                         linkHandler: linkHandler
                                     )
                                     .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                                    .onTapGesture { detailCard = card }
+                                    .onTapGesture { showCardDetail(card) }
                                     .accessibilityAddTraits(.isButton)
                                     .accessibilityHint(Text(String(format: String(localized: "itinerary.openDetailHint"), card.title)))
                                 }

@@ -81,29 +81,25 @@ struct TodayView: View {
         .onAppear {
             userLocationProvider.start()
         }
+        .overlay {
+            if let card = selectedFlightCard {
+                FlightTicketPopup(
+                    card: card,
+                    currency: syncEngine.trip?.currency,
+                    onDismiss: {
+                        withAnimation(.snappy(duration: 0.24)) { selectedFlightCard = nil }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(10_000)
+            }
+        }
         .sheet(item: $detailCard) { card in
             CardDetailView(card: card, currency: syncEngine.trip?.currency)
                 .presentationDetents([.fraction(0.82), .large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(30)
                 .presentationBackground(PrimaryTabPalette.background)
-        }
-        .sheet(item: $selectedFlightCard) { card in
-            TodayMapFlightCard(
-                card: card,
-                currency: syncEngine.trip?.currency,
-                onShowDetails: {
-                    selectedFlightCard = nil
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(320))
-                        detailCard = card
-                    }
-                }
-            )
-            .presentationDetents([.height(390)])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(30)
-            .presentationBackground(PrimaryTabPalette.background)
         }
         .sheet(isPresented: Binding(
             get: { showsSharingSheet },

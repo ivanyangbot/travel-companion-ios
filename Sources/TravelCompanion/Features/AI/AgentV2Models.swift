@@ -156,6 +156,14 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var bookingCode: String?
     var fromAirport: String?
     var toAirport: String?
+    var passengers: String? = nil
+    var ticketNumber: String? = nil
+    var departureTerminal: String? = nil
+    var arrivalTerminal: String? = nil
+    var gate: String? = nil
+    var seat: String? = nil
+    var cabinClass: String? = nil
+    var baggageAllowance: String? = nil
     var airlineCode: String? = nil
     var airlineName: String? = nil
     var airlineLogoURL: String? = nil
@@ -240,6 +248,14 @@ extension AgentV2Candidate {
         bookingCode = try container.decodeIfPresent(String.self, forKey: .bookingCode)
         fromAirport = try container.decodeIfPresent(String.self, forKey: .fromAirport)
         toAirport = try container.decodeIfPresent(String.self, forKey: .toAirport)
+        passengers = try container.decodeIfPresent(String.self, forKey: .passengers)
+        ticketNumber = try container.decodeIfPresent(String.self, forKey: .ticketNumber)
+        departureTerminal = try container.decodeIfPresent(String.self, forKey: .departureTerminal)
+        arrivalTerminal = try container.decodeIfPresent(String.self, forKey: .arrivalTerminal)
+        gate = try container.decodeIfPresent(String.self, forKey: .gate)
+        seat = try container.decodeIfPresent(String.self, forKey: .seat)
+        cabinClass = try container.decodeIfPresent(String.self, forKey: .cabinClass)
+        baggageAllowance = try container.decodeIfPresent(String.self, forKey: .baggageAllowance)
         airlineCode = try container.decodeIfPresent(String.self, forKey: .airlineCode)
         airlineName = try container.decodeIfPresent(String.self, forKey: .airlineName)
         airlineLogoURL = try container.decodeIfPresent(String.self, forKey: .airlineLogoURL)

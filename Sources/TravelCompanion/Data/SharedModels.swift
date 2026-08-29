@@ -264,6 +264,13 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     /// names are separated by "、". Nil when nobody is named, so shared trips
     /// can hide the row instead of showing a placeholder.
     var passengers: String?
+    var ticketNumber: String?
+    var departureTerminal: String?
+    var arrivalTerminal: String?
+    var gate: String?
+    var seat: String?
+    var cabinClass: String?
+    var baggageAllowance: String?
     /// Estimated price in the trip currency's minor units; nil when the card
     /// has none. The UI renders at most one of estimated/actual price.
     var priceMinor: Int64?
@@ -293,7 +300,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         case serverID = "id", dayID = "dayId", kind, title, startAt, endAt, place, bookingCode
         case airlineCode, airlineName, airlineLogoURL, url, sources
         case description, fromAirport = "fromAirport", toAirport = "toAirport"
-        case fromAirportLocation, toAirportLocation, passengers, priceMinor
+        case fromAirportLocation, toAirportLocation, passengers
+        case ticketNumber, departureTerminal, arrivalTerminal, gate, seat, cabinClass, baggageAllowance, priceMinor
         case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips
         case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
     }
@@ -318,6 +326,13 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         fromAirportLocation: FlightAirportLocationSnapshot? = nil,
         toAirportLocation: FlightAirportLocationSnapshot? = nil,
         passengers: String? = nil,
+        ticketNumber: String? = nil,
+        departureTerminal: String? = nil,
+        arrivalTerminal: String? = nil,
+        gate: String? = nil,
+        seat: String? = nil,
+        cabinClass: String? = nil,
+        baggageAllowance: String? = nil,
         priceMinor: Int64? = nil,
         actualPriceMinor: Int64? = nil,
         ticketPriceMinor: Int64? = nil,
@@ -350,6 +365,13 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.fromAirportLocation = fromAirportLocation
         self.toAirportLocation = toAirportLocation
         self.passengers = passengers
+        self.ticketNumber = ticketNumber
+        self.departureTerminal = departureTerminal
+        self.arrivalTerminal = arrivalTerminal
+        self.gate = gate
+        self.seat = seat
+        self.cabinClass = cabinClass
+        self.baggageAllowance = baggageAllowance
         self.priceMinor = priceMinor
         self.actualPriceMinor = actualPriceMinor
         self.ticketPriceMinor = ticketPriceMinor
@@ -385,6 +407,13 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         fromAirportLocation = try container.decodeIfPresent(FlightAirportLocationSnapshot.self, forKey: .fromAirportLocation)
         toAirportLocation = try container.decodeIfPresent(FlightAirportLocationSnapshot.self, forKey: .toAirportLocation)
         passengers = try container.decodeIfPresent(String.self, forKey: .passengers)
+        ticketNumber = try container.decodeIfPresent(String.self, forKey: .ticketNumber)
+        departureTerminal = try container.decodeIfPresent(String.self, forKey: .departureTerminal)
+        arrivalTerminal = try container.decodeIfPresent(String.self, forKey: .arrivalTerminal)
+        gate = try container.decodeIfPresent(String.self, forKey: .gate)
+        seat = try container.decodeIfPresent(String.self, forKey: .seat)
+        cabinClass = try container.decodeIfPresent(String.self, forKey: .cabinClass)
+        baggageAllowance = try container.decodeIfPresent(String.self, forKey: .baggageAllowance)
         priceMinor = try container.decodeIfPresent(Int64.self, forKey: .priceMinor)
         actualPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .actualPriceMinor)
         ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)
@@ -426,6 +455,13 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(fromAirportLocation, forKey: .fromAirportLocation)
         try container.encodeIfPresent(toAirportLocation, forKey: .toAirportLocation)
         try container.encodeIfPresent(passengers, forKey: .passengers)
+        try container.encodeIfPresent(ticketNumber, forKey: .ticketNumber)
+        try container.encodeIfPresent(departureTerminal, forKey: .departureTerminal)
+        try container.encodeIfPresent(arrivalTerminal, forKey: .arrivalTerminal)
+        try container.encodeIfPresent(gate, forKey: .gate)
+        try container.encodeIfPresent(seat, forKey: .seat)
+        try container.encodeIfPresent(cabinClass, forKey: .cabinClass)
+        try container.encodeIfPresent(baggageAllowance, forKey: .baggageAllowance)
         try container.encodeIfPresent(priceMinor, forKey: .priceMinor)
         try container.encodeIfPresent(actualPriceMinor, forKey: .actualPriceMinor)
         try container.encodeIfPresent(ticketPriceMinor, forKey: .ticketPriceMinor)

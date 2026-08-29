@@ -1008,6 +1008,14 @@ final class SyncEngine: ObservableObject {
                 description: request.description,
                 fromAirport: request.fromAirport,
                 toAirport: request.toAirport,
+                passengers: request.passengers,
+                ticketNumber: request.ticketNumber,
+                departureTerminal: request.departureTerminal,
+                arrivalTerminal: request.arrivalTerminal,
+                gate: request.gate,
+                seat: request.seat,
+                cabinClass: request.cabinClass,
+                baggageAllowance: request.baggageAllowance,
                 priceMinor: request.priceMinor,
                 actualPriceMinor: request.actualPriceMinor,
                 ticketPriceMinor: request.ticketPriceMinor,
@@ -1468,6 +1476,14 @@ final class SyncEngine: ObservableObject {
         updated.description = request.description ?? (request.fieldsToClear.contains("description") ? nil : updated.description)
         updated.fromAirport = request.fromAirport ?? (request.fieldsToClear.contains("fromAirport") ? nil : updated.fromAirport)
         updated.toAirport = request.toAirport ?? (request.fieldsToClear.contains("toAirport") ? nil : updated.toAirport)
+        updated.passengers = request.passengers ?? (request.fieldsToClear.contains("passengers") ? nil : updated.passengers)
+        updated.ticketNumber = request.ticketNumber ?? (request.fieldsToClear.contains("ticketNumber") ? nil : updated.ticketNumber)
+        updated.departureTerminal = request.departureTerminal ?? (request.fieldsToClear.contains("departureTerminal") ? nil : updated.departureTerminal)
+        updated.arrivalTerminal = request.arrivalTerminal ?? (request.fieldsToClear.contains("arrivalTerminal") ? nil : updated.arrivalTerminal)
+        updated.gate = request.gate ?? (request.fieldsToClear.contains("gate") ? nil : updated.gate)
+        updated.seat = request.seat ?? (request.fieldsToClear.contains("seat") ? nil : updated.seat)
+        updated.cabinClass = request.cabinClass ?? (request.fieldsToClear.contains("cabinClass") ? nil : updated.cabinClass)
+        updated.baggageAllowance = request.baggageAllowance ?? (request.fieldsToClear.contains("baggageAllowance") ? nil : updated.baggageAllowance)
         updated.priceMinor = request.priceMinor ?? (request.fieldsToClear.contains("priceMinor") ? nil : updated.priceMinor)
         updated.actualPriceMinor = request.actualPriceMinor ?? (request.fieldsToClear.contains("actualPriceMinor") ? nil : updated.actualPriceMinor)
         updated.ticketPriceMinor = request.ticketPriceMinor ?? (request.fieldsToClear.contains("ticketPriceMinor") ? nil : updated.ticketPriceMinor)
@@ -1600,6 +1616,14 @@ final class SyncEngine: ObservableObject {
             description: card.description,
             fromAirport: card.fromAirport,
             toAirport: card.toAirport,
+            passengers: card.passengers,
+            ticketNumber: card.ticketNumber,
+            departureTerminal: card.departureTerminal,
+            arrivalTerminal: card.arrivalTerminal,
+            gate: card.gate,
+            seat: card.seat,
+            cabinClass: card.cabinClass,
+            baggageAllowance: card.baggageAllowance,
             priceMinor: card.priceMinor,
             actualPriceMinor: card.actualPriceMinor,
             ticketPriceMinor: card.ticketPriceMinor,

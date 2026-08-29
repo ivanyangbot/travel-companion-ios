@@ -262,6 +262,15 @@
 "carddetail.ticketPrice" = "Ticket price";
 "carddetail.plannedStay" = "Planned stay";
 "carddetail.orderId" = "Order number";
+"flightticket.ticketNumber" = "Ticket ID";
+"flightticket.ticketPrice" = "Ticket price";
+"flightticket.airline" = "Airline";
+"flightticket.flight" = "Flight";
+"flightticket.gate" = "Gate";
+"flightticket.seat" = "Seat";
+"flightticket.cabinClass" = "Class";
+"flightticket.baggage" = "Baggage";
+"flightticket.terminalFormat" = "Terminal %@";
 "carddetail.links" = "Related links";
 "carddetail.openWeb" = "Open Website";
 "carddetail.poiSection" = "Destination POI";

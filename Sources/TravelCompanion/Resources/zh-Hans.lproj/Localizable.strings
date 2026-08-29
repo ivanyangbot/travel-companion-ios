@@ -262,6 +262,15 @@
 "carddetail.ticketPrice" = "门票价格";
 "carddetail.plannedStay" = "计划停留";
 "carddetail.orderId" = "订单编号";
+"flightticket.ticketNumber" = "电子票号";
+"flightticket.ticketPrice" = "票价";
+"flightticket.airline" = "航空公司";
+"flightticket.flight" = "航班";
+"flightticket.gate" = "登机口";
+"flightticket.seat" = "座位";
+"flightticket.cabinClass" = "舱等";
+"flightticket.baggage" = "行李额";
+"flightticket.terminalFormat" = "航站楼 %@";
 "carddetail.links" = "相关链接";
 "carddetail.openWeb" = "打开网页";
 "carddetail.poiSection" = "目的地 POI";

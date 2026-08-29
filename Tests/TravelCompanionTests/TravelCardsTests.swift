@@ -601,6 +601,28 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertTrue(clearedObject["images"] is NSNull)
     }
 
+    func testCardRequestEncodesStructuredFlightTicketDetails() throws {
+        let request = CardRequest(
+            passengers: "YANG/ZHIYUAN",
+            ticketNumber: "781-1234567890",
+            departureTerminal: "T2",
+            arrivalTerminal: "T1",
+            gate: "B18",
+            seat: "24A",
+            cabinClass: "经济舱",
+            baggageAllowance: "23 kg"
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        XCTAssertEqual(object["passengers"] as? String, "YANG/ZHIYUAN")
+        XCTAssertEqual(object["ticketNumber"] as? String, "781-1234567890")
+        XCTAssertEqual(object["departureTerminal"] as? String, "T2")
+        XCTAssertEqual(object["arrivalTerminal"] as? String, "T1")
+        XCTAssertEqual(object["gate"] as? String, "B18")
+        XCTAssertEqual(object["seat"] as? String, "24A")
+        XCTAssertEqual(object["cabinClass"] as? String, "经济舱")
+        XCTAssertEqual(object["baggageAllowance"] as? String, "23 kg")
+    }
+
     func testCardSnapshotDecodesImagesAndFoldsLegacyImageURL() throws {
         UserDefaults.standard.set("https://api.example.com", forKey: AppConfiguration.apiBaseURLKey)
         defer { UserDefaults.standard.removeObject(forKey: AppConfiguration.apiBaseURLKey) }
@@ -638,6 +660,7 @@ final class TravelCardsTests: XCTestCase {
         let json = Data("""
         {"id":11,"dayId":1,"kind":"flight","title":"ID6331 努拉莱伊至科莫多","startAt":"2026-09-26T03:45:00Z",
          "bookingCode":"ID6331","airlineCode":"ID","airlineName":"Batik Air","airlineLogoURL":"/v1/airlines/logos/ID.png",
+         "passengers":"YANG/ZHIYUAN","ticketNumber":"990-1234567890","departureTerminal":"D","arrivalTerminal":"A","gate":"6","seat":"12A","cabinClass":"Economy","baggageAllowance":"20 kg",
          "position":0,"updatedAt":"2026-09-20T08:00:00Z"}
         """.utf8)
 
@@ -646,6 +669,14 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(card.airlineCode, "ID")
         XCTAssertEqual(card.airlineName, "Batik Air")
         XCTAssertEqual(card.airlineLogoURL, "/v1/airlines/logos/ID.png")
+        XCTAssertEqual(card.passengers, "YANG/ZHIYUAN")
+        XCTAssertEqual(card.ticketNumber, "990-1234567890")
+        XCTAssertEqual(card.departureTerminal, "D")
+        XCTAssertEqual(card.arrivalTerminal, "A")
+        XCTAssertEqual(card.gate, "6")
+        XCTAssertEqual(card.seat, "12A")
+        XCTAssertEqual(card.cabinClass, "Economy")
+        XCTAssertEqual(card.baggageAllowance, "20 kg")
     }
 
     func testCardSnapshotDecodesServerLargeImageDecisionAndKeepsOldSnapshotsCompact() throws {

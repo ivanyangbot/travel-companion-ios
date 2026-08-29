@@ -262,6 +262,15 @@
 "carddetail.ticketPrice" = "門票價格";
 "carddetail.plannedStay" = "計劃停留";
 "carddetail.orderId" = "訂單編號";
+"flightticket.ticketNumber" = "電子票號";
+"flightticket.ticketPrice" = "票價";
+"flightticket.airline" = "航空公司";
+"flightticket.flight" = "航班";
+"flightticket.gate" = "登機閘口";
+"flightticket.seat" = "座位";
+"flightticket.cabinClass" = "客艙等級";
+"flightticket.baggage" = "行李額";
+"flightticket.terminalFormat" = "客運大樓 %@";
 "carddetail.links" = "相關連結";
 "carddetail.openWeb" = "打開網頁";
 "carddetail.poiSection" = "目的地 POI";
