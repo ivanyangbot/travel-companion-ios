@@ -65,13 +65,77 @@ struct ItineraryView: View {
     @StateObject private var itineraryListScrollController = ItineraryListScrollController()
     @StateObject private var linkHandler = ExternalLinkHandler()
 
+    private var deleteDayAlertPresented: Binding<Bool> {
+        optionalItemPresented($dayPendingDeletion)
+    }
+
+    private var signOutErrorAlertPresented: Binding<Bool> {
+        optionalItemPresented($signOutErrorMessage)
+    }
+
+    private var deleteCardAlertPresented: Binding<Bool> {
+        optionalItemPresented($cardPendingDeletion)
+    }
+
+    private var cannotOpenLinkAlertPresented: Binding<Bool> {
+        Binding(get: { linkHandler.alertMessage != nil }) { isPresented in
+            if !isPresented { linkHandler.alertMessage = nil }
+        }
+    }
+
+    private var sharingSheetPresented: Binding<Bool> {
+        Binding(get: { showsSharingSheet }) { isPresented in
+            showsSharingSheet = isPresented
+            if !isPresented { clearHeaderQuickAction(.addCompanion) }
+        }
+    }
+
+    private var tripPickerPresented: Binding<Bool> {
+        Binding(get: { showsTripPicker }) { isPresented in
+            showsTripPicker = isPresented
+            if !isPresented {
+                clearHeaderQuickAction(.tripSelection)
+                withAnimation(.snappy(duration: 0.28)) {
+                    isHeaderMenuExpanded = true
+                }
+            }
+        }
+    }
+
+    private var settingsSheetPresented: Binding<Bool> {
+        Binding(get: { showsSettings }) { isPresented in
+            showsSettings = isPresented
+            if !isPresented { clearHeaderQuickAction(.settings) }
+        }
+    }
+
+    private var signInSheetPresented: Binding<Bool> {
+        Binding(get: { showsSignIn }) { isPresented in
+            showsSignIn = isPresented
+            if !isPresented { clearHeaderQuickAction(.signIn) }
+        }
+    }
+
+    private var expenseEditorPresented: Binding<Bool> {
+        optionalItemPresented($expenseEditorDate)
+    }
+
+    private var browserPresented: Binding<Bool> {
+        Binding(get: { linkHandler.browserURL != nil }) { isPresented in
+            if !isPresented { linkHandler.browserURL = nil }
+        }
+    }
+
+    private func optionalItemPresented<Value>(_ item: Binding<Value?>) -> Binding<Bool> {
+        Binding(get: { item.wrappedValue != nil }) { isPresented in
+            if !isPresented { item.wrappedValue = nil }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             alertContent
-            .alert("itinerary.deleteDayTitle", isPresented: Binding(
-                get: { dayPendingDeletion != nil },
-                set: { if !$0 { dayPendingDeletion = nil } }
-            ), presenting: dayPendingDeletion) { day in
+            .alert("itinerary.deleteDayTitle", isPresented: deleteDayAlertPresented, presenting: dayPendingDeletion) { day in
                 Button("common.delete", role: .destructive) {
                     Task { await syncEngine.deleteDay(day) }
                     dayPendingDeletion = nil
@@ -90,18 +154,12 @@ struct ItineraryView: View {
             } message: {
                 Text("settings.signOutMessage")
             }
-            .alert("settings.signOutFailedTitle", isPresented: Binding(
-                get: { signOutErrorMessage != nil },
-                set: { if !$0 { signOutErrorMessage = nil } }
-            )) {
+            .alert("settings.signOutFailedTitle", isPresented: signOutErrorAlertPresented) {
                 Button("common.ok", role: .cancel) { signOutErrorMessage = nil }
             } message: {
                 Text(signOutErrorMessage ?? "")
             }
-            .alert("itinerary.deleteCardTitle", isPresented: Binding(
-                get: { cardPendingDeletion != nil },
-                set: { if !$0 { cardPendingDeletion = nil } }
-            ), presenting: cardPendingDeletion) { card in
+            .alert("itinerary.deleteCardTitle", isPresented: deleteCardAlertPresented, presenting: cardPendingDeletion) { card in
                 Button("common.delete", role: .destructive) {
                     Task { await syncEngine.deleteCard(card) }
                     cardPendingDeletion = nil
@@ -110,10 +168,7 @@ struct ItineraryView: View {
             } message: { _ in
                 Text("itinerary.deleteCardMessage")
             }
-            .alert("common.cannotOpenLink", isPresented: Binding(
-                get: { linkHandler.alertMessage != nil },
-                set: { if !$0 { linkHandler.alertMessage = nil } }
-            )) {
+            .alert("common.cannotOpenLink", isPresented: cannotOpenLinkAlertPresented) {
                 Button("common.ok", role: .cancel) { linkHandler.alertMessage = nil }
             } message: {
                 Text(linkHandler.alertMessage ?? "")
@@ -122,27 +177,10 @@ struct ItineraryView: View {
                 guard token != nil else { return }
                 joinPendingInviteIfPossible()
             }
-            .sheet(isPresented: Binding(
-                get: { showsSharingSheet },
-                set: {
-                    showsSharingSheet = $0
-                    if !$0 { clearHeaderQuickAction(.addCompanion) }
-                }
-            )) {
+            .sheet(isPresented: sharingSheetPresented) {
                 TripSharingSheet(syncEngine: syncEngine)
             }
-            .sheet(isPresented: Binding(
-                get: { showsTripPicker },
-                set: {
-                    showsTripPicker = $0
-                    if !$0 {
-                        clearHeaderQuickAction(.tripSelection)
-                        withAnimation(.snappy(duration: 0.28)) {
-                            isHeaderMenuExpanded = true
-                        }
-                    }
-                }
-            )) {
+            .sheet(isPresented: tripPickerPresented) {
                 TodayTripPickerSheet(
                     trips: syncEngine.trips,
                     selectedTripID: syncEngine.selectedTripID,
@@ -176,13 +214,7 @@ struct ItineraryView: View {
                 .presentationContentInteraction(.scrolls)
                 .interactiveDismissDisabled(tripBeingSelectedID != nil)
             }
-            .sheet(isPresented: Binding(
-                get: { showsSettings },
-                set: {
-                    showsSettings = $0
-                    if !$0 { clearHeaderQuickAction(.settings) }
-                }
-            )) {
+            .sheet(isPresented: settingsSheetPresented) {
                 TodaySettingsSheet(
                     appleSignIn: appleSignIn,
                     onDismiss: { showsSettings = false }
@@ -193,13 +225,7 @@ struct ItineraryView: View {
                 .presentationBackground(PrimaryTabPalette.background)
                 .presentationContentInteraction(.scrolls)
             }
-            .sheet(isPresented: Binding(
-                get: { showsSignIn },
-                set: {
-                    showsSignIn = $0
-                    if !$0 { clearHeaderQuickAction(.signIn) }
-                }
-            )) {
+            .sheet(isPresented: signInSheetPresented) {
                 AgentHomeSignInSheet(appleSignIn: appleSignIn)
                     .presentationDetents([.height(300)])
                     .presentationDragIndicator(.visible)
@@ -287,20 +313,14 @@ struct ItineraryView: View {
                     }
                 }
             }
-            .sheet(isPresented: Binding(
-                get: { expenseEditorDate != nil },
-                set: { if !$0 { expenseEditorDate = nil } }
-            )) {
+            .sheet(isPresented: expenseEditorPresented) {
                 if let trip = syncEngine.trip, let date = expenseEditorDate {
                     ExpenseEditorView(trip: trip, initialDate: date) { request in
                         Task { await syncEngine.addExpense(request) }
                     }
                 }
             }
-            .sheet(isPresented: Binding(
-                get: { linkHandler.browserURL != nil },
-                set: { if !$0 { linkHandler.browserURL = nil } }
-            )) {
+            .sheet(isPresented: browserPresented) {
                 if let url = linkHandler.browserURL { SafariBrowserView(url: url) }
             }
     }
