@@ -415,6 +415,7 @@
 "placesearch.searchButton" = "搜索";
 "placesearch.footer" = "地点搜索由 Apple 地图在本机完成，不会通过同行服务端查询第三方地图。";
 "placesearch.searching" = "正在搜索 Apple 地图…";
+"placesearch.suggestions" = "Apple 地图建议";
 "placesearch.errorTitle" = "无法搜索地点";
 "placesearch.results" = "搜索结果";
 "placesearch.title" = "搜索地点";

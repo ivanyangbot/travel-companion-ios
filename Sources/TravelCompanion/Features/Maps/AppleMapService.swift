@@ -1,4 +1,5 @@
 import CoreLocation
+import Contacts
 import MapKit
 
 /// Interactive POI and route work stays on-device through MapKit. Airports use
@@ -17,26 +18,109 @@ enum AppleMapService {
     }
 
     static func searchPlaces(query: String, city: String?) async throws -> [PlaceSearchResult] {
+        let cleanedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedCity = city?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        guard !cleanedQuery.isEmpty else { return [] }
+
         let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = [query, city].compactMap { value in
-            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-            return value
-        }.joined(separator: " ")
         request.resultTypes = [.pointOfInterest, .address]
+        if let cleanedCity,
+           let scope = await searchScope(for: cleanedCity) {
+            request.naturalLanguageQuery = cleanedQuery
+            request.region = scope.region
+            if scope.requiresMatch {
+                request.regionPriority = .required
+            }
+        } else {
+            request.naturalLanguageQuery = [cleanedQuery, cleanedCity]
+                .compactMap { $0 }
+                .joined(separator: " ")
+        }
 
         let response = try await MKLocalSearch(request: request).start()
-        return response.mapItems.map { item in
-            let placemark = item.placemark
-            let coordinate = placemark.coordinate
-            return PlaceSearchResult(
-                id: stableIdentifier(for: item),
-                name: item.name ?? placemark.name ?? String(localized: "common.unnamedPlace"),
-                address: formattedAddress(for: placemark),
-                latitude: coordinate.latitude,
-                longitude: coordinate.longitude,
-                placeId: nil
-            )
+        return rankedPlaceResults(
+            query: cleanedQuery,
+            city: cleanedCity,
+            candidates: response.mapItems.map(placeSearchResult(for:))
+        )
+    }
+
+    /// Resolving an Apple-provided completion preserves the context MapKit used
+    /// to build it, including localized names and its city/country subtitle.
+    @MainActor
+    static func searchPlaces(
+        completion: MKLocalSearchCompletion,
+        query: String,
+        city: String?
+    ) async throws -> [PlaceSearchResult] {
+        let request = MKLocalSearch.Request(completion: completion)
+        request.resultTypes = [.pointOfInterest, .address]
+        let response = try await MKLocalSearch(request: request).start()
+        return rankedPlaceResults(
+            query: query,
+            city: city,
+            candidates: response.mapItems.map(placeSearchResult(for:)),
+            filtersWeakMatches: false
+        )
+    }
+
+    /// Deduplicates and ranks MapKit candidates instead of trusting a result
+    /// order that is commonly biased toward the device's current country.
+    static func rankedPlaceResults(
+        query: String,
+        city: String?,
+        candidates: [PlaceSearchResult],
+        filtersWeakMatches: Bool = true
+    ) -> [PlaceSearchResult] {
+        let queryTokens = meaningfulSearchTokens(in: query)
+        let requiresIdentityMatch = queryTokens.count >= 2
+
+        var seen: Set<String> = []
+        let unique = candidates.filter { candidate in
+            guard hasValidCoordinate(candidate) else { return false }
+            let key = candidate.placeId?.nilIfEmpty
+                ?? "\(normalizePlaceName(candidate.name))|\(String(format: "%.5f", candidate.latitude))|\(String(format: "%.5f", candidate.longitude))"
+            return seen.insert(key).inserted
         }
+
+        return unique.enumerated()
+            .compactMap { index, candidate -> (Int, Int, PlaceSearchResult)? in
+                let searchable = [candidate.name, candidate.address]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+                    .folding(
+                        options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                        locale: .current
+                    )
+                    .lowercased()
+                let compactSearchable = normalizePlaceName(searchable)
+                let compactQuery = normalizePlaceName(query)
+                let matchedTokens = queryTokens.filter { searchable.contains($0) }
+
+                // A multi-part identity such as "fairfield jakarta airport"
+                // must match more than a generic brand/category word.
+                if filtersWeakMatches,
+                   requiresIdentityMatch,
+                   matchedTokens.count * 2 <= queryTokens.count,
+                   !compactSearchable.contains(compactQuery) {
+                    return nil
+                }
+
+                var score = matchedTokens.count * 30
+                if compactSearchable.contains(compactQuery) { score += 140 }
+                let compactName = normalizePlaceName(candidate.name)
+                if compactName.contains(compactQuery) { score += 80 }
+                if let city = city?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+                    let compactCity = normalizePlaceName(city)
+                    if compactSearchable.contains(compactCity) { score += 90 }
+                }
+                return (score, index, candidate)
+            }
+            .sorted {
+                if $0.0 != $1.0 { return $0.0 > $1.0 }
+                return $0.1 < $1.1
+            }
+            .map(\.2)
     }
 
     /// Resolves the two structured airport labels on each flight into a
@@ -343,6 +427,26 @@ enum AppleMapService {
             .joined()
     }
 
+    private static let genericSearchTokens: Set<String> = [
+        "aeroport", "airport", "and", "at", "attraction", "by", "hotel", "inn", "international",
+        "lodge", "marriott", "motel", "poi", "resort", "station", "suites",
+        "the", "near",
+        "住宿", "景点", "景區", "景区", "酒店", "旅馆", "旅館", "机场", "機場", "車站", "车站"
+    ]
+
+    private static func meaningfulSearchTokens(in value: String) -> [String] {
+        let folded = value.folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            locale: .current
+        ).lowercased()
+        let tokens = folded
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count >= 2 && !genericSearchTokens.contains($0) }
+        var seen: Set<String> = []
+        return tokens.filter { seen.insert($0).inserted }
+    }
+
     private static func validIATACode(in airport: String) -> String? {
         let code = AgentFlightDisplay.airportCode(airport)
         guard code.range(of: "^[A-Z]{3}$", options: .regularExpression) != nil else { return nil }
@@ -401,15 +505,83 @@ enum AppleMapService {
     }
 
     private static func stableIdentifier(for item: MKMapItem) -> String {
+        if let identifier = item.identifier?.rawValue.nilIfEmpty {
+            return "apple-\(identifier)"
+        }
         let coordinate = item.placemark.coordinate
         return "apple-\(item.name ?? "poi")-\(coordinate.latitude)-\(coordinate.longitude)"
     }
 
-    private static func formattedAddress(for placemark: MKPlacemark) -> String? {
+    private static func formattedAddress(for item: MKMapItem) -> String? {
+        if let address = item.addressRepresentations?
+            .fullAddress(includingRegion: true, singleLine: true)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !address.isEmpty {
+            return address
+        }
+        if let address = item.address?.fullAddress
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !address.isEmpty {
+            return address
+        }
+        let placemark = item.placemark
+        if let postalAddress = placemark.postalAddress {
+            let formatted = CNPostalAddressFormatter
+                .string(from: postalAddress, style: .mailingAddress)
+                .split(whereSeparator: \.isNewline)
+                .map(String.init)
+                .joined(separator: ", ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !formatted.isEmpty { return formatted }
+        }
         let parts = [placemark.administrativeArea, placemark.locality, placemark.subLocality, placemark.thoroughfare, placemark.subThoroughfare]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        return parts.isEmpty ? nil : parts.joined(separator: "")
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    private static func placeSearchResult(for item: MKMapItem) -> PlaceSearchResult {
+        let placemark = item.placemark
+        let coordinate = placemark.coordinate
+        return PlaceSearchResult(
+            id: stableIdentifier(for: item),
+            name: item.name ?? placemark.name ?? String(localized: "common.unnamedPlace"),
+            address: formattedAddress(for: item),
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            placeId: item.identifier?.rawValue
+        )
+    }
+
+    private struct SearchScope {
+        let region: MKCoordinateRegion
+        let requiresMatch: Bool
+    }
+
+    private static func searchScope(for city: String) async -> SearchScope? {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = city
+        request.resultTypes = .address
+        guard let response = try? await MKLocalSearch(request: request).start(),
+              let item = response.mapItems.first else {
+            return nil
+        }
+
+        let coordinate = item.placemark.coordinate
+        guard CLLocationCoordinate2DIsValid(coordinate) else { return nil }
+        let requestedCity = normalizePlaceName(city)
+        let resolvedLocality = normalizePlaceName(item.placemark.locality ?? "")
+        let exactLocality = requestedCity.count >= 2
+            && resolvedLocality.count >= 2
+            && (requestedCity.contains(resolvedLocality) || resolvedLocality.contains(requestedCity))
+        return SearchScope(
+            region: MKCoordinateRegion(
+                center: coordinate,
+                latitudinalMeters: exactLocality ? 160_000 : 600_000,
+                longitudinalMeters: exactLocality ? 160_000 : 600_000
+            ),
+            requiresMatch: exactLocality
+        )
     }
 
     private static func nonEmptyAirport(_ value: String?) -> String? {
@@ -417,6 +589,10 @@ enum AppleMapService {
               !value.isEmpty else { return nil }
         return value
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 private actor TodayFlightAirportSearchCache {

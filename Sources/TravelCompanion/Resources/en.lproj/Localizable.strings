@@ -415,6 +415,7 @@
 "placesearch.searchButton" = "Search";
 "placesearch.footer" = "Place search runs on-device via Apple Maps and never queries third-party maps through our servers.";
 "placesearch.searching" = "Searching Apple Maps…";
+"placesearch.suggestions" = "Apple Maps Suggestions";
 "placesearch.errorTitle" = "Couldn't Search Places";
 "placesearch.results" = "Results";
 "placesearch.title" = "Search Places";

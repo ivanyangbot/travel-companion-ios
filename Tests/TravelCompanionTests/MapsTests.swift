@@ -285,6 +285,69 @@ final class MapsTests: XCTestCase {
         XCTAssertNil(selected)
     }
 
+    func testPlaceRankingRejectsLocalBrandMatchWhenDestinationTermsDoNotMatch() throws {
+        let localWrongResult = PlaceSearchResult(
+            id: "shijiazhuang",
+            name: "Fairfield by Marriott Shijiazhuang High-Tech Zone",
+            address: "Shijiazhuang, Hebei, China",
+            latitude: 38.02,
+            longitude: 114.60,
+            placeId: nil
+        )
+        let intendedResult = PlaceSearchResult(
+            id: "jakarta",
+            name: "Fairfield by Marriott Jakarta Soekarno-Hatta Airport",
+            address: "Tangerang, Jakarta, Indonesia",
+            latitude: -6.13,
+            longitude: 106.66,
+            placeId: nil
+        )
+
+        let ranked = AppleMapService.rankedPlaceResults(
+            query: "fairfield jakarta airport",
+            city: nil,
+            candidates: [localWrongResult, intendedResult]
+        )
+
+        XCTAssertEqual(ranked.map(\.id), ["jakarta"])
+    }
+
+    func testPlaceRankingUsesExplicitCityAndRemovesDuplicateCoordinates() throws {
+        let wrongCity = PlaceSearchResult(
+            id: "wrong-city",
+            name: "Fairfield Hotel",
+            address: "Shanghai, China",
+            latitude: 31.23,
+            longitude: 121.47,
+            placeId: nil
+        )
+        let jakarta = PlaceSearchResult(
+            id: "jakarta-a",
+            name: "Fairfield Hotel",
+            address: "Jakarta, Indonesia",
+            latitude: -6.130001,
+            longitude: 106.660001,
+            placeId: nil
+        )
+        let duplicate = PlaceSearchResult(
+            id: "jakarta-b",
+            name: "Fairfield Hotel",
+            address: "Jakarta, Indonesia",
+            latitude: -6.130002,
+            longitude: 106.660002,
+            placeId: nil
+        )
+
+        let ranked = AppleMapService.rankedPlaceResults(
+            query: "Fairfield",
+            city: "Jakarta",
+            candidates: [wrongCity, jakarta, duplicate]
+        )
+
+        XCTAssertEqual(ranked.first?.id, "jakarta-a")
+        XCTAssertEqual(ranked.count, 2)
+    }
+
     private func edgeMember(
         _ suffix: Int,
         order: Int,
