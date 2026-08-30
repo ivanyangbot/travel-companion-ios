@@ -1401,7 +1401,7 @@ struct ItineraryView: View {
                                 .foregroundStyle(.white)
                                 .lineLimit(2)
                                 .multilineTextAlignment(.leading)
-                            if let placeName = card.place?.name?.nilIfEmpty {
+                            if let placeName = card.place?.name.nilIfEmpty {
                                 Text(placeName)
                                     .font(.caption)
                                     .foregroundStyle(PrimaryTabPalette.secondaryText)
