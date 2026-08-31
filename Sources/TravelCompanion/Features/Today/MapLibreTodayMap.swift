@@ -1379,6 +1379,9 @@ private final class MapLibreGeometryTrackingMapView: MLNMapView {
 struct MapLibreTodayMapCanvas: UIViewRepresentable {
     let points: [TodayMapPoint]
     let flightRoutes: [TodayFlightRoute]
+    /// Origins of adjacent point pairs that a flight connects. Those legs get
+    /// no road geometry at all — the flight arc is their only connection.
+    let flownLegOriginIDs: Set<UUID>
     /// `nil` renders all POIs as compact number pins, for example while the
     /// action drawer is open and the POI swiper is hidden.
     let selectedIndex: Int?
@@ -1427,6 +1430,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on: mapView,
             points: points,
             flightRoutes: flightRoutes,
+            flownLegOriginIDs: flownLegOriginIDs,
             selectedIndex: selectedIndex,
             timelineTopInGlobal: timelineTopInGlobal,
             routeRefreshID: routeRefreshID,
@@ -1442,6 +1446,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on: mapView,
             points: points,
             flightRoutes: flightRoutes,
+            flownLegOriginIDs: flownLegOriginIDs,
             selectedIndex: selectedIndex,
             timelineTopInGlobal: timelineTopInGlobal,
             routeRefreshID: routeRefreshID,
@@ -1470,6 +1475,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private struct PendingContentUpdate {
             let points: [TodayMapPoint]
             let flightRoutes: [TodayFlightRoute]
+            let flownLegOriginIDs: Set<UUID>
             let selectedIndex: Int?
             let timelineTopInGlobal: CGFloat?
             let routeRefreshID: Int
@@ -1502,6 +1508,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var routeGeneration = 0
         private var renderedPoints: [TodayMapPoint] = []
         private var renderedFlightRoutes: [TodayFlightRoute] = []
+        private var renderedFlownLegOriginIDs: Set<UUID> = []
         private var renderedSelection: Int?
         private var handledCameraRequestID = -1
         private var handledRouteRefreshID = -1
@@ -1564,6 +1571,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on mapView: MLNMapView,
             points: [TodayMapPoint],
             flightRoutes: [TodayFlightRoute],
+            flownLegOriginIDs: Set<UUID>,
             selectedIndex: Int?,
             timelineTopInGlobal: CGFloat?,
             routeRefreshID: Int,
@@ -1574,12 +1582,14 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             self.onViewportStateChanged = onViewportStateChanged
             self.onFlightSelected = onFlightSelected
             let pointsChanged = points != renderedPoints || flightRoutes != renderedFlightRoutes
+                || flownLegOriginIDs != renderedFlownLegOriginIDs
             let cameraTransitionIsActive = isMapRegionChanging || isProgrammaticCameraChange
             if pendingContentUpdate != nil || (pointsChanged && cameraTransitionIsActive) {
                 let isFirstDeferredUpdate = pendingContentUpdate == nil
                 pendingContentUpdate = PendingContentUpdate(
                     points: points,
                     flightRoutes: flightRoutes,
+                    flownLegOriginIDs: flownLegOriginIDs,
                     selectedIndex: selectedIndex,
                     timelineTopInGlobal: timelineTopInGlobal,
                     routeRefreshID: routeRefreshID,
@@ -1602,6 +1612,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 on: mapView,
                 points: points,
                 flightRoutes: flightRoutes,
+                flownLegOriginIDs: flownLegOriginIDs,
                 selectedIndex: selectedIndex,
                 timelineTopInGlobal: timelineTopInGlobal,
                 routeRefreshID: routeRefreshID,
@@ -1615,6 +1626,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on mapView: MLNMapView,
             points: [TodayMapPoint],
             flightRoutes: [TodayFlightRoute],
+            flownLegOriginIDs: Set<UUID>,
             selectedIndex: Int?,
             timelineTopInGlobal: CGFloat?,
             routeRefreshID: Int,
@@ -1628,7 +1640,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             let pointsChanged = points != renderedPoints
             let flightsChanged = flightRoutes != renderedFlightRoutes
             let selectionChanged = selectedIndex != renderedSelection
-            let contentChanged = pointsChanged || flightsChanged || selectionChanged
+            let flownLegsChanged = flownLegOriginIDs != renderedFlownLegOriginIDs
+            let contentChanged = pointsChanged || flightsChanged || selectionChanged || flownLegsChanged
             let safeAreaChanged = !MapLibreEdgePinGeometry.nearlyEqual(
                 self.timelineTopInGlobal,
                 timelineTopInGlobal
@@ -1667,10 +1680,11 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 }
             }
 
-            if pointsChanged || refreshRequested {
+            if pointsChanged || flownLegsChanged || refreshRequested {
                 rebuildNavigationRoute(
                     on: mapView,
                     points: points,
+                    flownLegOriginIDs: flownLegOriginIDs,
                     forceRefresh: forceRouteRefresh,
                     onRouteLoadingChanged: onRouteLoadingChanged
                 )
@@ -1683,6 +1697,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
 
             renderedPoints = points
             renderedFlightRoutes = flightRoutes
+            renderedFlownLegOriginIDs = flownLegOriginIDs
             renderedSelection = selectedIndex
             updatePinPlacements(
                 on: mapView,
@@ -1717,6 +1732,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 on: mapView,
                 points: content.points,
                 flightRoutes: content.flightRoutes,
+                flownLegOriginIDs: content.flownLegOriginIDs,
                 selectedIndex: content.selectedIndex,
                 timelineTopInGlobal: content.timelineTopInGlobal,
                 routeRefreshID: content.routeRefreshID,
@@ -1740,6 +1756,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private func rebuildNavigationRoute(
             on mapView: MLNMapView,
             points: [TodayMapPoint],
+            flownLegOriginIDs: Set<UUID>,
             forceRefresh: Bool,
             onRouteLoadingChanged: @escaping (Bool) -> Void
         ) {
@@ -1761,6 +1778,10 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             let routeCache = TodayRouteGeometryCache.shared
             var missingLegs: [(origin: TodayMapPoint, destination: TodayMapPoint)] = []
             for (origin, destination) in zip(points, points.dropFirst()) {
+                // A flight departing between the two POIs replaces this leg
+                // entirely; the arc rendered from the resolved flight routes
+                // is their only connection.
+                if flownLegOriginIDs.contains(origin.id) { continue }
                 if !forceRefresh, let route = routeCache.route(from: origin, to: destination) {
                     routeAnnotations.append(
                         contentsOf: routeAnnotations(for: route, origin: origin, destination: destination)

@@ -246,12 +246,17 @@ struct TodayView: View {
         let flights = flightCards(in: day, projectedCards: projectedCards)
         let flightIDs = Set(flights.map(\.id))
         let flightRoutes = resolvedFlightRoutes.filter { flightIDs.contains($0.cardID) }
+        let points = mapPoints(pois: pois)
+        // Adjacent POI pairs that a flight connects are drawn as the flight
+        // arc only; their ground route is never requested or rendered.
+        let flownLegOriginIDs = ItineraryListPresentation.flownLegOriginIDs(pois: pois, flights: flights)
         let showsPOISwiper = !pois.isEmpty && isPOIOverlayExpanded
         let showsTimeline = pois.isEmpty || isPOIOverlayExpanded
         ZStack(alignment: .top) {
             MapLibreTodayMapCanvas(
-                points: mapPoints(pois: pois),
+                points: points,
                 flightRoutes: flightRoutes,
+                flownLegOriginIDs: flownLegOriginIDs,
                 // A selected map marker is the visual counterpart of the
                 // visible POI card. Keep every marker compact and neutral
                 // while the user has collapsed the bottom overlay.

@@ -147,67 +147,71 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(CardLegEstimateView.itineraryListDurationText(4_020), "67min")
     }
 
-    func testItineraryListConnectsFlightsAndHotelsThroughTheCorrectAirports() {
-        let departure = FlightAirportLocationSnapshot(
-            query: "CGK",
-            iata: "CGK",
-            icao: "WIII",
-            name: "Soekarno-Hatta International Airport",
-            city: "Jakarta",
-            country: "ID",
-            latitude: -6.1256,
-            longitude: 106.6559,
-            resolvedAt: .now
-        )
-        let arrival = FlightAirportLocationSnapshot(
-            query: "DPS",
-            iata: "DPS",
-            icao: "WADD",
-            name: "I Gusti Ngurah Rai International Airport",
-            city: "Denpasar",
-            country: "ID",
-            latitude: -8.7482,
-            longitude: 115.1672,
-            resolvedAt: .now
-        )
+    func testFlownLegOriginIDsMarkOnlyGroundPairsSpannedByAFlight() {
+        func poi(_ title: String, start: Date, located: Bool = true) -> TravelCardSnapshot {
+            TravelCardSnapshot(
+                dayID: 1,
+                kind: .activity,
+                title: title,
+                startAt: start,
+                place: PlaceSnapshot(
+                    id: 1,
+                    name: title,
+                    address: nil,
+                    latitude: located ? 28.2 : nil,
+                    longitude: located ? 112.9 : nil,
+                    placeId: title,
+                    cityCode: nil,
+                    updatedAt: .now
+                )
+            )
+        }
+
+        let morning = poi("岳麓山", start: Date(timeIntervalSince1970: 100))
+        let unlocated = poi("无坐标景点", start: Date(timeIntervalSince1970: 200), located: false)
+        let afternoon = poi("外滩", start: Date(timeIntervalSince1970: 400))
+        let evening = poi("豫园", start: Date(timeIntervalSince1970: 500))
         let flight = TravelCardSnapshot(
             dayID: 1,
             kind: .flight,
-            title: "雅加达 → 巴厘岛",
-            startAt: .now,
-            fromAirport: "CGK",
-            toAirport: "DPS",
-            fromAirportLocation: departure,
-            toAirportLocation: arrival
-        )
-        let hotelPlace = PlaceSnapshot(
-            id: 10,
-            name: "ARNA Suites and Ocean Lounge",
-            address: "Nusa Ceningan, Indonesia",
-            latitude: -8.708446,
-            longitude: 115.439565,
-            placeId: "IACE79771AC324E0A",
-            cityCode: nil,
-            updatedAt: .now
-        )
-        let hotel = TravelCardSnapshot(
-            dayID: 1,
-            kind: .hotel,
-            title: "ARNA Suites and Ocean Lounge",
-            startAt: .now,
-            place: hotelPlace
+            title: "长沙 → 上海",
+            startAt: Date(timeIntervalSince1970: 300),
+            fromAirport: "CSX",
+            toAirport: "PVG"
         )
 
+        // The flight departs between 岳麓山 and 外滩, which are adjacent on the
+        // map because 无坐标景点 produces no point; the same-city pair
+        // 外滩 → 豫园 keeps its ground leg.
+        let pois = [morning, unlocated, afternoon, evening]
         XCTAssertEqual(
-            ItineraryListPresentation.outgoingRoutePoint(for: flight),
-            RoutePoint(latitude: arrival.latitude, longitude: arrival.longitude)
+            ItineraryListPresentation.flownLegOriginIDs(pois: pois, flights: [flight]),
+            Set([morning.id])
         )
-        XCTAssertEqual(
-            ItineraryListPresentation.incomingRoutePoint(for: flight),
-            RoutePoint(latitude: departure.latitude, longitude: departure.longitude)
+
+        // Flights outside the located POIs' time span connect no ground pair.
+        let earlyFlight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "上海 → 长沙",
+            startAt: Date(timeIntervalSince1970: 50),
+            fromAirport: "PVG",
+            toAirport: "CSX"
         )
-        XCTAssertEqual(ItineraryListPresentation.outgoingRoutePoint(for: hotel), hotelPlace.point)
-        XCTAssertEqual(ItineraryListPresentation.incomingRoutePoint(for: hotel), hotelPlace.point)
+        let lateFlight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "上海 → 北京",
+            startAt: Date(timeIntervalSince1970: 600),
+            fromAirport: "PVG",
+            toAirport: "PEK"
+        )
+        XCTAssertTrue(
+            ItineraryListPresentation.flownLegOriginIDs(
+                pois: pois,
+                flights: [earlyFlight, lateFlight]
+            ).isEmpty
+        )
     }
 
     func testItineraryListDerivesEightCharacterSummaryInPersistedOrder() {
@@ -483,6 +487,41 @@ final class TravelCardsTests: XCTestCase {
             try XCTUnwrap(ItineraryListPresentation.localDayStart("2026-09-20", timeZone: timeZone))
         )
         XCTAssertEqual(merged[1].ownIndex, 0)
+    }
+
+    /// The calendar-based day-key helpers must keep the strict-ICU semantics
+    /// of the formatters they replaced, including rejecting rollover input.
+    func testParseDayKeyMatchesStrictDayFormatterSemantics() throws {
+        let reference = DateFormatter()
+        reference.calendar = Calendar(identifier: .gregorian)
+        reference.locale = Locale(identifier: "en_US_POSIX")
+        reference.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        reference.dateFormat = "yyyy-MM-dd"
+
+        for dateString in ["2026-01-01", "2026-12-31", "2000-02-29", "2026-09-20"] {
+            XCTAssertEqual(
+                ItineraryListPresentation.parseDayKey(dateString),
+                reference.date(from: dateString),
+                "parseDayKey diverged from the reference formatter for \(dateString)"
+            )
+        }
+
+        XCTAssertNil(ItineraryListPresentation.parseDayKey("2026-02-30"), "rollover day must be rejected")
+        XCTAssertNil(ItineraryListPresentation.parseDayKey("2026-13-01"), "out-of-range month must be rejected")
+        XCTAssertNil(ItineraryListPresentation.parseDayKey("not-a-date"))
+        XCTAssertNil(ItineraryListPresentation.parseDayKey(""))
+
+        // Memoization must return the identical value on repeat calls.
+        let first = ItineraryListPresentation.parseDayKey("2026-09-20")
+        XCTAssertEqual(ItineraryListPresentation.parseDayKey("2026-09-20"), first)
+
+        // localDayStart anchors to local midnight in the given zone, like the
+        // formatter it replaced.
+        let utcDayKey = try XCTUnwrap(ItineraryListPresentation.parseDayKey("2026-09-20"))
+        let tokyo = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let tokyoMidnight = try XCTUnwrap(ItineraryListPresentation.localDayStart("2026-09-20", timeZone: tokyo))
+        let tokyoOffset = tokyo.secondsFromGMT(for: tokyoMidnight)
+        XCTAssertEqual(tokyoMidnight.timeIntervalSince(utcDayKey), TimeInterval(tokyoOffset))
     }
 
     func testMergedDayListPinsHotelNightsToTheBottom() throws {

@@ -488,8 +488,16 @@ struct ItineraryView: View {
                 suppressedListCardTapReleaseTask?.cancel()
             }
             .task {
+                // "Current or next card" highlighting only needs minute
+                // granularity; assigning an unrounded date here invalidated
+                // the whole list on every 30 s tick.
                 while !Task.isCancelled {
-                    itineraryNow = .now
+                    let now = Date.now
+                    let minute = Calendar.current.dateComponents(
+                        [.year, .month, .day, .hour, .minute],
+                        from: now
+                    )
+                    itineraryNow = Calendar.current.date(from: minute) ?? now
                     do {
                         try await Task.sleep(for: .seconds(30))
                     } catch {
@@ -654,6 +662,9 @@ struct ItineraryView: View {
             resolvedCityByDate: itineraryResolvedCityByDate,
             fallbackDestination: trip.destination
         )
+        // Computed once per data change instead of inside every day
+        // section's body — see projectedMultiDayCardsByDay.
+        let projectedByDayID = ItineraryListPresentation.projectedMultiDayCardsByDay(in: days)
 
         return ScrollViewReader { scrollProxy in
             ScrollView {
@@ -676,7 +687,8 @@ struct ItineraryView: View {
                                 trip: trip,
                                 day: day,
                                 days: days,
-                                currentOrNextCardID: currentOrNextCardID
+                                currentOrNextCardID: currentOrNextCardID,
+                                projectedOccurrences: projectedByDayID[day.id] ?? []
                             )
                         } header: {
                             itineraryDayHeader(day, city: cityByDate[day.date])
@@ -812,13 +824,10 @@ struct ItineraryView: View {
         trip: SharedTripSnapshot,
         day: TripDaySnapshot,
         days: [TripDaySnapshot],
-        currentOrNextCardID: UUID?
+        currentOrNextCardID: UUID?,
+        projectedOccurrences: [ItineraryListPresentation.ProjectedCardOccurrence]
     ) -> some View {
         let cards = orderedListCards(for: day)
-        let projectedOccurrences = ItineraryListPresentation.projectedMultiDayCards(
-            for: day,
-            in: days
-        )
         // Multi-day projections (an overnight flight, a hotel night) merge
         // into the day's own chronological list instead of trailing after it.
         let listItems = ItineraryListPresentation.mergedDayListItems(
@@ -854,12 +863,16 @@ struct ItineraryView: View {
                             )
 
                             // Route legs only connect two own cards that are
-                            // still visually adjacent after the merge.
+                            // still visually adjacent after the merge, and
+                            // never touch a flight card: the flight itself is
+                            // the connection between its two cities.
                             if itemIndex + 1 < listItems.count,
                                let nextIndex = listItems[itemIndex + 1].ownIndex,
                                nextIndex == ownIndex + 1,
-                               let originPoint = ItineraryListPresentation.outgoingRoutePoint(for: item.card),
-                               let destinationPoint = ItineraryListPresentation.incomingRoutePoint(for: listItems[itemIndex + 1].card) {
+                               item.card.kind != .flight,
+                               listItems[itemIndex + 1].card.kind != .flight,
+                               let originPoint = item.card.place?.point,
+                               let destinationPoint = listItems[itemIndex + 1].card.place?.point {
                                 CardLegEstimateView(
                                     originCard: item.card,
                                     destinationCard: listItems[itemIndex + 1].card,
@@ -1119,8 +1132,10 @@ struct ItineraryView: View {
                 progressLabel: itineraryCardProgressLabel(
                     ItineraryListPresentation.cardProgress(
                         for: card,
-                        on: day,
-                        in: days
+                        // Own-day row: the card's source day is `day` itself,
+                        // so skip the cross-day lookup.
+                        sourceDay: day,
+                        targetDay: day
                     )
                 )
             )
@@ -1228,25 +1243,30 @@ struct ItineraryView: View {
                     if let progressLabel {
                         itineraryProgressBadge(progressLabel)
                     }
-                    HStack(alignment: .top, spacing: 11) {
+                    HStack(alignment: .center, spacing: 11) {
                         AirlineLogoBadge(
                             logoURL: itineraryAirlineLogoURL(for: card),
-                            size: 38,
-                            cornerRadius: 11
+                            size: 26,
+                            width: 76,
+                            cornerRadius: 8
                         )
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(AgentFlightDisplay.routeTitle(
-                                from: card.fromAirport,
-                                to: card.toAirport,
-                                fallback: card.title
-                            ))
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
                             Text(itineraryFlightNumber(for: card))
-                                .font(.caption.monospaced().weight(.medium))
-                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .font(.subheadline.monospaced().weight(.semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            if let ticketNumber = card.ticketNumber?.nilIfEmpty {
+                                HStack(spacing: 4) {
+                                    Text("flightticket.ticketNumber")
+                                        .font(.caption2)
+                                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                    Text(ticketNumber)
+                                        .font(.caption.monospaced().weight(.semibold))
+                                        .foregroundStyle(PrimaryTabPalette.accent)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
                         }
                         Spacer(minLength: 8)
                         if let price {
@@ -1268,14 +1288,9 @@ struct ItineraryView: View {
                             alignment: .leading
                         )
                         VStack(spacing: 6) {
-                            Image(systemName: "airplane")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(PrimaryTabPalette.accent)
-                            HStack(spacing: 4) {
-                                Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
-                                Rectangle().fill(Color.white.opacity(0.17)).frame(height: 1)
-                                Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
-                            }
+                            itineraryFlightArcConnector(
+                                durationText: itineraryFlightDuration(for: card)
+                            )
                             Text(Self.itineraryFlightDateFormatter.string(from: card.startAt))
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -1656,6 +1671,62 @@ struct ItineraryView: View {
         card.bookingCode?.nilIfEmpty
             ?? card.airlineCode?.nilIfEmpty
             ?? String(localized: "agent.flightNumberPending")
+    }
+
+    /// 起降时间齐全且不超过一整天时显示飞行时长；否则中段胶囊只保留
+    /// 飞机图标。与 FlightTicketPopup 的时长口径一致。
+    private func itineraryFlightDuration(for card: TravelCardSnapshot) -> String? {
+        guard let endAt = card.endAt else { return nil }
+        let minutes = max(0, Int(endAt.timeIntervalSince(card.startAt) / 60))
+        guard minutes > 0, minutes <= 24 * 60 else { return nil }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        if hours > 0, remainder > 0 {
+            return String(format: String(localized: "common.durationHourMinute"), hours, remainder)
+        }
+        if hours > 0 { return String(format: String(localized: "common.durationHours"), hours) }
+        return String(format: String(localized: "common.durationMinutes"), remainder)
+    }
+
+    /// 航线中段（参考票券样式）：两端圆点之间用上拱虚线弧线连接起降地，
+    /// 弧线顶点悬浮飞行时长胶囊（时长 + 飞机图标）。
+    private func itineraryFlightArcConnector(durationText: String?) -> some View {
+        GeometryReader { proxy in
+            let height: CGFloat = 18
+            let width = max(12, proxy.size.width)
+            ZStack(alignment: .top) {
+                ZStack(alignment: .topLeading) {
+                    ItineraryFlightArcShape()
+                        .stroke(
+                            Color.white.opacity(0.35),
+                            style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [4, 4])
+                        )
+                    Circle()
+                        .fill(Color.white.opacity(0.45))
+                        .frame(width: 5, height: 5)
+                        .position(x: 2, y: height - 1)
+                    Circle()
+                        .fill(Color.white.opacity(0.45))
+                        .frame(width: 5, height: 5)
+                        .position(x: width - 2, y: height - 1)
+                }
+
+                HStack(spacing: 4) {
+                    if let durationText {
+                        Text(durationText)
+                            .font(.caption2.monospacedDigit().weight(.bold))
+                    }
+                    Image(systemName: "airplane")
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(durationText == nil ? 3 : 0)
+                }
+                .foregroundStyle(.black)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(PrimaryTabPalette.accent, in: Capsule())
+            }
+        }
+        .frame(height: 18)
     }
 
     private func itineraryFlightTime(_ date: Date) -> String {
@@ -2873,8 +2944,10 @@ struct ItineraryView: View {
                                     .accessibilityHint(Text(String(format: String(localized: "itinerary.openDetailHint"), card.title)))
                                 }
                                 if cardIndex < cards.count - 1,
-                                   let originPoint = ItineraryListPresentation.outgoingRoutePoint(for: card),
-                                   let destinationPoint = ItineraryListPresentation.incomingRoutePoint(for: cards[cardIndex + 1]) {
+                                   card.kind != .flight,
+                                   cards[cardIndex + 1].kind != .flight,
+                                   let originPoint = card.place?.point,
+                                   let destinationPoint = cards[cardIndex + 1].place?.point {
                                     CardLegEstimateView(
                                         originCard: card,
                                         destinationCard: cards[cardIndex + 1],
@@ -3589,6 +3662,22 @@ enum ItineraryLargeImageCardLayout {
 
 }
 
+/// 上拱的飞行虚线弧线：两端落在 rect 底部两端，顶点朝上，呼应首页地图上
+/// 连接两地的飞行轨迹。
+private struct ItineraryFlightArcShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard rect.width > 8, rect.height > 4 else { return path }
+        let baseline = rect.maxY - 1
+        path.move(to: CGPoint(x: rect.minX + 1, y: baseline))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - 1, y: baseline),
+            control: CGPoint(x: rect.midX, y: rect.minY + 1)
+        )
+        return path
+    }
+}
+
 enum ItineraryListPresentation {
     struct HotelNightProgress: Equatable {
         let nightIndex: Int
@@ -3644,15 +3733,15 @@ enum ItineraryListPresentation {
         guard !days.isEmpty else { return 0 }
         let todayString = dayFormatter.string(from: today)
         if let exact = days.firstIndex(where: { $0.date == todayString }) { return exact }
-        guard let todayDate = dayFormatter.date(from: todayString) else { return 0 }
+        guard let todayDate = parseDayKey(todayString) else { return 0 }
         return days.enumerated().min { left, right in
-            abs((dayFormatter.date(from: left.element.date) ?? .distantPast).timeIntervalSince(todayDate))
-                < abs((dayFormatter.date(from: right.element.date) ?? .distantPast).timeIntervalSince(todayDate))
+            abs((parseDayKey(left.element.date) ?? .distantPast).timeIntervalSince(todayDate))
+                < abs((parseDayKey(right.element.date) ?? .distantPast).timeIntervalSince(todayDate))
         }?.offset ?? 0
     }
 
     static func timelineLabel(_ day: TripDaySnapshot, _ isToday: Bool) -> String {
-        guard let date = dayFormatter.date(from: day.date) else { return day.date }
+        guard let date = parseDayKey(day.date) else { return day.date }
         let weekday = weekdaySymbols[calendar.component(.weekday, from: date) - 1]
         return isToday
             ? String(format: String(localized: "common.timelineToday"), weekday)
@@ -3660,12 +3749,12 @@ enum ItineraryListPresentation {
     }
 
     static func monthDay(for day: TripDaySnapshot) -> String {
-        guard let date = dayFormatter.date(from: day.date) else { return day.date }
+        guard let date = parseDayKey(day.date) else { return day.date }
         return numericFormatter.string(from: date)
     }
 
     static func weekday(for day: TripDaySnapshot) -> String {
-        guard let date = dayFormatter.date(from: day.date) else { return "" }
+        guard let date = parseDayKey(day.date) else { return "" }
         return weekdaySymbols[calendar.component(.weekday, from: date) - 1]
     }
 
@@ -3732,23 +3821,27 @@ enum ItineraryListPresentation {
             .joined(separator: ";")
     }
 
-    /// Ground legs next to a flight start at its arrival airport and end at
-    /// its departure airport. Ordinary activity/hotel cards continue to use
-    /// their verified POI coordinate.
-    static func outgoingRoutePoint(for card: TravelCardSnapshot) -> RoutePoint? {
-        if card.kind == .flight {
-            guard let arrival = card.toAirportLocation, arrival.hasValidCoordinate else { return nil }
-            return RoutePoint(latitude: arrival.latitude, longitude: arrival.longitude)
-        }
-        return card.place?.point
-    }
+    /// Two consecutive located POIs with a flight departing between them are
+    /// connected by that flight alone: its arc replaces the ground leg on the
+    /// map, and the list shows no leg estimate for the pair. The returned IDs
+    /// are the origins of exactly those POI pairs, keyed the same way as the
+    /// map points built from `pois`.
+    static func flownLegOriginIDs(
+        pois: [TravelCardSnapshot],
+        flights: [TravelCardSnapshot]
+    ) -> Set<UUID> {
+        guard !flights.isEmpty else { return [] }
+        let departureTimes = flights.map(\.startAt)
+        let locatedPOIs = pois.filter { $0.place?.point != nil }
+        guard locatedPOIs.count > 1 else { return [] }
 
-    static func incomingRoutePoint(for card: TravelCardSnapshot) -> RoutePoint? {
-        if card.kind == .flight {
-            guard let departure = card.fromAirportLocation, departure.hasValidCoordinate else { return nil }
-            return RoutePoint(latitude: departure.latitude, longitude: departure.longitude)
+        var originIDs: Set<UUID> = []
+        for (origin, destination) in zip(locatedPOIs, locatedPOIs.dropFirst()) {
+            if departureTimes.contains(where: { $0 >= origin.startAt && $0 <= destination.startAt }) {
+                originIDs.insert(origin.id)
+            }
         }
-        return card.place?.point
+        return originIDs
     }
 
     static func immediateCity(for day: TripDaySnapshot) -> String? {
@@ -3835,16 +3928,28 @@ enum ItineraryListPresentation {
         in days: [TripDaySnapshot],
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> HotelNightProgress? {
+        guard let sourceDay = days.first(where: { day in
+            day.cards.contains(where: { $0.id == card.id })
+        }) else { return nil }
+        return hotelNightProgress(
+            for: card,
+            sourceDay: sourceDay,
+            targetDay: targetDay,
+            timeZone: timeZone
+        )
+    }
+
+    static func hotelNightProgress(
+        for card: TravelCardSnapshot,
+        sourceDay: TripDaySnapshot,
+        targetDay: TripDaySnapshot,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> HotelNightProgress? {
         guard card.kind == .hotel,
               let checkoutAt = card.endAt,
-              let sourceDay = days.first(where: { day in
-                  day.cards.contains(where: { $0.id == card.id })
-              }),
-              let sourceDate = dayFormatter.date(from: sourceDay.date),
-              let targetDate = dayFormatter.date(from: targetDay.date),
-              let checkoutDate = dayFormatter.date(
-                  from: localDayString(for: checkoutAt, timeZone: timeZone)
-              ),
+              let sourceDate = parseDayKey(sourceDay.date),
+              let targetDate = parseDayKey(targetDay.date),
+              let checkoutDate = utcDayKey(for: checkoutAt, in: timeZone),
               sourceDate <= targetDate,
               targetDate < checkoutDate,
               let totalNights = calendar.dateComponents(
@@ -3886,16 +3991,28 @@ enum ItineraryListPresentation {
         in days: [TripDaySnapshot],
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> MultiDayProgress? {
+        guard let sourceDay = days.first(where: { day in
+            day.cards.contains(where: { $0.id == card.id })
+        }) else { return nil }
+        return multiDayProgress(
+            for: card,
+            sourceDay: sourceDay,
+            targetDay: targetDay,
+            timeZone: timeZone
+        )
+    }
+
+    static func multiDayProgress(
+        for card: TravelCardSnapshot,
+        sourceDay: TripDaySnapshot,
+        targetDay: TripDaySnapshot,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> MultiDayProgress? {
         guard card.kind != .hotel,
               let endAt = card.endAt,
-              let sourceDay = days.first(where: { day in
-                  day.cards.contains(where: { $0.id == card.id })
-              }),
-              let sourceDate = dayFormatter.date(from: sourceDay.date),
-              let targetDate = dayFormatter.date(from: targetDay.date),
-              let endDate = dayFormatter.date(
-                  from: localDayString(for: endAt, timeZone: timeZone)
-              ),
+              let sourceDate = parseDayKey(sourceDay.date),
+              let targetDate = parseDayKey(targetDay.date),
+              let endDate = utcDayKey(for: endAt, in: timeZone),
               sourceDate <= targetDate,
               targetDate <= endDate,
               let elapsedDays = calendar.dateComponents(
@@ -3922,18 +4039,35 @@ enum ItineraryListPresentation {
         in days: [TripDaySnapshot],
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> CardProgress? {
+        guard let sourceDay = days.first(where: { day in
+            day.cards.contains(where: { $0.id == card.id })
+        }) else { return nil }
+        return cardProgress(
+            for: card,
+            sourceDay: sourceDay,
+            targetDay: targetDay,
+            timeZone: timeZone
+        )
+    }
+
+    static func cardProgress(
+        for card: TravelCardSnapshot,
+        sourceDay: TripDaySnapshot,
+        targetDay: TripDaySnapshot,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> CardProgress? {
         if let hotel = hotelNightProgress(
             for: card,
-            on: targetDay,
-            in: days,
+            sourceDay: sourceDay,
+            targetDay: targetDay,
             timeZone: timeZone
         ) {
             return .hotelNight(hotel)
         }
         if let day = multiDayProgress(
             for: card,
-            on: targetDay,
-            in: days,
+            sourceDay: sourceDay,
+            targetDay: targetDay,
             timeZone: timeZone
         ) {
             return .day(day)
@@ -3968,34 +4102,52 @@ enum ItineraryListPresentation {
         in days: [TripDaySnapshot],
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> [ProjectedCardOccurrence] {
-        days.flatMap { sourceDay in
-            orderedCards(sourceDay.cards).compactMap { card in
-                guard sourceDay.id != targetDay.id,
-                      let progress = cardProgress(
-                          for: card,
-                          on: targetDay,
-                          in: days,
-                          timeZone: timeZone
-                      ) else { return nil }
+        projectedMultiDayCardsByDay(in: days, timeZone: timeZone)[targetDay.id] ?? []
+    }
 
-                switch progress {
-                case .hotelNight(let value) where value.nightIndex > 1:
-                    return ProjectedCardOccurrence(
-                        card: card,
-                        dayDate: targetDay.date,
-                        progress: progress
-                    )
-                case .day(let value) where value.dayIndex > 1:
-                    return ProjectedCardOccurrence(
-                        card: card,
-                        dayDate: targetDay.date,
-                        progress: progress
-                    )
-                default:
-                    return nil
+    /// The same projection for every day at once, keyed by target day ID. The
+    /// list used to recompute the per-day variant inside every day section's
+    /// body, re-running the card-vs-day matrix each time a section rendered —
+    /// the other half of the scroll-time runloop hang.
+    static func projectedMultiDayCardsByDay(
+        in days: [TripDaySnapshot],
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> [UUID: [ProjectedCardOccurrence]] {
+        var byDay: [UUID: [ProjectedCardOccurrence]] = [:]
+        for sourceDay in days {
+            for card in orderedCards(sourceDay.cards) {
+                for targetDay in days where targetDay.id != sourceDay.id {
+                    guard let progress = cardProgress(
+                        for: card,
+                        sourceDay: sourceDay,
+                        targetDay: targetDay,
+                        timeZone: timeZone
+                    ) else { continue }
+
+                    switch progress {
+                    case .hotelNight(let value) where value.nightIndex > 1:
+                        byDay[targetDay.id, default: []].append(
+                            ProjectedCardOccurrence(
+                                card: card,
+                                dayDate: targetDay.date,
+                                progress: progress
+                            )
+                        )
+                    case .day(let value) where value.dayIndex > 1:
+                        byDay[targetDay.id, default: []].append(
+                            ProjectedCardOccurrence(
+                                card: card,
+                                dayDate: targetDay.date,
+                                progress: progress
+                            )
+                        )
+                    default:
+                        continue
+                    }
                 }
             }
         }
+        return byDay
     }
 
     static func orderedCards(_ cards: [TravelCardSnapshot]) -> [TravelCardSnapshot] {
@@ -4088,12 +4240,16 @@ enum ItineraryListPresentation {
         _ dateString: String,
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> Date? {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: dateString)
+        guard let components = dayComponents(fromDateString: dateString) else { return nil }
+        let calendar = localDayCalendar(for: timeZone)
+        guard let date = calendar.date(from: components) else { return nil }
+        // Reject rollover input such as "2026-02-31": the strict POSIX ICU
+        // parse this replaces returned nil for those.
+        let roundtrip = calendar.dateComponents([.year, .month, .day], from: date)
+        guard roundtrip.year == components.year,
+              roundtrip.month == components.month,
+              roundtrip.day == components.day else { return nil }
+        return date
     }
 
     static func movingCard(_ cardID: UUID, onto targetID: UUID, in orderedIDs: [UUID]) -> [UUID] {
@@ -4174,13 +4330,85 @@ enum ItineraryListPresentation {
         return formatter
     }()
 
-    private static func localDayString(for date: Date, timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+    // Day-key conversions used to allocate a fresh `DateFormatter` (plus ICU
+    // symbol setup) on every call, and the list calls them per card per day
+    // per render — a scroll-time runloop hang pinned the whole cost on this.
+    // Calendar math with cached calendars and a memoized day-string parse
+    // keeps the same results without ICU in the loop.
+
+    private static let gmtDayKeyCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)
+        return calendar
+    }()
+
+    private static let dayKeyLock = NSLock()
+    // Both statics are only touched inside dayKeyLock-held regions.
+    nonisolated(unsafe) private static var dayKeyCalendars: [String: Calendar] = [:]
+    nonisolated(unsafe) private static var parsedDayKeys: [String: Date?] = [:]
+
+    private static func localDayCalendar(for timeZone: TimeZone) -> Calendar {
+        dayKeyLock.lock()
+        defer { dayKeyLock.unlock() }
+        if let cached = dayKeyCalendars[timeZone.identifier] { return cached }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = timeZone
+        dayKeyCalendars[timeZone.identifier] = calendar
+        return calendar
+    }
+
+    /// UTC-midnight `Date` for a `yyyy-MM-dd` string, matching `dayFormatter`
+    /// semantics. Results are memoized because the same day strings are
+    /// parsed over and over while the list renders.
+    static func parseDayKey(_ dateString: String) -> Date? {
+        dayKeyLock.lock()
+        if let cached = parsedDayKeys[dateString] {
+            dayKeyLock.unlock()
+            return cached
+        }
+        dayKeyLock.unlock()
+
+        let parsed: Date?
+        if let components = dayComponents(fromDateString: dateString),
+           let date = gmtDayKeyCalendar.date(from: components) {
+            let roundtrip = gmtDayKeyCalendar.dateComponents([.year, .month, .day], from: date)
+            parsed = roundtrip.year == components.year
+                && roundtrip.month == components.month
+                && roundtrip.day == components.day
+                ? date
+                : nil
+        } else {
+            parsed = nil
+        }
+
+        dayKeyLock.lock()
+        parsedDayKeys[dateString] = parsed
+        dayKeyLock.unlock()
+        return parsed
+    }
+
+    /// UTC-midnight `Date` for the local calendar day containing `date`,
+    /// replacing the old `dayFormatter.date(from: localDayString(...))`
+    /// round trip through two formatters.
+    private static func utcDayKey(for date: Date, in timeZone: TimeZone) -> Date? {
+        let components = localDayCalendar(for: timeZone)
+            .dateComponents([.year, .month, .day], from: date)
+        return gmtDayKeyCalendar.date(from: components)
+    }
+
+    private static func dayComponents(fromDateString dateString: String) -> DateComponents? {
+        let parts = dateString.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]), (0...9999).contains(year),
+              let month = Int(parts[1]), (1...12).contains(month),
+              let day = Int(parts[2]), (1...31).contains(day) else { return nil }
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        return components
     }
 
     private static let numericFormatter: DateFormatter = {

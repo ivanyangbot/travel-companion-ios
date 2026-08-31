@@ -26,6 +26,9 @@ enum CardImageURL {
 struct AirlineLogoBadge: View {
     let logoURL: URL?
     var size: CGFloat = 32
+    /// Nil keeps the historical square tile; a wider value renders the
+    /// airline's rectangular lockup (mark + wordmark) without cropping.
+    var width: CGFloat? = nil
     var cornerRadius: CGFloat = 10
 
     var body: some View {
@@ -47,7 +50,7 @@ struct AirlineLogoBadge: View {
                 fallback
             }
         }
-        .frame(width: size, height: size)
+        .frame(width: width ?? size, height: size)
         .background(logoURL == nil ? PrimaryTabPalette.accent : Color.white, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .accessibilityHidden(true)
