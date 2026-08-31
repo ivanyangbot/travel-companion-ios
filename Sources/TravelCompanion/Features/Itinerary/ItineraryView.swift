@@ -1510,12 +1510,9 @@ struct ItineraryView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                LinearGradient(
-                    colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+                itineraryHotelCardBackground(card)
             }
+            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 15, style: .continuous)
                     .stroke(Color.white.opacity(0.09), lineWidth: 1)
@@ -1531,6 +1528,35 @@ struct ItineraryView: View {
             }
         }
         .buttonStyle(ItineraryCardNoFadeButtonStyle())
+    }
+
+    @ViewBuilder
+    private func itineraryHotelCardBackground(_ card: TravelCardSnapshot) -> some View {
+        if CardImageURL.resolve(card.images?.first) != nil {
+            ZStack {
+                GeometryReader { proxy in
+                    itineraryCardCover(card)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                }
+
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(0.42),
+                        Color(red: 0.035, green: 0.055, blue: 0.085).opacity(0.78),
+                        Color.black.opacity(0.88),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        } else {
+            LinearGradient(
+                colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
     }
 
     /// 入住/退房端点块：标签 + 日期（同机票机场码的圆角粗体）+ 政策时间。
