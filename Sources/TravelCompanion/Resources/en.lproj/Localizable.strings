@@ -161,6 +161,7 @@
 "itinerary.emptyDayButton" = "Nothing planned this day — tap to add";
 "itinerary.cardDetailHint" = "Open details; long-press and drag to reorder";
 "itinerary.cardDetailHintSyncing" = "Open details; drag to reorder once the card finishes syncing";
+"itinerary.cardDetailHintFixed" = "Open details";
 "itinerary.swipeDeleteA11y" = "Delete itinerary card";
 "itinerary.swipeAskA11y" = "Ask Dounai";
 "itinerary.swipeEditA11y" = "Edit itinerary card";

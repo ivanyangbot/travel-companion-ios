@@ -898,37 +898,34 @@ struct ItineraryView: View {
         days: [TripDaySnapshot],
         currentOrNextCardID: UUID?
     ) -> some View {
-        let canReorder = !syncEngine.isUserAuthenticated || cards.allSatisfy { $0.serverID != nil }
+        let supportsLongPressDrag = ItineraryCardDragPolicy.allowsLongPressDrag(card)
+        let canReorder = supportsLongPressDrag
+            && (!syncEngine.isUserAuthenticated || cards.allSatisfy { $0.serverID != nil })
         let isDragging = draggedListCard?.cardID == card.id || settlingListCard?.card.id == card.id
 
-        if canReorder {
-            itinerarySwipeableCard(
-                card,
-                index: index,
-                day: day,
-                days: days,
-                currentOrNextCardID: currentOrNextCardID
-            )
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: ItineraryCardFramesPreferenceKey.self,
-                            value: [card.id: proxy.frame(in: .named("itinerary-list-root"))]
-                        )
-                    }
-                }
-                .opacity(isDragging ? 0 : 1)
-                .accessibilityHint(Text("itinerary.cardDetailHint"))
-        } else {
-            itinerarySwipeableCard(
-                card,
-                index: index,
-                day: day,
-                days: days,
-                currentOrNextCardID: currentOrNextCardID
-            )
-                .accessibilityHint(Text("itinerary.cardDetailHintSyncing"))
+        itinerarySwipeableCard(
+            card,
+            index: index,
+            day: day,
+            days: days,
+            currentOrNextCardID: currentOrNextCardID
+        )
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ItineraryCardFramesPreferenceKey.self,
+                    value: [card.id: proxy.frame(in: .named("itinerary-list-root"))]
+                )
+            }
         }
+        .opacity(isDragging ? 0 : 1)
+        .accessibilityHint(
+            Text(LocalizedStringKey(
+                supportsLongPressDrag
+                    ? (canReorder ? "itinerary.cardDetailHint" : "itinerary.cardDetailHintSyncing")
+                    : "itinerary.cardDetailHintFixed"
+            ))
+        )
     }
 
     private func itinerarySwipeableCard(
@@ -1193,18 +1190,21 @@ struct ItineraryView: View {
             }
         } label: {
             VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 14) {
                     if let progressLabel {
                         itineraryProgressBadge(progressLabel)
                     }
-                    HStack(alignment: .center, spacing: 11) {
+                    HStack(alignment: .center, spacing: 12) {
                         AirlineLogoBadge(
                             logoURL: itineraryAirlineLogoURL(for: card),
-                            size: 26,
-                            width: 76,
-                            cornerRadius: 8
+                            size: 32,
+                            width: 68,
+                            cornerRadius: 10
                         )
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Label(card.kind.title, systemImage: "airplane.departure")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(PrimaryTabPalette.accent)
                             Text(itineraryFlightNumber(for: card))
                                 .font(.subheadline.monospaced().weight(.semibold))
                                 .foregroundStyle(.white)
@@ -1235,13 +1235,14 @@ struct ItineraryView: View {
                         }
                     }
 
-                    HStack(alignment: .center, spacing: 9) {
+                    HStack(alignment: .top, spacing: 0) {
                         itineraryFlightAirportBlock(
                             airport: card.fromAirport,
                             time: itineraryFlightTime(card.startAt),
                             alignment: .leading
                         )
-                        VStack(spacing: 6) {
+                        .frame(width: 86)
+                        VStack(spacing: 5) {
                             itineraryFlightArcConnector(
                                 durationText: itineraryFlightDuration(for: card)
                             )
@@ -1251,12 +1252,20 @@ struct ItineraryView: View {
                                 .lineLimit(1)
                         }
                         .frame(maxWidth: .infinity)
+                        .padding(.top, 5)
                         itineraryFlightAirportBlock(
                             airport: card.toAirport,
                             time: card.endAt.map { itineraryFlightTime($0) } ?? String(localized: "agent.timePending"),
                             alignment: .trailing
                         )
+                        .frame(width: 86)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 12)
+                    .background(
+                        Color.white.opacity(0.035),
+                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    )
 
                     if let summary {
                         Text(summary)
@@ -1306,13 +1315,7 @@ struct ItineraryView: View {
                 .padding(.vertical, 6)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                LinearGradient(
-                    colors: [PrimaryTabPalette.elevatedSurface, Color(red: 0.065, green: 0.095, blue: 0.14)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
+            .background(JourneyPalette.flightCardSurface)
             .overlay {
                 RoundedRectangle(cornerRadius: 15, style: .continuous)
                     .stroke(Color.white.opacity(0.09), lineWidth: 1)
@@ -1630,23 +1633,14 @@ struct ItineraryView: View {
     /// 起降时间齐全且不超过一整天时显示飞行时长；否则中段胶囊只保留
     /// 飞机图标。与 FlightTicketPopup 的时长口径一致。
     private func itineraryFlightDuration(for card: TravelCardSnapshot) -> String? {
-        guard let endAt = card.endAt else { return nil }
-        let minutes = max(0, Int(endAt.timeIntervalSince(card.startAt) / 60))
-        guard minutes > 0, minutes <= 24 * 60 else { return nil }
-        let hours = minutes / 60
-        let remainder = minutes % 60
-        if hours > 0, remainder > 0 {
-            return String(format: String(localized: "common.durationHourMinute"), hours, remainder)
-        }
-        if hours > 0 { return String(format: String(localized: "common.durationHours"), hours) }
-        return String(format: String(localized: "common.durationMinutes"), remainder)
+        ItineraryFlightCardPresentation.durationText(startAt: card.startAt, endAt: card.endAt)
     }
 
     /// 航线中段（参考票券样式）：两端圆点之间用上拱虚线弧线连接起降地，
     /// 弧线顶点悬浮飞行时长胶囊（时长 + 飞机图标）。
     private func itineraryFlightArcConnector(durationText: String?) -> some View {
         GeometryReader { proxy in
-            let height: CGFloat = 18
+            let height: CGFloat = 23
             let width = max(12, proxy.size.width)
             ZStack(alignment: .top) {
                 ZStack(alignment: .topLeading) {
@@ -1658,11 +1652,11 @@ struct ItineraryView: View {
                     Circle()
                         .fill(Color.white.opacity(0.45))
                         .frame(width: 5, height: 5)
-                        .position(x: 2, y: height - 1)
+                        .position(x: 2, y: height - 2)
                     Circle()
                         .fill(Color.white.opacity(0.45))
                         .frame(width: 5, height: 5)
-                        .position(x: width - 2, y: height - 1)
+                        .position(x: width - 2, y: height - 2)
                 }
 
                 HStack(spacing: 4) {
@@ -1675,12 +1669,12 @@ struct ItineraryView: View {
                         .padding(durationText == nil ? 3 : 0)
                 }
                 .foregroundStyle(.black)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
                 .background(PrimaryTabPalette.accent, in: Capsule())
             }
         }
-        .frame(height: 18)
+        .frame(height: 23)
     }
 
     private func itineraryFlightTime(_ date: Date) -> String {
@@ -2021,6 +2015,7 @@ struct ItineraryView: View {
             headerQuickAction = .reload
             isReloading = true
             try? RouteCache(modelContext: modelContext).removeAll()
+            CardLegStore(modelContext: modelContext).clearAllEstimateFailures()
             routeRefreshRevision &+= 1
             Task {
                 async let retry: Void = syncEngine.retry()
@@ -2106,7 +2101,8 @@ struct ItineraryView: View {
             let canReorder = !syncEngine.isUserAuthenticated || cards.allSatisfy { $0.serverID != nil }
             guard canReorder else { continue }
             for card in cards.reversed() {
-                if itineraryCardFrames[card.id]?.contains(location) == true {
+                if ItineraryCardDragPolicy.allowsLongPressDrag(card),
+                   itineraryCardFrames[card.id]?.contains(location) == true {
                     return (day, card, cards)
                 }
             }
@@ -3051,6 +3047,7 @@ private enum JourneyPalette {
     static let dayBorder = Color(red: 0.17, green: 0.20, blue: 0.36)
     static let listSurface = Color(red: 23 / 255, green: 23 / 255, blue: 23 / 255)
     static let cardSurface = Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
+    static let flightCardSurface = Color(red: 16 / 255, green: 21 / 255, blue: 29 / 255)
 }
 
 private struct ItineraryCardNoFadeButtonStyle: ButtonStyle {
@@ -3570,6 +3567,23 @@ private struct ItineraryFlightArcShape: Shape {
             control: CGPoint(x: rect.midX, y: rect.minY + 1)
         )
         return path
+    }
+}
+
+enum ItineraryFlightCardPresentation {
+    /// Compact, locale-independent aviation notation used inside the route arc.
+    /// Keeping both units makes card geometry stable as flights change length.
+    static func durationText(startAt: Date, endAt: Date?) -> String? {
+        guard let endAt else { return nil }
+        let minutes = max(0, Int(endAt.timeIntervalSince(startAt) / 60))
+        guard minutes > 0, minutes <= 24 * 60 else { return nil }
+        return String(format: "%dh%02dm", minutes / 60, minutes % 60)
+    }
+}
+
+enum ItineraryCardDragPolicy {
+    static func allowsLongPressDrag(_ card: TravelCardSnapshot) -> Bool {
+        card.kind == .activity
     }
 }
 

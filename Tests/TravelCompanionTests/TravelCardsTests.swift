@@ -147,6 +147,42 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(CardLegEstimateView.itineraryListDurationText(4_020), "67min")
     }
 
+    func testItineraryFlightDurationUsesCompactAviationNotation() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(
+            ItineraryFlightCardPresentation.durationText(
+                startAt: start,
+                endAt: start.addingTimeInterval(2 * 3_600 + 5 * 60)
+            ),
+            "2h05m"
+        )
+        XCTAssertEqual(
+            ItineraryFlightCardPresentation.durationText(
+                startAt: start,
+                endAt: start.addingTimeInterval(45 * 60)
+            ),
+            "0h45m"
+        )
+        XCTAssertEqual(
+            ItineraryFlightCardPresentation.durationText(
+                startAt: start,
+                endAt: start.addingTimeInterval(2 * 3_600)
+            ),
+            "2h00m"
+        )
+        XCTAssertNil(ItineraryFlightCardPresentation.durationText(startAt: start, endAt: nil))
+    }
+
+    func testFlightsAndHotelsCannotBeLongPressDragged() {
+        let flight = TravelCardSnapshot(dayID: 1, kind: .flight, title: "PEK → CGK", startAt: .now)
+        let hotel = TravelCardSnapshot(dayID: 1, kind: .hotel, title: "Airport Hotel", startAt: .now)
+        let activity = TravelCardSnapshot(dayID: 1, kind: .activity, title: "National Monument", startAt: .now)
+
+        XCTAssertFalse(ItineraryCardDragPolicy.allowsLongPressDrag(flight))
+        XCTAssertFalse(ItineraryCardDragPolicy.allowsLongPressDrag(hotel))
+        XCTAssertTrue(ItineraryCardDragPolicy.allowsLongPressDrag(activity))
+    }
+
     func testFlownLegOriginIDsMarkOnlyGroundPairsSpannedByAFlight() {
         func poi(_ title: String, start: Date, located: Bool = true) -> TravelCardSnapshot {
             TravelCardSnapshot(

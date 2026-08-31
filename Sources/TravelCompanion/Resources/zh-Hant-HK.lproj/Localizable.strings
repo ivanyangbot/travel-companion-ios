@@ -161,6 +161,7 @@
 "itinerary.emptyDayButton" = "呢一日仲未有行程，撳一下加入";
 "itinerary.cardDetailHint" = "打開詳情；長按拖動可以調順序";
 "itinerary.cardDetailHintSyncing" = "打開詳情；卡片同步完之後先可以長按拖動排序";
+"itinerary.cardDetailHintFixed" = "打開詳情";
 "itinerary.swipeDeleteA11y" = "刪除行程卡片";
 "itinerary.swipeAskA11y" = "問豆奶";
 "itinerary.swipeEditA11y" = "編輯行程卡片";

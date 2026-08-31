@@ -8,7 +8,7 @@ enum CardLegEstimatePresentation {
 
 /// 相邻两张有坐标的卡片之间的出行时间预估。默认驾车，每段可单独切换并持久化；
 /// 首次无缓存时通过 Apple MapKit 静默估算一次，之后始终显示本地缓存值；
-/// 只有页面右上角菜单的刷新动作会统一清除缓存并重新请求。
+/// 失败也会持久缓存，只有页面左上角菜单的刷新动作会统一清除并重新请求。
 struct CardLegEstimateView: View {
     let originCard: TravelCardSnapshot
     let destinationCard: TravelCardSnapshot
@@ -197,6 +197,9 @@ struct CardLegEstimateView: View {
         if let cached = cache.cached(origin: originPoint, destination: destinationPoint, mode: stored, includeExpired: true) {
             estimate = cached
             fetchFailed = false
+        } else if store.hasEstimateFailure(routeKey: failureKey(for: stored), for: legKey) {
+            estimate = nil
+            fetchFailed = true
         } else {
             await fetch()
         }
@@ -210,13 +213,27 @@ struct CardLegEstimateView: View {
         if let cached = cache.cached(origin: originPoint, destination: destinationPoint, mode: newMode, includeExpired: true) {
             estimate = cached
             fetchFailed = false
+        } else if CardLegStore(modelContext: modelContext).hasEstimateFailure(
+            routeKey: failureKey(for: newMode),
+            for: legKey
+        ) {
+            estimate = nil
+            fetchFailed = true
         } else {
             estimate = nil
+            fetchFailed = false
             Task { await fetch() }
         }
     }
 
     private func fetch() async {
+        let store = CardLegStore(modelContext: modelContext)
+        let routeKey = failureKey(for: mode)
+        guard !store.hasEstimateFailure(routeKey: routeKey, for: legKey) else {
+            estimate = nil
+            fetchFailed = true
+            return
+        }
         isFetching = true
         defer { isFetching = false }
         let cache = RouteCache(modelContext: modelContext)
@@ -230,10 +247,18 @@ struct CardLegEstimateView: View {
             try? cache.store(result, origin: originPoint, destination: destinationPoint, mode: mode)
             estimate = CachedRouteEstimate(estimate: result, cachedAt: .now)
             fetchFailed = false
+            store.clearEstimateFailure(routeKey: routeKey, for: legKey)
         } catch {
             estimate = cache.cached(origin: originPoint, destination: destinationPoint, mode: mode, includeExpired: true)
             fetchFailed = estimate == nil
+            if fetchFailed {
+                store.markEstimateFailure(routeKey: routeKey, for: legKey)
+            }
         }
+    }
+
+    private func failureKey(for mode: RouteMode) -> String {
+        RouteCache.cacheKey(origin: originPoint, destination: destinationPoint, mode: mode)
     }
 
     private static func distanceText(_ meters: Int) -> String {

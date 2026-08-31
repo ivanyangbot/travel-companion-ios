@@ -450,6 +450,7 @@ struct TodayView: View {
             activeQuickAction = .reload
             isReloading = true
             try? RouteCache(modelContext: modelContext).removeAll()
+            CardLegStore(modelContext: modelContext).clearAllEstimateFailures()
             Task {
                 async let retry: Void = syncEngine.retry()
                 // Preserve the old drawer's visible full-turn reload animation.

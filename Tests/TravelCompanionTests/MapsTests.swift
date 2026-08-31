@@ -1387,6 +1387,17 @@ final class MapsTests: XCTestCase {
 
         store.setMode(.walking, for: key)
         XCTAssertEqual(store.mode(for: key), .walking)
+
+        let routeKey = "39.90000,116.30000->39.80000,116.40000@walking"
+        XCTAssertFalse(store.hasEstimateFailure(routeKey: routeKey, for: key))
+        store.markEstimateFailure(routeKey: routeKey, for: key)
+        XCTAssertTrue(
+            CardLegStore(modelContext: container.mainContext)
+                .hasEstimateFailure(routeKey: routeKey, for: key)
+        )
+
+        store.clearAllEstimateFailures()
+        XCTAssertFalse(store.hasEstimateFailure(routeKey: routeKey, for: key))
         XCTAssertEqual(try container.mainContext.fetch(FetchDescriptor<CardLegPreference>()).count, 1)
     }
 }
