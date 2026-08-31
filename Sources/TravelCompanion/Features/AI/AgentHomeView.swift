@@ -423,6 +423,7 @@ struct AgentHomeView: View {
                 // 与主页左上角的「切换旅行」共用同一弹窗；Agent 语境下副标题
                 // 换文案。左滑编辑由弹窗内建的「旅行与偏好」处理。
                 TodayTripPickerSheet(
+                    syncEngine: syncEngine,
                     trips: syncEngine.trips,
                     selectedTripID: syncEngine.selectedTripID,
                     tripBeingSelectedID: nil,

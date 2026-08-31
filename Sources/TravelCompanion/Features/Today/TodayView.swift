@@ -122,6 +122,7 @@ struct TodayView: View {
             }
         )) {
             TodayTripPickerSheet(
+                syncEngine: syncEngine,
                 trips: syncEngine.trips,
                 selectedTripID: syncEngine.selectedTripID,
                 tripBeingSelectedID: tripBeingSelectedID,
@@ -1558,6 +1559,7 @@ private struct TodayPrivacyPolicySheet: View {
 /// 行程区使用原生 List + swipeActions 提供左滑编辑/删除（仅 owner 可操作）；
 /// 编辑统一弹出「旅行与偏好」（AgentContextSheet，保存由弹窗自己提交）。
 struct TodayTripPickerSheet: View {
+    @ObservedObject var syncEngine: SyncEngine
     let trips: [TripSummary]
     let selectedTripID: Int?
     let tripBeingSelectedID: Int?
