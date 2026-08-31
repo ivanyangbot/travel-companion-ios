@@ -32,7 +32,6 @@ struct TodayView: View {
     @State private var showsTripPicker = false
     @State private var tripBeingSelectedID: Int?
     @State private var isStartingNewTrip = false
-    @State private var isPlanningNewTrip = false
     @State private var showsSettings = false
     @State private var showsSignIn = false
     @State private var isReloading = false
@@ -48,7 +47,7 @@ struct TodayView: View {
 
     var body: some View {
         Group {
-            if isPlanningNewTrip {
+            if agentRunState.isPlanningNewTrip {
                 newTripAgentHome
             } else if let trip = syncEngine.trip, trip.isConfigured {
                 let sorted = sortedDays(in: trip)
@@ -129,17 +128,6 @@ struct TodayView: View {
                 isStartingNewTrip: isStartingNewTrip,
                 onSelect: selectTripFromPicker,
                 onCreate: startNewTripFromPicker,
-                onEdit: { summary, destination, startDate, endDate, currency in
-                    Task {
-                        await syncEngine.updateTrip(
-                            summary,
-                            destination: destination,
-                            startDate: startDate,
-                            endDate: endDate,
-                            currency: currency
-                        )
-                    }
-                },
                 onDelete: { summary in
                     Task { await syncEngine.deleteTrip(summary) }
                 },
@@ -504,14 +492,15 @@ struct TodayView: View {
 
     /// Starts a new planning context while retaining the selected trip until
     /// creation succeeds, allowing the user to return to the current map.
+    /// The planning flag lives on the shared run state so the itinerary list
+    /// can enter the same mode by switching back to this section.
     private func startNewTripFromPicker() {
         guard tripBeingSelectedID == nil, !isStartingNewTrip else { return }
         isStartingNewTrip = true
         resetMapSelection()
-        agentRunState.clearTransientState()
         agentSessionStore.startNewSession()
         withAnimation(.snappy(duration: 0.32)) {
-            isPlanningNewTrip = true
+            agentRunState.beginNewTripPlanning()
             showsTripPicker = false
         }
         isStartingNewTrip = false
@@ -521,13 +510,13 @@ struct TodayView: View {
         agentRunState.clearTransientState()
         agentSessionStore.startNewSession()
         withAnimation(.snappy(duration: 0.32)) {
-            isPlanningNewTrip = false
+            agentRunState.endNewTripPlanning()
         }
     }
 
     private func finishNewTripPlanning() {
         withAnimation(.snappy(duration: 0.32)) {
-            isPlanningNewTrip = false
+            agentRunState.endNewTripPlanning()
         }
     }
 
@@ -1567,7 +1556,7 @@ private struct TodayPrivacyPolicySheet: View {
 
 /// 「切换旅行」弹窗：主页左上角菜单与 Agent 工作台共用同一实现。
 /// 行程区使用原生 List + swipeActions 提供左滑编辑/删除（仅 owner 可操作）；
-/// 工作台通过可选参数启用 Agent 语境——副标题、编辑改开「旅行与偏好」。
+/// 编辑统一弹出「旅行与偏好」（AgentContextSheet，保存由弹窗自己提交）。
 struct TodayTripPickerSheet: View {
     let trips: [TripSummary]
     let selectedTripID: Int?
@@ -1575,15 +1564,13 @@ struct TodayTripPickerSheet: View {
     let isStartingNewTrip: Bool
     /// 弹窗副标题：主页默认「选择首页要显示的旅行」，工作台传 Agent 语境文案。
     var subtitle: String = String(localized: "tripswitch.subtitle")
-    /// 工作台传入：编辑交由宿主处理（选中该行程并打开「旅行与偏好」）；
-    /// 主页保持 nil，走内置的 TripSetupSheet 编辑（目的地/日期/货币）。
-    var onEditTrip: ((TripSummary) -> Void)? = nil
     let onSelect: (TripSummary) -> Void
     let onCreate: () -> Void
-    let onEdit: (TripSummary, String, Date, Date, String) -> Void
     let onDelete: (TripSummary) -> Void
     let onDismiss: () -> Void
 
+    /// 「旅行与偏好」编辑弹窗需要保存 Agent 偏好；sheet 内容继承宿主环境。
+    @EnvironmentObject private var agentSessionStore: AgentV2SessionStore
     @State private var editingTrip: TripSummary?
     @State private var tripPendingDeletion: TripSummary?
 
@@ -1622,11 +1609,7 @@ struct TodayTripPickerSheet: View {
                             }
 
                             Button {
-                                if let onEditTrip {
-                                    onEditTrip(trip)
-                                } else {
-                                    editingTrip = trip
-                                }
+                                editingTrip = trip
                             } label: {
                                 Label("tripswitch.editA11y", systemImage: "pencil")
                             }
@@ -1644,10 +1627,10 @@ struct TodayTripPickerSheet: View {
         .preferredColorScheme(.dark)
         .accessibilityAddTraits(.isModal)
         .sheet(item: $editingTrip) { summary in
-            TodayTripEditSheet(summary: summary) { destination, startDate, endDate, currency in
-                editingTrip = nil
-                onEdit(summary, destination, startDate, endDate, currency)
-            }
+            // 左滑编辑改用「旅行与偏好」弹窗（与 Agent 首页同一实现），
+            // 保存由弹窗自己在关闭时提交。
+            AgentContextSheet(syncEngine: syncEngine, store: agentSessionStore, targetSummary: summary)
+                .presentationDetents([.fraction(0.8)])
         }
         .alert(
             "tripswitch.deleteTitle",
@@ -1825,19 +1808,6 @@ struct TodayTripPickerSheet: View {
         case let (nil, end?): end
         case (nil, nil): nil
         }
-    }
-}
-
-/// Shared by the trip picker and direct trip-edit affordances so every entry
-/// point presents exactly the same form, height, and drag indicator.
-struct TodayTripEditSheet: View {
-    let summary: TripSummary
-    let onSave: (String, Date, Date, String) -> Void
-
-    var body: some View {
-        TripSetupSheet(initialTrip: summary, onSave: onSave)
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
     }
 }
 

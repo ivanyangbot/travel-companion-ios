@@ -33,6 +33,11 @@ final class AgentV2RunState: ObservableObject {
     @Published private(set) var isGenerating = false
     @Published var isCommitting = false
     @Published private(set) var fliggyProgress: AgentV2FliggyProgress?
+    /// 「新建一段旅行」的临时规划模式：当前行程暂时保留，首页整体切换到
+    /// AgentHomeView(plansNewTrip:)。放在共享 run state 而不是 TodayView 本地
+    /// @State，是因为旅程列表模式也要触发同一状态——它先切回 .today section
+    /// 再置位，TodayView 挂载时直接进入规划态。
+    @Published private(set) var isPlanningNewTrip = false
 
     /// How long a successful Fliggy completion chip lingers before fading
     /// out. Injectable so tests can verify the fade without real waits.
@@ -119,6 +124,19 @@ final class AgentV2RunState: ObservableObject {
         error = nil
         isCommitting = false
         clearFliggyProgress()
+    }
+
+    /// 进入「新建一段旅行」规划模式：清掉进行中的回合并开新会话。首页地图
+    /// 模式（切换旅行弹窗）与旅程列表模式（新建旅程入口）共用同一入口，
+    /// 保证两个入口行为一致。
+    func beginNewTripPlanning() {
+        clearTransientState()
+        isPlanningNewTrip = true
+    }
+
+    /// 退出规划模式：取消规划（左上角返回）与确认创建行程共用。
+    func endNewTripPlanning() {
+        isPlanningNewTrip = false
     }
 
     func appendStreamingReply(_ text: String) {

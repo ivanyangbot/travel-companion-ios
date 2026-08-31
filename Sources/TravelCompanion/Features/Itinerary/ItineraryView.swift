@@ -10,9 +10,10 @@ struct ItineraryView: View {
     @ObservedObject var appleSignIn: AppleSignInStore
     @Binding var section: JourneyView.Section
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var agentSessionStore: AgentV2SessionStore
+    @EnvironmentObject private var agentRunState: AgentV2RunState
     @State private var activeDaySheet: DaySheet?
     @State private var editingTrip: TripSummary?
-    @State private var showsNewTripEditor = false
     @State private var showsSignOutConfirmation = false
     @State private var agentSheet: ItineraryAgentSheet?
     @State private var dayPendingDeletion: TripDaySnapshot?
@@ -200,18 +201,7 @@ struct ItineraryView: View {
                     onSelect: selectTripFromPicker,
                     onCreate: {
                         showsTripPicker = false
-                        showsNewTripEditor = true
-                    },
-                    onEdit: { summary, destination, startDate, endDate, currency in
-                        Task {
-                            await syncEngine.updateTrip(
-                                summary,
-                                destination: destination,
-                                startDate: startDate,
-                                endDate: endDate,
-                                currency: currency
-                            )
-                        }
+                        startNewTripPlanning()
                     },
                     onDelete: { summary in
                         Task { await syncEngine.deleteTrip(summary) }
@@ -291,24 +281,10 @@ struct ItineraryView: View {
                 }
             }
             .sheet(item: $editingTrip) { summary in
-                TodayTripEditSheet(summary: summary) { destination, startDate, endDate, currency in
-                    editingTrip = nil
-                    Task {
-                        await syncEngine.updateTrip(
-                            summary,
-                            destination: destination,
-                            startDate: startDate,
-                            endDate: endDate,
-                            currency: currency
-                        )
-                    }
-                }
-            }
-            .sheet(isPresented: $showsNewTripEditor) {
-                TripSetupSheet(isNewTrip: true) { destination, startDate, endDate, currency in
-                    showsNewTripEditor = false
-                    Task { await syncEngine.createTrip(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
-                }
+                // 编辑指定行程统一走「旅行与偏好」弹窗，与首页 Agent 的
+                // 语境弹窗同一实现；保存由弹窗自己在关闭时提交。
+                AgentContextSheet(syncEngine: syncEngine, store: agentSessionStore, targetSummary: summary)
+                    .presentationDetents([.fraction(0.8)])
             }
             .sheet(item: $agentSheet) { sheet in
                 AgentWorkbenchView(
@@ -363,17 +339,9 @@ struct ItineraryView: View {
             if trip.isConfigured {
                 detailedItinerary(trip)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        journeyActionBar
-                        TripSetupSheet { destination, startDate, endDate, currency in
-                            Task { await syncEngine.saveSetup(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
-                        }
-                    }
-                    .padding(16)
-                    .padding(.bottom, 112)
-                }
-                .scrollIndicators(.hidden)
+                // 行程存在但未完成设置：与首页地图模式一致，交给 Agent 首页
+                // 引导规划，不再展示本地设置表单。
+                agentHomeGuide
             }
         } else if case .failed(let message) = syncEngine.status {
             VStack(spacing: 16) {
@@ -385,32 +353,17 @@ struct ItineraryView: View {
                 Button("common.retry") { Task { await syncEngine.retry() } }
             }
         } else if case .synced = syncEngine.status {
-            ScrollView {
-                TripSetupSheet(isNewTrip: true) { destination, startDate, endDate, currency in
-                    Task {
-                        await syncEngine.createTrip(
-                            destination: destination,
-                            startDate: startDate,
-                            endDate: endDate,
-                            currency: currency
-                        )
-                    }
-                }
-                .padding()
-            }
+            agentHomeGuide
         } else if case .localOnly = syncEngine.status {
-            ScrollView {
-                VStack(spacing: 16) {
-                    signInBanner
-                    TripSetupSheet(isNewTrip: true) { destination, startDate, endDate, currency in
-                        Task { await syncEngine.createTrip(destination: destination, startDate: startDate, endDate: endDate, currency: currency) }
-                    }
-                }
-                .padding()
-            }
+            agentHomeGuide
         } else {
             ProgressView("today.openingSharedTrip")
         }
+    }
+
+    /// 无行程/未设置状态下的 Agent 首页引导，对齐首页地图模式的空态分支。
+    private var agentHomeGuide: some View {
+        AgentHomeView(syncEngine: syncEngine, appleSignIn: appleSignIn)
     }
 
     private func detailedItinerary(_ trip: SharedTripSnapshot) -> some View {
@@ -2110,6 +2063,17 @@ struct ItineraryView: View {
         editingTrip = summary
     }
 
+    /// 「新建旅程」与首页地图模式走同一条路：复位 Agent 会话、切回 .today
+    /// section 并进入规划态——AgentHomeView(plansNewTrip:) 顶栏可返回当前
+    /// 行程，确认创建后才切换选中行程。不再弹本地表单直接 createTrip。
+    private func startNewTripPlanning() {
+        agentSessionStore.startNewSession()
+        withAnimation(.snappy(duration: 0.32)) {
+            agentRunState.beginNewTripPlanning()
+            section = .today
+        }
+    }
+
     private func resetListCardSwipeGesture() {
         listCardSwipeGestureCardID = nil
         listCardSwipeTranslation = 0
@@ -2702,76 +2666,6 @@ struct ItineraryView: View {
         if let visibleDay, visibleDay.date != selectedListDate {
             selectedListDate = visibleDay.date
         }
-    }
-
-    /// A persistent, touch-friendly action strip replaces the compact system
-    /// toolbar. It keeps the six primary journey actions visible in the same
-    /// order as the visual design while retaining their previous behavior.
-    private var journeyActionBar: some View {
-        HStack(spacing: 2) {
-            Button {
-                withAnimation(.snappy(duration: 0.28)) { section.toggle() }
-            } label: {
-                Image("icon-mapview-outline")
-                    .journeyActionIcon()
-            }
-            .accessibilityLabel(section.alternateTitle)
-
-            Menu {
-                ForEach(syncEngine.trips) { summary in
-                    Button {
-                        Task { await syncEngine.selectTrip(summary.id) }
-                    } label: {
-                        if summary.id == syncEngine.selectedTripID {
-                            Label(summary.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(summary.displayName)
-                        }
-                    }
-                }
-                Divider()
-                Button("itinerary.newTripMenu", systemImage: "plus") { showsNewTripEditor = true }
-            } label: {
-                Image("icon-plan-outline")
-                    .journeyActionIcon()
-            }
-            .accessibilityLabel(Text("itinerary.switchTripA11y"))
-
-            Button {
-                showsSharingSheet = true
-            } label: {
-                Image("icon-adduser-outline")
-                    .journeyActionIcon()
-            }
-            .disabled(!syncEngine.isUserAuthenticated || syncEngine.selectedTripID == nil)
-            .accessibilityLabel(Text("itinerary.membersA11y"))
-
-            Button { Task { await syncEngine.retry() } } label: {
-                Image("icon-reload-outline")
-                    .journeyActionIcon()
-            }
-            .accessibilityLabel(Text("itinerary.resyncA11y"))
-
-            Button { showsSignOutConfirmation = true } label: {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .journeyActionIcon()
-            }
-            .disabled(!appleSignIn.isAuthenticated)
-            .accessibilityLabel(Text("itinerary.signOutA11y"))
-
-            Button {
-                agentSheet = ItineraryAgentSheet(initialMessage: nil)
-            } label: {
-                Image("icon-ai-outline")
-                    .journeyActionIcon()
-            }
-            .disabled(syncEngine.trip?.isConfigured != true)
-            .accessibilityLabel(Text("itinerary.aiFillA11y"))
-        }
-        .padding(5)
-        .frame(maxWidth: .infinity)
-        .background(JourneyPalette.toolbarFill, in: Capsule())
-        .overlay { Capsule().stroke(.white.opacity(0.13), lineWidth: 1) }
     }
 
     private func joinPendingInviteIfPossible() {
@@ -4467,20 +4361,6 @@ private enum ItineraryDayCityResolver {
             return RoutePoint(latitude: arrival.latitude, longitude: arrival.longitude)
         }
         return cards.lazy.compactMap(\.place?.point).first
-    }
-}
-
-private extension Image {
-    func journeyActionIcon() -> some View {
-        self
-            .resizable()
-            .renderingMode(.template)
-            .scaledToFit()
-            .foregroundStyle(.white)
-            .frame(width: 27, height: 27)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .contentShape(Rectangle())
-            .opacity(1)
     }
 }
 

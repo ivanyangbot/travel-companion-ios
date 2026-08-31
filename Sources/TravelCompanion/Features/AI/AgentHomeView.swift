@@ -67,8 +67,6 @@ struct AgentHomeView: View {
     @State private var isHomeMenuCollapsed = true
     @State private var activeHomeQuickAction: TodayQuickAction?
     @State private var isReloadingHome = false
-    /// 「切换旅行」的「编辑」入口：等 picker 收起后再打开「旅行与偏好」，避免两张 sheet 抢占同一宿主。
-    @State private var openContextAfterPickerDismiss = false
     /// 工作台内「新建一段旅行」：清空当前行程后，等 picker 收起再关闭工作台，
     /// 让 Today 根视图稳定落到 Agent 首页，而不是短暂闪回地图。
     @State private var closeWorkbenchAfterNewTripPickerDismiss = false
@@ -416,11 +414,6 @@ struct AgentHomeView: View {
             }
             .sheet(isPresented: $isShowingTripPicker, onDismiss: {
                 clearHomeQuickAction(.tripSelection)
-                // 「编辑」先关掉本弹窗，待其完全收起后再弹出「旅行与偏好」。
-                if openContextAfterPickerDismiss {
-                    openContextAfterPickerDismiss = false
-                    isShowingContext = true
-                }
                 // 工作台内新建旅行时，关闭整个工作台并落到 Agent 首页。
                 if closeWorkbenchAfterNewTripPickerDismiss {
                     closeWorkbenchAfterNewTripPickerDismiss = false
@@ -428,23 +421,13 @@ struct AgentHomeView: View {
                 }
             }) {
                 // 与主页左上角的「切换旅行」共用同一弹窗；Agent 语境下副标题
-                // 换文案，编辑改为打开「旅行与偏好」。
+                // 换文案。左滑编辑由弹窗内建的「旅行与偏好」处理。
                 TodayTripPickerSheet(
                     trips: syncEngine.trips,
                     selectedTripID: syncEngine.selectedTripID,
                     tripBeingSelectedID: nil,
                     isStartingNewTrip: false,
                     subtitle: String(localized: "agent.selectTripSheetSubtitle"),
-                    onEditTrip: { summary in
-                        // 与点击行程一致：编辑未选中的行程先切换过去，再打开「旅行与偏好」。
-                        if summary.id != syncEngine.selectedTripID {
-                            startNewConversation()
-                            resetSuggestions()
-                            Task { await syncEngine.selectTrip(summary.id) }
-                        }
-                        openContextAfterPickerDismiss = true
-                        isShowingTripPicker = false
-                    },
                     onSelect: { summary in
                         guard summary.id != syncEngine.selectedTripID else { return }
                         startNewConversation()
@@ -465,17 +448,6 @@ struct AgentHomeView: View {
                             }
                         } else {
                             isShowingTripPicker = false
-                        }
-                    },
-                    onEdit: { summary, destination, startDate, endDate, currency in
-                        Task {
-                            await syncEngine.updateTrip(
-                                summary,
-                                destination: destination,
-                                startDate: startDate,
-                                endDate: endDate,
-                                currency: currency
-                            )
                         }
                     },
                     onDelete: { summary in
@@ -4184,9 +4156,13 @@ private extension AgentV2Candidate {
     }
 }
 
-private struct AgentContextSheet: View {
+struct AgentContextSheet: View {
     @ObservedObject var syncEngine: SyncEngine
     @ObservedObject var store: AgentV2SessionStore
+    /// 非 nil 时编辑该行程——「切换旅行」弹窗左滑编辑任意行（可能不是当前
+    /// 选中行程）；nil 时维持原行为，编辑当前选中行程。行程切换弹窗与旅程
+    /// 列表的编辑入口共用本弹窗。
+    var targetSummary: TripSummary? = nil
     @Environment(\.dismiss) private var dismiss
 
     @State private var customInterest = ""
@@ -4198,7 +4174,7 @@ private struct AgentContextSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    if let trip = syncEngine.trip, trip.isConfigured {
+                    if canShowTripFields {
                         if isTripEditable {
                             TextField("agent.destinationPlaceholder", text: $destination)
                                 .textInputAutocapitalization(.words)
@@ -4210,10 +4186,10 @@ private struct AgentContextSheet: View {
                                     if endDate < newStartDate { endDate = newStartDate }
                                 }
                         } else {
-                            LabeledContent("agent.destinationLabel", value: trip.destination ?? String(localized: "agent.valueUnset"))
+                            LabeledContent("agent.destinationLabel", value: displayedDestination ?? String(localized: "agent.valueUnset"))
                             LabeledContent(
                                 "agent.dateLabel",
-                                value: String(format: String(localized: "agent.dateRange"), trip.startDate ?? "", trip.endDate ?? "")
+                                value: String(format: String(localized: "agent.dateRange"), displayedStartDate ?? "", displayedEndDate ?? "")
                             )
                         }
                     } else {
@@ -4297,9 +4273,31 @@ private struct AgentContextSheet: View {
         }
     }
 
-    /// 当前选中行程的摘要；保存目的地与日期时需要它定位行程。
+    /// 当前编辑目标行程的摘要；保存目的地与日期时需要它定位行程。指定了
+    /// targetSummary 时以它为准（编辑非选中行程），否则取当前选中行程。
     private var currentSummary: TripSummary? {
-        syncEngine.trips.first { $0.id == syncEngine.selectedTripID }
+        targetSummary ?? syncEngine.trips.first { $0.id == syncEngine.selectedTripID }
+    }
+
+    /// 行程区能否展示字段：编辑指定行程时目标一定来自行程列表，直接展示；
+    /// 编辑选中行程时沿用手上的快照，且要求已完成设置。
+    private var canShowTripFields: Bool {
+        if targetSummary != nil { return true }
+        guard let trip = syncEngine.trip else { return false }
+        return trip.isConfigured
+    }
+
+    /// 只读展示用的目的地/日期：优先目标行程，其次当前选中行程。
+    private var displayedDestination: String? {
+        targetSummary?.destination ?? syncEngine.trip?.destination
+    }
+
+    private var displayedStartDate: String? {
+        targetSummary?.startDate ?? syncEngine.trip?.startDate
+    }
+
+    private var displayedEndDate: String? {
+        targetSummary?.endDate ?? syncEngine.trip?.endDate
     }
 
     /// 与「切换旅行」弹窗的「编辑」入口一致：只有 owner 能改行程信息。
@@ -4307,8 +4305,15 @@ private struct AgentContextSheet: View {
         currentSummary?.role == "owner"
     }
 
-    /// 进入弹窗或切换行程时，把共享行程快照载入可编辑字段。
+    /// 进入弹窗或切换行程时，把行程快照载入可编辑字段。
     private func loadTripFields() {
+        if let targetSummary {
+            destination = targetSummary.destination ?? ""
+            let start = targetSummary.startDate.flatMap(Self.formatter.date(from:)) ?? Date()
+            startDate = start
+            endDate = max(start, targetSummary.endDate.flatMap(Self.formatter.date(from:)) ?? start)
+            return
+        }
         guard let trip = syncEngine.trip else { return }
         destination = trip.destination ?? ""
         let start = trip.startDate.flatMap(Self.formatter.date(from:)) ?? Date()
@@ -4319,26 +4324,36 @@ private struct AgentContextSheet: View {
     /// 离开弹窗时保存改动（点「完成」或下拉关闭都会触发）。
     /// 目的地为空视作未完成编辑，不落库；无改动时不发请求。
     private func persistTripChanges() {
-        guard isTripEditable, let summary = currentSummary, let trip = syncEngine.trip else { return }
+        guard isTripEditable, let summary = currentSummary else { return }
+        // 编辑非选中行程时以目标行程的快照做变更对比与货币回填；
+        // syncEngine.trip 此时可能是另一段行程，不能拿来当参照。
+        let reference: (destination: String?, startDate: String?, endDate: String?, currency: String?)
+        if let targetSummary {
+            reference = (targetSummary.destination, targetSummary.startDate, targetSummary.endDate, targetSummary.currency)
+        } else if let trip = syncEngine.trip {
+            reference = (trip.destination, trip.startDate, trip.endDate, trip.currency)
+        } else {
+            return
+        }
         let newDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newDestination.isEmpty else { return }
         let newStart = Self.formatter.string(from: startDate)
         let newEnd = Self.formatter.string(from: endDate)
-        guard newDestination != (trip.destination ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            || newStart != (trip.startDate ?? "")
-            || newEnd != (trip.endDate ?? "") else { return }
+        guard newDestination != (reference.destination ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            || newStart != (reference.startDate ?? "")
+            || newEnd != (reference.endDate ?? "") else { return }
         Task {
             await syncEngine.updateTrip(
                 summary,
                 destination: newDestination,
                 startDate: startDate,
                 endDate: endDate,
-                currency: trip.currency ?? "CNY"
+                currency: reference.currency ?? "CNY"
             )
         }
     }
 
-    /// 与 TripSetupSheet 一致：日期以 "yyyy-MM-dd"（GMT/POSIX）字符串存储。
+    /// 日期以 "yyyy-MM-dd"（GMT/POSIX）字符串存储，与服务端行程快照一致。
     private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
