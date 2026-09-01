@@ -523,17 +523,27 @@ struct FlightTicketPopup: View {
             perforatedDivider
 
             if !ticketDetails.isEmpty {
-                LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 18) {
-                    ForEach(ticketDetails) { detail in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(detail.label)
-                                .font(.caption)
-                                .foregroundStyle(PrimaryTabPalette.secondaryText)
-                            Text(detail.value)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 16) {
+                    if !compactTicketDetails.isEmpty {
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(), alignment: .leading),
+                                GridItem(.flexible(), alignment: .leading)
+                            ],
+                            alignment: .leading,
+                            spacing: 16
+                        ) {
+                            ForEach(compactTicketDetails) { detail in
+                                ticketDetail(detail)
+                            }
                         }
+                    }
+
+                    ForEach(wideTicketDetails) { detail in
+                        ticketDetail(detail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                 }
                 .padding(20)
@@ -592,17 +602,6 @@ struct FlightTicketPopup: View {
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
             Spacer(minLength: 8)
-            if let ticketNumber = nonEmpty(card.ticketNumber) {
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text("flightticket.ticketNumber")
-                        .font(.caption2)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    Text(ticketNumber)
-                        .font(.caption.monospaced().weight(.bold))
-                        .foregroundStyle(PrimaryTabPalette.accent)
-                        .lineLimit(1)
-                }
-            }
         }
     }
 
@@ -684,6 +683,7 @@ struct FlightTicketPopup: View {
         var details: [FlightTicketDetail] = []
         appendDetail(&details, key: "airline", label: String(localized: "flightticket.airline"), value: card.airlineName)
         appendDetail(&details, key: "flight", label: String(localized: "flightticket.flight"), value: card.bookingCode)
+        appendDetail(&details, key: "ticketNumber", label: String(localized: "flightticket.ticketNumber"), value: card.ticketNumber)
         if showsPassengers {
             appendDetail(&details, key: "passengers", label: String(localized: "carddetail.passengers"), value: card.passengers)
         }
@@ -700,6 +700,27 @@ struct FlightTicketPopup: View {
             details.append(.init(id: "ticketPrice", label: String(localized: "flightticket.ticketPrice"), value: ticket))
         }
         return details
+    }
+
+    private var compactTicketDetails: [FlightTicketDetail] {
+        ticketDetails.filter { $0.id != "passengers" && $0.id != "baggage" }
+    }
+
+    private var wideTicketDetails: [FlightTicketDetail] {
+        ticketDetails.filter { $0.id == "passengers" || $0.id == "baggage" }
+    }
+
+    private func ticketDetail(_ detail: FlightTicketDetail) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(detail.label, systemImage: detail.systemImage)
+                .font(.caption)
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+            Text(detail.value)
+                .font(detail.id == "ticketNumber" ? .subheadline.monospaced().weight(.bold) : .subheadline.weight(.semibold))
+                .foregroundStyle(detail.id == "ticketNumber" ? PrimaryTabPalette.accent : .white)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
     }
 
     private func appendDetail(_ details: inout [FlightTicketDetail], key: String, label: String, value: String?) {
@@ -788,6 +809,21 @@ private struct FlightTicketDetail: Identifiable {
     let id: String
     let label: String
     let value: String
+
+    var systemImage: String {
+        switch id {
+        case "airline": "building.2"
+        case "flight": "airplane"
+        case "ticketNumber": "ticket"
+        case "passengers": "person.fill"
+        case "gate": "door.left.hand.open"
+        case "cabin": "chair.lounge.fill"
+        case "seat": "chair.fill"
+        case "baggage": "suitcase.fill"
+        case "actualPrice", "price", "ticketPrice": "banknote.fill"
+        default: "info.circle"
+        }
+    }
 }
 
 private struct CardDetailImagePager: View {
