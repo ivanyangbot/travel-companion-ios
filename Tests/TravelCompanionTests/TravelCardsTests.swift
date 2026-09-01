@@ -168,9 +168,79 @@ final class TravelCardsTests: XCTestCase {
                 startAt: start,
                 endAt: start.addingTimeInterval(2 * 3_600)
             ),
-            "2h00m"
+            "2h"
+        )
+        XCTAssertEqual(
+            ItineraryFlightCardPresentation.durationText(
+                startAt: start,
+                endAt: start.addingTimeInterval(3_600)
+            ),
+            "1h"
         )
         XCTAssertNil(ItineraryFlightCardPresentation.durationText(startAt: start, endAt: nil))
+    }
+
+    func testFlightLegEndpointsUseArrivalThenDepartureAirport() throws {
+        let departure = FlightAirportLocationSnapshot(
+            query: "LOP Lombok International Airport",
+            iata: "LOP",
+            icao: nil,
+            name: "Lombok International Airport",
+            city: "Lombok",
+            country: "Indonesia",
+            latitude: -8.7573,
+            longitude: 116.2767,
+            resolvedAt: .now
+        )
+        let arrival = FlightAirportLocationSnapshot(
+            query: "CGK Soekarno-Hatta International Airport",
+            iata: "CGK",
+            icao: nil,
+            name: "Soekarno-Hatta International Airport",
+            city: "Jakarta",
+            country: "Indonesia",
+            latitude: -6.1256,
+            longitude: 106.6559,
+            resolvedAt: .now
+        )
+        let flight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "Lombok → Jakarta",
+            startAt: .now,
+            fromAirport: "LOP",
+            toAirport: "CGK",
+            fromAirportLocation: departure,
+            toAirportLocation: arrival
+        )
+        let activityPoint = PlaceSnapshot(
+            id: 1,
+            name: "Jakarta activity",
+            address: nil,
+            latitude: -6.2,
+            longitude: 106.8,
+            placeId: nil,
+            cityCode: nil,
+            updatedAt: .now
+        )
+        let activity = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "Jakarta activity",
+            startAt: .now,
+            place: activityPoint
+        )
+
+        XCTAssertEqual(
+            ItineraryListPresentation.legOriginPoint(for: flight),
+            RoutePoint(latitude: arrival.latitude, longitude: arrival.longitude)
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.legDestinationPoint(for: flight),
+            RoutePoint(latitude: departure.latitude, longitude: departure.longitude)
+        )
+        XCTAssertEqual(ItineraryListPresentation.legOriginPoint(for: activity), activityPoint.point)
+        XCTAssertEqual(ItineraryListPresentation.legDestinationPoint(for: activity), activityPoint.point)
     }
 
     func testFlightsAndHotelsCannotBeLongPressDragged() {

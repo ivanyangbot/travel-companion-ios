@@ -816,17 +816,15 @@ struct ItineraryView: View {
                                 currentOrNextCardID: currentOrNextCardID
                             )
 
-                            // Route legs only connect two own cards that are
-                            // still visually adjacent after the merge, and
-                            // never touch a flight card: the flight itself is
-                            // the connection between its two cities.
+                            // Route legs connect adjacent cards using the point
+                            // where the previous card ends and the next begins.
+                            // A flight therefore contributes its arrival airport
+                            // as an origin, or its departure airport as a destination.
                             if itemIndex + 1 < listItems.count,
                                let nextIndex = listItems[itemIndex + 1].ownIndex,
                                nextIndex == ownIndex + 1,
-                               item.card.kind != .flight,
-                               listItems[itemIndex + 1].card.kind != .flight,
-                               let originPoint = item.card.place?.point,
-                               let destinationPoint = listItems[itemIndex + 1].card.place?.point {
+                               let originPoint = ItineraryListPresentation.legOriginPoint(for: item.card),
+                               let destinationPoint = ItineraryListPresentation.legDestinationPoint(for: listItems[itemIndex + 1].card) {
                                 CardLegEstimateView(
                                     originCard: item.card,
                                     destinationCard: listItems[itemIndex + 1].card,
@@ -2835,10 +2833,8 @@ struct ItineraryView: View {
                                     .accessibilityHint(Text(String(format: String(localized: "itinerary.openDetailHint"), card.title)))
                                 }
                                 if cardIndex < cards.count - 1,
-                                   card.kind != .flight,
-                                   cards[cardIndex + 1].kind != .flight,
-                                   let originPoint = card.place?.point,
-                                   let destinationPoint = cards[cardIndex + 1].place?.point {
+                                   let originPoint = ItineraryListPresentation.legOriginPoint(for: card),
+                                   let destinationPoint = ItineraryListPresentation.legDestinationPoint(for: cards[cardIndex + 1]) {
                                     CardLegEstimateView(
                                         originCard: card,
                                         destinationCard: cards[cardIndex + 1],
@@ -3577,6 +3573,9 @@ enum ItineraryFlightCardPresentation {
         guard let endAt else { return nil }
         let minutes = max(0, Int(endAt.timeIntervalSince(startAt) / 60))
         guard minutes > 0, minutes <= 24 * 60 else { return nil }
+        if minutes.isMultiple(of: 60) {
+            return "\(minutes / 60)h"
+        }
         return String(format: "%dh%02dm", minutes / 60, minutes % 60)
     }
 }
@@ -3751,6 +3750,28 @@ enum ItineraryListPresentation {
             }
         }
         return originIDs
+    }
+
+    /// Point where travel continues after a card. Flights end at their arrival
+    /// airport; ordinary cards continue to use their verified POI coordinate.
+    static func legOriginPoint(for card: TravelCardSnapshot) -> RoutePoint? {
+        if card.kind == .flight,
+           let airport = card.toAirportLocation,
+           airport.hasValidCoordinate {
+            return RoutePoint(latitude: airport.latitude, longitude: airport.longitude)
+        }
+        return card.place?.point
+    }
+
+    /// Point where travel must reach before a card starts. Flights begin at
+    /// their departure airport; ordinary cards use their verified POI.
+    static func legDestinationPoint(for card: TravelCardSnapshot) -> RoutePoint? {
+        if card.kind == .flight,
+           let airport = card.fromAirportLocation,
+           airport.hasValidCoordinate {
+            return RoutePoint(latitude: airport.latitude, longitude: airport.longitude)
+        }
+        return card.place?.point
     }
 
     static func immediateCity(for day: TripDaySnapshot) -> String? {
