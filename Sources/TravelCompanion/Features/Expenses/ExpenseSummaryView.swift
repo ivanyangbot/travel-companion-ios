@@ -8,13 +8,15 @@ struct ExpenseSummaryView: View {
     private var cards: [TravelCardSnapshot] { trip.days.flatMap(\.cards) }
 
     /// Sum of all recorded actual prices (card-linked and standalone spends).
-    private var actualTotal: Int64 { expenses.reduce(Int64(0)) { $0 + $1.amountMinor } }
+    private var actualTotal: Int64 { expenses.compactMap(\.amountForSettlement).reduce(0, +) }
 
     /// Cards whose estimate still counts: those with no linked actual expense.
     private var estimatedTotal: Int64 {
         let linked = Set(expenses.compactMap(\.cardID))
         return cards.reduce(Int64(0)) { acc, card in
-            guard let serverID = card.serverID, !linked.contains(serverID), let minor = card.actualPriceMinor ?? card.priceMinor else { return acc }
+            guard let serverID = card.serverID, !linked.contains(serverID),
+                  card.priceCurrency == nil || card.priceCurrency == currency,
+                  let minor = card.actualPriceMinor ?? card.priceMinor else { return acc }
             return acc + minor
         }
     }
@@ -26,7 +28,7 @@ struct ExpenseSummaryView: View {
 
     private var byCategory: [ExpenseCategory: Int64] {
         expenses.reduce(into: [ExpenseCategory: Int64]()) { result, expense in
-            result[expense.category, default: 0] += expense.amountMinor
+            if let amount = expense.amountForSettlement { result[expense.category, default: 0] += amount }
         }
     }
 

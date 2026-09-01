@@ -1911,9 +1911,9 @@ struct ItineraryView: View {
 
     private func compactCardPrice(for card: TravelCardSnapshot) -> String? {
         let currency = syncEngine.trip?.currency
-        return CardPrice.format(minor: card.actualPriceMinor, currency: currency)
-            ?? CardPrice.format(minor: card.priceMinor, currency: currency)
-            ?? CardPrice.format(minor: card.ticketPriceMinor, currency: currency)
+        return CardPrice.format(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency)
+            ?? CardPrice.format(minor: card.priceMinor, currency: card.priceCurrency ?? currency)
+            ?? CardPrice.format(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency)
     }
 
     private func handleListCardSwipeChanged(_ card: TravelCardSnapshot, translation: CGFloat) {
@@ -2892,7 +2892,7 @@ struct ItineraryView: View {
                 Text("itinerary.dayExpensesSection").font(.subheadline.weight(.semibold))
                 Spacer()
                 if let currency = trip.currency {
-                    Text(ExpenseMoney.formatted(expenses.reduce(Int64(0)) { $0 + $1.amountMinor }, currency: currency))
+                    Text(ExpenseMoney.formatted(expenses.compactMap(\.amountForSettlement).reduce(Int64(0), +), currency: currency))
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -2912,7 +2912,7 @@ struct ItineraryView: View {
                         }
                         Spacer()
                         if let currency = trip.currency {
-                            Text(ExpenseMoney.formatted(expense.amountMinor, currency: currency))
+                            Text(ExpenseMoney.formatted(expense.amountMinor, currency: expense.currency))
                                 .font(.subheadline.monospacedDigit())
                         }
                     }

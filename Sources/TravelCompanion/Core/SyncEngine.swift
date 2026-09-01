@@ -1019,6 +1019,7 @@ final class SyncEngine: ObservableObject {
                 priceMinor: request.priceMinor,
                 actualPriceMinor: request.actualPriceMinor,
                 ticketPriceMinor: request.ticketPriceMinor,
+                priceCurrency: request.priceCurrency,
                 stayDurationMinutes: request.stayDurationMinutes,
                 tips: request.tips,
                 images: request.images,
@@ -1072,7 +1073,7 @@ final class SyncEngine: ObservableObject {
     }
 
     func addExpense(_ request: ExpenseRequest) async {
-        guard var current = trip, let currency = current.currency, request.currency == currency,
+        guard var current = trip, let settlementCurrency = current.currency, let currency = request.currency,
               let amountMinor = request.amountMinor, let category = request.category,
               let occurredOn = request.occurredOn else {
             status = .failed(String(localized: "error.expensePreflight"))
@@ -1081,7 +1082,7 @@ final class SyncEngine: ObservableObject {
         let baseVersion = current.version
         do {
             let body = try await apiClient.encode(request)
-            let expense = ExpenseSnapshot(amountMinor: amountMinor, currency: currency, category: category, occurredOn: occurredOn, note: request.note, cardID: request.cardID)
+            let expense = ExpenseSnapshot(amountMinor: amountMinor, currency: currency, settlementCurrency: settlementCurrency, category: category, occurredOn: occurredOn, note: request.note, cardID: request.cardID)
             current.expenses.append(expense)
             trip = current
             try repository.save(current)
@@ -1487,6 +1488,7 @@ final class SyncEngine: ObservableObject {
         updated.priceMinor = request.priceMinor ?? (request.fieldsToClear.contains("priceMinor") ? nil : updated.priceMinor)
         updated.actualPriceMinor = request.actualPriceMinor ?? (request.fieldsToClear.contains("actualPriceMinor") ? nil : updated.actualPriceMinor)
         updated.ticketPriceMinor = request.ticketPriceMinor ?? (request.fieldsToClear.contains("ticketPriceMinor") ? nil : updated.ticketPriceMinor)
+        updated.priceCurrency = request.priceCurrency ?? (request.fieldsToClear.contains("priceCurrency") ? nil : updated.priceCurrency)
         updated.stayDurationMinutes = request.stayDurationMinutes ?? (request.fieldsToClear.contains("stayDurationMinutes") ? nil : updated.stayDurationMinutes)
         updated.tips = request.tips ?? (request.fieldsToClear.contains("tips") ? nil : updated.tips)
         if let images = request.images {
@@ -1627,6 +1629,7 @@ final class SyncEngine: ObservableObject {
             priceMinor: card.priceMinor,
             actualPriceMinor: card.actualPriceMinor,
             ticketPriceMinor: card.ticketPriceMinor,
+            priceCurrency: card.priceCurrency,
             stayDurationMinutes: card.stayDurationMinutes,
             tips: card.tips,
             images: card.images,
@@ -1838,6 +1841,7 @@ private struct MigrationCardFingerprint: Hashable {
     let priceMinor: Int64?
     let actualPriceMinor: Int64?
     let ticketPriceMinor: Int64?
+    let priceCurrency: String?
     let stayDurationMinutes: Int?
     let tips: [String]?
     let images: [String]?
@@ -1862,6 +1866,7 @@ private struct MigrationCardFingerprint: Hashable {
         priceMinor = card.priceMinor
         actualPriceMinor = card.actualPriceMinor
         ticketPriceMinor = card.ticketPriceMinor
+        priceCurrency = card.priceCurrency
         stayDurationMinutes = card.stayDurationMinutes
         tips = card.tips
         images = card.images

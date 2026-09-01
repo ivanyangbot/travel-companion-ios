@@ -31,6 +31,24 @@ final class ExpensesTests: XCTestCase {
         XCTAssertEqual(ExpenseMoney.formatted(5_000, currency: "CNY").isEmpty, false)
     }
 
+    func testSettlementUsesConvertedSnapshotInsteadOfAddingDifferentCurrencies() {
+        let hkd = ExpenseSnapshot(
+            amountMinor: 132_092,
+            currency: "HKD",
+            settlementAmountMinor: 257_579_400,
+            settlementCurrency: "IDR",
+            exchangeRate: "1950.00",
+            exchangeRateAsOf: "2026-09-01",
+            exchangeRateSource: "frankfurter",
+            category: .lodging,
+            occurredOn: "2026-09-24"
+        )
+        let idr = ExpenseSnapshot(amountMinor: 100_000, currency: "IDR", category: .food, occurredOn: "2026-09-24")
+        let settlement = ExpenseSettlementCalculator.calculate([hkd, idr])
+        XCTAssertEqual(settlement.total, 257_679_400)
+        XCTAssertEqual(settlement.byCategory[.lodging], 257_579_400)
+    }
+
     func testOddMinorUnitEqualSplitDeterministicallyAssignsRemainderToPersonB() {
         let expense = ExpenseSnapshot(amountMinor: 101, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01")
         let settlement = ExpenseSettlementCalculator.calculate([expense])

@@ -2,8 +2,8 @@ import Foundation
 
 /// Formats and parses card prices stored as integer minor units (e.g. cents).
 ///
-/// The card carries only `priceMinor` plus the trip currency code; there is no
-/// separate currency field per card. Most ISO 4217 currencies use two minor
+/// A card may carry its own `priceCurrency`; legacy cards fall back to the trip
+/// currency. Most ISO 4217 currencies use two minor
 /// units, but a few (JPY, KRW, VND, ISK, CLP) use none, so the amount is the
 /// minor value as-is. This keeps the displayed price consistent with the
 /// currency without bundling a full currency-clients table into the app.

@@ -7,6 +7,7 @@ struct ExpenseEditorView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var amountText: String
+    @State private var currency: String
     @State private var category: ExpenseCategory
     @State private var occurredOn: Date
     @State private var note: String
@@ -17,7 +18,8 @@ struct ExpenseEditorView: View {
         self.trip = trip
         self.existingExpense = existingExpense
         self.onSave = onSave
-        let currency = trip.currency ?? "CNY"
+        let currency = existingExpense?.currency ?? trip.currency ?? "CNY"
+        _currency = State(initialValue: currency)
         _amountText = State(initialValue: existingExpense.map { ExpenseMoney.inputString($0.amountMinor, currency: currency) } ?? "")
         _category = State(initialValue: existingExpense?.category ?? .other)
         _occurredOn = State(initialValue: Self.date(from: existingExpense?.occurredOn) ?? initialDate ?? .now)
@@ -31,7 +33,12 @@ struct ExpenseEditorView: View {
                 Section("expenseeditor.actualSection") {
                     TextField("expenseeditor.amountPlaceholder", text: $amountText)
                         .keyboardType(.decimalPad)
-                    Text(String(format: String(localized: "expenseeditor.currencyNote"), trip.currency ?? String(localized: "expenseeditor.currencyPending")))
+                    Picker("expenseeditor.currencyLabel", selection: $currency) {
+                        ForEach(Self.supportedCurrencies, id: \.self) { code in
+                            Text(code).tag(code)
+                        }
+                    }
+                    Text(String(format: String(localized: "expenseeditor.conversionNote"), trip.currency ?? String(localized: "expenseeditor.currencyPending")))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -73,7 +80,7 @@ struct ExpenseEditorView: View {
     }
 
     private func save() {
-        guard let currency = trip.currency, let amountMinor = ExpenseMoney.amountMinor(from: amountText, currency: currency) else {
+        guard trip.currency != nil, let amountMinor = ExpenseMoney.amountMinor(from: amountText, currency: currency) else {
             validationMessage = String(localized: "expenseeditor.errorInvalid")
             return
         }
@@ -98,4 +105,8 @@ struct ExpenseEditorView: View {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
+
+    private static let supportedCurrencies = [
+        "CNY", "HKD", "IDR", "USD", "EUR", "GBP", "JPY", "SGD", "MYR", "THB", "KRW", "AUD", "CAD", "TWD", "VND",
+    ]
 }

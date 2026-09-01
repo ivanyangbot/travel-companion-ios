@@ -468,6 +468,8 @@
 "expenseeditor.actualSection" = "实际价";
 "expenseeditor.amountPlaceholder" = "0.00";
 "expenseeditor.currencyNote" = "币种：%@；金额会精确保存为最小货币单位。";
+"expenseeditor.currencyLabel" = "支付币种";
+"expenseeditor.conversionNote" = "将按最新参考汇率换算为 %@ 结算，并保存汇率快照。";
 "expenseeditor.currencyPending" = "请先设置";
 "expenseeditor.categorySection" = "归类";
 "expenseeditor.categoryLabel" = "类别";

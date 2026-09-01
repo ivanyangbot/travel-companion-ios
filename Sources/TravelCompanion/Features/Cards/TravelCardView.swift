@@ -43,12 +43,12 @@ struct TravelCardView: View {
             }
             if let place = card.place { placeRow(place) }
             // 预估价/实际价只显示一个：填写了实际价就优先展示实际价。
-            if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: currency) {
+            if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency) {
                 priceRow(actual, label: String(localized: "travelcard.actualLabel"))
-            } else if let estimated = CardPrice.format(minor: card.priceMinor, currency: currency) {
+            } else if let estimated = CardPrice.format(minor: card.priceMinor, currency: card.priceCurrency ?? currency) {
                 priceRow(estimated, label: String(localized: "travelcard.estimateLabel"))
             }
-            if let ticket = CardPrice.format(minor: card.ticketPriceMinor, currency: currency) {
+            if let ticket = CardPrice.format(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency) {
                 ticketRow(ticket)
             }
             if let stayMinutes = card.stayDurationMinutes {
@@ -322,8 +322,8 @@ struct TravelCardView: View {
     }
 
     private var flightPrice: String? {
-        CardPrice.format(minor: card.actualPriceMinor, currency: currency)
-            ?? CardPrice.format(minor: card.priceMinor, currency: currency)
+        CardPrice.format(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency)
+            ?? CardPrice.format(minor: card.priceMinor, currency: card.priceCurrency ?? currency)
     }
 
     private func nonEmpty(_ value: String?) -> String? {

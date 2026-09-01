@@ -468,6 +468,8 @@
 "expenseeditor.actualSection" = "Actual Price";
 "expenseeditor.amountPlaceholder" = "0.00";
 "expenseeditor.currencyNote" = "Currency: %@; amounts are stored exactly in the currency's smallest unit.";
+"expenseeditor.currencyLabel" = "Payment currency";
+"expenseeditor.conversionNote" = "Converted to %@ using the latest reference rate; the rate snapshot is saved.";
 "expenseeditor.currencyPending" = "set up first";
 "expenseeditor.categorySection" = "Category";
 "expenseeditor.categoryLabel" = "Category";

@@ -62,6 +62,11 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
     var serverID: Int?
     var amountMinor: Int64
     var currency: String
+    var settlementAmountMinor: Int64?
+    var settlementCurrency: String?
+    var exchangeRate: String?
+    var exchangeRateAsOf: String?
+    var exchangeRateSource: String?
     var category: ExpenseCategory
     /// Retained by the server for historical rows but no longer part of the
     /// contract; the UI never models splitting.
@@ -72,13 +77,18 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
     var cardID: Int?
     var updatedAt: Date
 
-    enum CodingKeys: String, CodingKey { case serverID = "id", localID, amountMinor, currency, category, paidBy, splitMode, occurredOn, note, cardID = "cardId", updatedAt }
+    enum CodingKeys: String, CodingKey { case serverID = "id", localID, amountMinor, currency, settlementAmountMinor, settlementCurrency, exchangeRate, exchangeRateAsOf, exchangeRateSource, category, paidBy, splitMode, occurredOn, note, cardID = "cardId", updatedAt }
 
-    init(serverID: Int? = nil, amountMinor: Int64, currency: String, category: ExpenseCategory, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String, note: String? = nil, cardID: Int? = nil, updatedAt: Date = .now) {
+    init(serverID: Int? = nil, amountMinor: Int64, currency: String, settlementAmountMinor: Int64? = nil, settlementCurrency: String? = nil, exchangeRate: String? = nil, exchangeRateAsOf: String? = nil, exchangeRateSource: String? = nil, category: ExpenseCategory, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String, note: String? = nil, cardID: Int? = nil, updatedAt: Date = .now) {
         id = UUID()
         self.serverID = serverID
         self.amountMinor = amountMinor
         self.currency = currency
+        self.settlementAmountMinor = settlementAmountMinor
+        self.settlementCurrency = settlementCurrency
+        self.exchangeRate = exchangeRate
+        self.exchangeRateAsOf = exchangeRateAsOf
+        self.exchangeRateSource = exchangeRateSource
         self.category = category
         self.paidBy = paidBy
         self.splitMode = splitMode
@@ -93,6 +103,11 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         serverID = try container.decodeIfPresent(Int.self, forKey: .serverID)
         amountMinor = try container.decode(Int64.self, forKey: .amountMinor)
         currency = try container.decode(String.self, forKey: .currency)
+        settlementAmountMinor = try container.decodeIfPresent(Int64.self, forKey: .settlementAmountMinor)
+        settlementCurrency = try container.decodeIfPresent(String.self, forKey: .settlementCurrency)
+        exchangeRate = try container.decodeIfPresent(String.self, forKey: .exchangeRate)
+        exchangeRateAsOf = try container.decodeIfPresent(String.self, forKey: .exchangeRateAsOf)
+        exchangeRateSource = try container.decodeIfPresent(String.self, forKey: .exchangeRateSource)
         category = try container.decode(ExpenseCategory.self, forKey: .category)
         paidBy = try container.decodeIfPresent(ExpensePaidBy.self, forKey: .paidBy)
         splitMode = try container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitMode)
@@ -109,6 +124,11 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encode(id, forKey: .localID)
         try container.encode(amountMinor, forKey: .amountMinor)
         try container.encode(currency, forKey: .currency)
+        try container.encodeIfPresent(settlementAmountMinor, forKey: .settlementAmountMinor)
+        try container.encodeIfPresent(settlementCurrency, forKey: .settlementCurrency)
+        try container.encodeIfPresent(exchangeRate, forKey: .exchangeRate)
+        try container.encodeIfPresent(exchangeRateAsOf, forKey: .exchangeRateAsOf)
+        try container.encodeIfPresent(exchangeRateSource, forKey: .exchangeRateSource)
         try container.encode(category, forKey: .category)
         try container.encode(paidBy, forKey: .paidBy)
         try container.encode(splitMode, forKey: .splitMode)
@@ -280,6 +300,8 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     /// Admission ticket price in minor units, shown separately from the
     /// estimated/actual price.
     var ticketPriceMinor: Int64?
+    /// Currency shared by the card monetary fields; nil means trip currency.
+    var priceCurrency: String?
     /// Planned stay length in whole minutes.
     var stayDurationMinutes: Int?
     /// Hotel room type (e.g. "豪华大床房"). Nil for non-hotel cards or when
@@ -310,7 +332,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         case description, fromAirport = "fromAirport", toAirport = "toAirport"
         case fromAirportLocation, toAirportLocation, passengers
         case ticketNumber, departureTerminal, arrivalTerminal, gate, seat, cabinClass, baggageAllowance, priceMinor
-        case actualPriceMinor, ticketPriceMinor, stayDurationMinutes, roomType, checkInTime, checkOutTime, tips
+        case actualPriceMinor, ticketPriceMinor, priceCurrency, stayDurationMinutes, roomType, checkInTime, checkOutTime, tips
         case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
     }
 
@@ -344,6 +366,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         priceMinor: Int64? = nil,
         actualPriceMinor: Int64? = nil,
         ticketPriceMinor: Int64? = nil,
+        priceCurrency: String? = nil,
         stayDurationMinutes: Int? = nil,
         roomType: String? = nil,
         checkInTime: String? = nil,
@@ -386,6 +409,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.priceMinor = priceMinor
         self.actualPriceMinor = actualPriceMinor
         self.ticketPriceMinor = ticketPriceMinor
+        self.priceCurrency = priceCurrency
         self.stayDurationMinutes = stayDurationMinutes
         self.roomType = roomType
         self.checkInTime = checkInTime
@@ -431,6 +455,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         priceMinor = try container.decodeIfPresent(Int64.self, forKey: .priceMinor)
         actualPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .actualPriceMinor)
         ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)
+        priceCurrency = try container.decodeIfPresent(String.self, forKey: .priceCurrency)
         stayDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .stayDurationMinutes)
         roomType = try container.decodeIfPresent(String.self, forKey: .roomType)
         checkInTime = try container.decodeIfPresent(String.self, forKey: .checkInTime)
@@ -482,6 +507,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(priceMinor, forKey: .priceMinor)
         try container.encodeIfPresent(actualPriceMinor, forKey: .actualPriceMinor)
         try container.encodeIfPresent(ticketPriceMinor, forKey: .ticketPriceMinor)
+        try container.encodeIfPresent(priceCurrency, forKey: .priceCurrency)
         try container.encodeIfPresent(stayDurationMinutes, forKey: .stayDurationMinutes)
         try container.encodeIfPresent(roomType, forKey: .roomType)
         try container.encodeIfPresent(checkInTime, forKey: .checkInTime)

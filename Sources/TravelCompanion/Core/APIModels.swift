@@ -229,6 +229,7 @@ struct CardRequest: Encodable, Sendable {
     var priceMinor: Int64?
     var actualPriceMinor: Int64?
     var ticketPriceMinor: Int64?
+    var priceCurrency: String?
     var stayDurationMinutes: Int?
     var tips: [String]?
     var images: [String]?
@@ -262,6 +263,7 @@ struct CardRequest: Encodable, Sendable {
         priceMinor: Int64? = nil,
         actualPriceMinor: Int64? = nil,
         ticketPriceMinor: Int64? = nil,
+        priceCurrency: String? = nil,
         stayDurationMinutes: Int? = nil,
         tips: [String]? = nil,
         images: [String]? = nil,
@@ -292,6 +294,7 @@ struct CardRequest: Encodable, Sendable {
         self.priceMinor = priceMinor
         self.actualPriceMinor = actualPriceMinor
         self.ticketPriceMinor = ticketPriceMinor
+        self.priceCurrency = priceCurrency
         self.stayDurationMinutes = stayDurationMinutes
         self.tips = tips
         self.images = images
@@ -300,7 +303,7 @@ struct CardRequest: Encodable, Sendable {
         self.fieldsToClear = fieldsToClear
     }
 
-    enum CodingKeys: String, CodingKey { case dayId, kind, title, startAt, endAt, place, placeId, bookingCode, url, description, fromAirport, toAirport, passengers, ticketNumber, departureTerminal, arrivalTerminal, gate, seat, cabinClass, baggageAllowance, priceMinor, actualPriceMinor, ticketPriceMinor, stayDurationMinutes, tips, images, notes, position }
+    enum CodingKeys: String, CodingKey { case dayId, kind, title, startAt, endAt, place, placeId, bookingCode, url, description, fromAirport, toAirport, passengers, ticketNumber, departureTerminal, arrivalTerminal, gate, seat, cabinClass, baggageAllowance, priceMinor, actualPriceMinor, ticketPriceMinor, priceCurrency, stayDurationMinutes, tips, images, notes, position }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -327,6 +330,7 @@ struct CardRequest: Encodable, Sendable {
         try encodeNullable(priceMinor, clearName: "priceMinor", key: .priceMinor, into: &container)
         try encodeNullable(actualPriceMinor, clearName: "actualPriceMinor", key: .actualPriceMinor, into: &container)
         try encodeNullable(ticketPriceMinor, clearName: "ticketPriceMinor", key: .ticketPriceMinor, into: &container)
+        try encodeNullable(priceCurrency, clearName: "priceCurrency", key: .priceCurrency, into: &container)
         try encodeNullable(stayDurationMinutes, clearName: "stayDurationMinutes", key: .stayDurationMinutes, into: &container)
         try encodeNullable(tips, clearName: "tips", key: .tips, into: &container)
         try encodeNullable(images, clearName: "images", key: .images, into: &container)

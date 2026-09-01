@@ -230,10 +230,18 @@ struct ExpenseListView: View {
 
             Spacer(minLength: 8)
 
-            Text(ExpenseMoney.formatted(expense.amountMinor, currency: currency))
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .monospacedDigit()
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(ExpenseMoney.formatted(expense.amountMinor, currency: expense.currency))
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                if expense.currency != currency, let settled = expense.amountForSettlement {
+                    Text("≈ " + ExpenseMoney.formatted(settled, currency: currency))
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .monospacedDigit()
+                }
+            }
         }
         .padding(14)
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)

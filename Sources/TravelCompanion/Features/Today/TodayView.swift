@@ -2348,7 +2348,7 @@ private struct TodayMapFlightCard: View {
     }
 
     private var price: String? {
-        CardPrice.format(minor: card.actualPriceMinor ?? card.priceMinor, currency: currency)
+        CardPrice.format(minor: card.actualPriceMinor ?? card.priceMinor, currency: card.priceCurrency ?? currency)
     }
 
     private static let dateFormatter: DateFormatter = {

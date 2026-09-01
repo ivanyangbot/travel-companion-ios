@@ -92,8 +92,8 @@ enum ExpenseMoney {
 enum ExpenseOptimisticMutation {
     static func applying(_ request: ExpenseRequest, to expense: ExpenseSnapshot) -> ExpenseSnapshot {
         var updated = expense
-        if let value = request.amountMinor { updated.amountMinor = value }
-        if let value = request.currency { updated.currency = value }
+        if let value = request.amountMinor { updated.amountMinor = value; updated.settlementAmountMinor = nil }
+        if let value = request.currency { updated.currency = value; updated.settlementAmountMinor = nil }
         if let value = request.category { updated.category = value }
         if let value = request.paidBy { updated.paidBy = value }
         if let value = request.splitMode { updated.splitMode = value }
@@ -132,17 +132,18 @@ enum ExpenseSettlementCalculator {
         var owedB: Int64 = 0
         var overflowed = false
         for expense in expenses {
-            total = safeAdd(total, expense.amountMinor, overflowed: &overflowed)
-            byCategory[expense.category] = safeAdd(byCategory[expense.category, default: 0], expense.amountMinor, overflowed: &overflowed)
-            if expense.paidBy == .personA { paidA = safeAdd(paidA, expense.amountMinor, overflowed: &overflowed) } else { paidB = safeAdd(paidB, expense.amountMinor, overflowed: &overflowed) }
+            guard let settled = expense.amountForSettlement else { continue }
+            total = safeAdd(total, settled, overflowed: &overflowed)
+            byCategory[expense.category] = safeAdd(byCategory[expense.category, default: 0], settled, overflowed: &overflowed)
+            if expense.paidBy == .personA { paidA = safeAdd(paidA, settled, overflowed: &overflowed) } else { paidB = safeAdd(paidB, settled, overflowed: &overflowed) }
             if expense.splitMode == .equal {
                 // A single smallest-unit remainder is deterministically allocated to B.
-                owedA = safeAdd(owedA, expense.amountMinor / 2, overflowed: &overflowed)
-                owedB = safeAdd(owedB, expense.amountMinor - expense.amountMinor / 2, overflowed: &overflowed)
+                owedA = safeAdd(owedA, settled / 2, overflowed: &overflowed)
+                owedB = safeAdd(owedB, settled - settled / 2, overflowed: &overflowed)
             } else if expense.paidBy == .personA {
-                owedA = safeAdd(owedA, expense.amountMinor, overflowed: &overflowed)
+                owedA = safeAdd(owedA, settled, overflowed: &overflowed)
             } else {
-                owedB = safeAdd(owedB, expense.amountMinor, overflowed: &overflowed)
+                owedB = safeAdd(owedB, settled, overflowed: &overflowed)
             }
         }
         let result = ExpenseSettlement(total: total, byCategory: byCategory, paidByA: paidA, paidByB: paidB, owedByA: owedA, owedByB: owedB, overflowed: overflowed)
@@ -160,6 +161,17 @@ enum ExpenseSettlementCalculator {
         guard result.overflow else { return result.partialValue }
         overflowed = true
         return rhs >= 0 ? Int64.max : -Int64.max
+    }
+}
+
+extension ExpenseSnapshot {
+    /// Legacy same-currency snapshots predate settlement fields. A pending
+    /// cross-currency mutation has a settlement currency but no converted
+    /// amount yet and is deliberately excluded until the server responds.
+    var amountForSettlement: Int64? {
+        if let settlementAmountMinor { return settlementAmountMinor }
+        if settlementCurrency == nil || settlementCurrency == currency { return amountMinor }
+        return nil
     }
 }
 

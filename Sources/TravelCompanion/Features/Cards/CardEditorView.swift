@@ -22,6 +22,7 @@ struct CardEditorView: View {
     @State private var priceText: String
     @State private var actualPriceText: String
     @State private var ticketPriceText: String
+    @State private var priceCurrency: String
     @State private var stayDurationText: String
     @State private var tips: [String]
     @State private var notes: String
@@ -52,9 +53,11 @@ struct CardEditorView: View {
         _description = State(initialValue: existingCard?.description ?? "")
         _fromAirport = State(initialValue: existingCard?.fromAirport ?? "")
         _toAirport = State(initialValue: existingCard?.toAirport ?? "")
-        _priceText = State(initialValue: Self.priceText(from: existingCard?.priceMinor, currency: currency))
-        _actualPriceText = State(initialValue: Self.priceText(from: existingCard?.actualPriceMinor, currency: currency))
-        _ticketPriceText = State(initialValue: Self.priceText(from: existingCard?.ticketPriceMinor, currency: currency))
+        let priceCurrency = existingCard?.priceCurrency ?? currency ?? "CNY"
+        _priceCurrency = State(initialValue: priceCurrency)
+        _priceText = State(initialValue: Self.priceText(from: existingCard?.priceMinor, currency: priceCurrency))
+        _actualPriceText = State(initialValue: Self.priceText(from: existingCard?.actualPriceMinor, currency: priceCurrency))
+        _ticketPriceText = State(initialValue: Self.priceText(from: existingCard?.ticketPriceMinor, currency: priceCurrency))
         _stayDurationText = State(initialValue: existingCard?.stayDurationMinutes.map(String.init) ?? "")
         _tips = State(initialValue: existingCard?.tips ?? [])
         _notes = State(initialValue: existingCard?.notes ?? "")
@@ -109,7 +112,10 @@ struct CardEditorView: View {
                         TextField("cardeditor.toAirport", text: $toAirport)
                             .textInputAutocapitalization(.characters)
                     }
-                    TextField(String(format: String(localized: "cardeditor.estimatePlaceholder"), currency ?? String(localized: "cardeditor.currencyFallback")), text: $priceText)
+                    Picker("expenseeditor.currencyLabel", selection: $priceCurrency) {
+                        ForEach(Self.supportedCurrencies, id: \.self) { Text($0).tag($0) }
+                    }
+                    TextField(String(format: String(localized: "cardeditor.estimatePlaceholder"), priceCurrency), text: $priceText)
                         .keyboardType(.decimalPad)
                     TextField("cardeditor.actualPlaceholder", text: $actualPriceText)
                         .keyboardType(.decimalPad)
@@ -119,7 +125,7 @@ struct CardEditorView: View {
                     }
                 }
                 Section("cardeditor.visitSection") {
-                    TextField(String(format: String(localized: "cardeditor.ticketPlaceholder"), currency ?? String(localized: "cardeditor.currencyFallback")), text: $ticketPriceText)
+                    TextField(String(format: String(localized: "cardeditor.ticketPlaceholder"), priceCurrency), text: $ticketPriceText)
                         .keyboardType(.decimalPad)
                     TextField("cardeditor.stayPlaceholder", text: $stayDurationText)
                         .keyboardType(.numberPad)
@@ -259,9 +265,9 @@ struct CardEditorView: View {
             }
             if fromAirport.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearFields.insert("fromAirport") }
             if toAirport.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearFields.insert("toAirport") }
-            if CardPrice.minorUnits(from: priceText, currency: currency) == nil { clearFields.insert("priceMinor") }
-            if CardPrice.minorUnits(from: actualPriceText, currency: currency) == nil { clearFields.insert("actualPriceMinor") }
-            if CardPrice.minorUnits(from: ticketPriceText, currency: currency) == nil { clearFields.insert("ticketPriceMinor") }
+            if CardPrice.minorUnits(from: priceText, currency: priceCurrency) == nil { clearFields.insert("priceMinor") }
+            if CardPrice.minorUnits(from: actualPriceText, currency: priceCurrency) == nil { clearFields.insert("actualPriceMinor") }
+            if CardPrice.minorUnits(from: ticketPriceText, currency: priceCurrency) == nil { clearFields.insert("ticketPriceMinor") }
             if stayDuration == nil { clearFields.insert("stayDurationMinutes") }
             if cleanedTips.isEmpty { clearFields.insert("tips") }
             if notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearFields.insert("notes") }
@@ -292,9 +298,10 @@ struct CardEditorView: View {
             description: kind == .flight ? nil : emptyToNil(description),
             fromAirport: emptyToNil(fromAirport),
             toAirport: emptyToNil(toAirport),
-            priceMinor: CardPrice.minorUnits(from: priceText, currency: currency),
-            actualPriceMinor: CardPrice.minorUnits(from: actualPriceText, currency: currency),
-            ticketPriceMinor: CardPrice.minorUnits(from: ticketPriceText, currency: currency),
+            priceMinor: CardPrice.minorUnits(from: priceText, currency: priceCurrency),
+            actualPriceMinor: CardPrice.minorUnits(from: actualPriceText, currency: priceCurrency),
+            ticketPriceMinor: CardPrice.minorUnits(from: ticketPriceText, currency: priceCurrency),
+            priceCurrency: priceCurrency,
             stayDurationMinutes: stayDuration,
             tips: cleanedTips.isEmpty ? nil : cleanedTips,
             images: imagesValue,
@@ -378,6 +385,10 @@ struct CardEditorView: View {
         formatter.maximumFractionDigits = exponent
         return formatter.string(from: NSNumber(value: value)) ?? ""
     }
+
+    private static let supportedCurrencies = [
+        "CNY", "HKD", "IDR", "USD", "EUR", "GBP", "JPY", "SGD", "MYR", "THB", "KRW", "AUD", "CAD", "TWD", "VND",
+    ]
 
     private static func defaultStart(for day: TripDaySnapshot) -> Date {
         let formatter = DateFormatter()

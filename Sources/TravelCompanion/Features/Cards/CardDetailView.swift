@@ -159,9 +159,9 @@ struct CardDetailView: View {
     }
 
     private var displayPrice: String? {
-        CardPrice.format(minor: card.actualPriceMinor, currency: currency)
-            ?? CardPrice.format(minor: card.priceMinor, currency: currency)
-            ?? CardPrice.format(minor: card.ticketPriceMinor, currency: currency)
+        CardPrice.format(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency)
+            ?? CardPrice.format(minor: card.priceMinor, currency: card.priceCurrency ?? currency)
+            ?? CardPrice.format(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency)
     }
 
     private func narrative(_ description: String) -> some View {
@@ -193,13 +193,13 @@ struct CardDetailView: View {
                let passengers = card.passengers, !passengers.isEmpty {
                 detailRow(String(localized: "carddetail.passengers"), value: passengers, icon: "person.2.fill")
             }
-            if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: currency) {
+            if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency) {
                 detailRow(String(localized: "carddetail.actualPrice"), value: actual, icon: "creditcard.fill")
             }
-            if let estimated = CardPrice.format(minor: card.priceMinor, currency: currency) {
+            if let estimated = CardPrice.format(minor: card.priceMinor, currency: card.priceCurrency ?? currency) {
                 detailRow(String(localized: "carddetail.estimatedPrice"), value: estimated, icon: "tag.fill")
             }
-            if let ticket = CardPrice.format(minor: card.ticketPriceMinor, currency: currency) {
+            if let ticket = CardPrice.format(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency) {
                 detailRow(String(localized: "carddetail.ticketPrice"), value: ticket, icon: "ticket.fill")
             }
             if let stay = card.stayDurationMinutes {
@@ -691,12 +691,12 @@ struct FlightTicketPopup: View {
         appendDetail(&details, key: "cabin", label: String(localized: "flightticket.cabinClass"), value: card.cabinClass)
         appendDetail(&details, key: "seat", label: String(localized: "flightticket.seat"), value: card.seat)
         appendDetail(&details, key: "baggage", label: String(localized: "flightticket.baggage"), value: card.baggageAllowance)
-        if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: currency) {
+        if let actual = CardPrice.format(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency) {
             details.append(.init(id: "actualPrice", label: String(localized: "carddetail.actualPrice"), value: actual))
-        } else if let estimated = CardPrice.format(minor: card.priceMinor, currency: currency) {
+        } else if let estimated = CardPrice.format(minor: card.priceMinor, currency: card.priceCurrency ?? currency) {
             details.append(.init(id: "price", label: String(localized: "carddetail.estimatedPrice"), value: estimated))
         }
-        if let ticket = CardPrice.format(minor: card.ticketPriceMinor, currency: currency) {
+        if let ticket = CardPrice.format(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency) {
             details.append(.init(id: "ticketPrice", label: String(localized: "flightticket.ticketPrice"), value: ticket))
         }
         return details
