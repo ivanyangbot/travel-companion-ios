@@ -597,11 +597,28 @@ struct FlightTicketPopup: View {
                 Text(nonEmpty(card.airlineName) ?? String(localized: "kind.flight"))
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
                 Text(nonEmpty(card.bookingCode) ?? String(localized: "agent.flightNumberPending"))
                     .font(.caption.monospaced().weight(.semibold))
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
+            .layoutPriority(1)
             Spacer(minLength: 8)
+            if let ticketNumber = nonEmpty(card.ticketNumber) {
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text("flightticket.ticketNumber")
+                        .font(.caption2)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    Text(ticketNumber)
+                        .font(.subheadline.monospaced().weight(.bold))
+                        .foregroundStyle(PrimaryTabPalette.accent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .textSelection(.enabled)
+                }
+                .frame(maxWidth: 132, alignment: .trailing)
+            }
         }
     }
 
@@ -683,7 +700,6 @@ struct FlightTicketPopup: View {
         var details: [FlightTicketDetail] = []
         appendDetail(&details, key: "airline", label: String(localized: "flightticket.airline"), value: card.airlineName)
         appendDetail(&details, key: "flight", label: String(localized: "flightticket.flight"), value: card.bookingCode)
-        appendDetail(&details, key: "ticketNumber", label: String(localized: "flightticket.ticketNumber"), value: card.ticketNumber)
         if showsPassengers {
             appendDetail(&details, key: "passengers", label: String(localized: "carddetail.passengers"), value: card.passengers)
         }
