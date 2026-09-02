@@ -1420,8 +1420,20 @@ struct AgentHomeView: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(PrimaryTabPalette.secondaryText)
         ForEach(candidates) { candidate in
-            AgentV2CandidateCard(candidate: candidate) { value in
-                store.setSelected(value, id: candidate.id)
+            VStack(alignment: .trailing, spacing: 7) {
+                AgentV2CandidateCard(candidate: candidate) { value in
+                    store.setSelected(value, id: candidate.id)
+                }
+                Button(role: .destructive) {
+                    withAnimation(.snappy(duration: 0.25)) {
+                        store.rejectCandidate(id: candidate.id)
+                    }
+                } label: {
+                    Label("agent.rejectSuggestion", systemImage: "xmark.circle")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red.opacity(0.88))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -2454,19 +2466,26 @@ struct AgentHomeView: View {
                     addedCount: result.committedCandidateIds.count,
                     removedCount: removalCount
                 )
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
-                    commitSuccess = success
+                if success.addedCount > 0 || success.removedCount > 0 {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
+                        commitSuccess = success
+                    }
+                    UIAccessibility.post(notification: .announcement, argument: success.accessibilityText)
+                    try? await Task.sleep(for: .milliseconds(720))
                 }
-                UIAccessibility.post(notification: .announcement, argument: success.accessibilityText)
-                try? await Task.sleep(for: .milliseconds(720))
                 withAnimation(.snappy(duration: 0.42)) {
-                    store.clearCommittedDraft()
+                    store.completeCommit(committedCandidateIDs: Set(result.committedCandidateIds))
+                }
+                if !(result.retryCandidateIds ?? []).isEmpty {
+                    runState.status = String(localized: "agent.commitRetryRetained")
                 }
                 await syncEngine.refresh()
-                try? await Task.sleep(for: .milliseconds(900))
-                withAnimation(.easeOut(duration: 0.24)) {
-                    commitSuccess = nil
+                if commitSuccess != nil {
+                    try? await Task.sleep(for: .milliseconds(900))
+                    withAnimation(.easeOut(duration: 0.24)) {
+                        commitSuccess = nil
+                    }
                 }
             } catch {
                 runState.error = error.localizedDescription

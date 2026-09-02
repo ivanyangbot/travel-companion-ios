@@ -533,6 +533,7 @@ struct AgentV2CommitRequest: Codable, Sendable {
 struct AgentV2CommitResult: Codable, Sendable {
     let tripVersion: Int
     let committedCandidateIds: [UUID]
+    let retryCandidateIds: [UUID]?
 }
 
 /// Attachments that have left the composer and now belong to one persisted

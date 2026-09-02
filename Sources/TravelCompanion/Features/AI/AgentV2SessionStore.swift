@@ -603,6 +603,41 @@ final class AgentV2SessionStore: ObservableObject {
         save()
     }
 
+    /// Remove only the candidates that the server actually committed. Any
+    /// unselected or retryable candidate remains available for a later turn.
+    func completeCommit(committedCandidateIDs: Set<UUID>) {
+        discardTurn()
+        guard var draft = session.draft else { return }
+        draft.candidates.removeAll { committedCandidateIDs.contains($0.id) }
+        draft.changes.removeAll { change in
+            if change.operation == .remove, change.targetCardId != nil { return true }
+            if let candidateID = change.candidateId, committedCandidateIDs.contains(candidateID) { return true }
+            return false
+        }
+        for index in draft.candidates.indices {
+            draft.candidates[index].selected = false
+        }
+        let remainingIDs = Set(draft.candidates.map(\.id))
+        session.lastTurnCandidateIDs = session.lastTurnCandidateIDs?.filter(remainingIDs.contains)
+        session.draft = normalized(draft)
+        if session.draft == nil {
+            session.attachments = []
+            session.lastTurnCandidateIDs = nil
+        }
+        save()
+    }
+
+    /// Explicitly reject one local recommendation without changing the trip.
+    func rejectCandidate(id: UUID) {
+        guard var draft = session.draft else { return }
+        draft.candidates.removeAll { $0.id == id }
+        draft.changes.removeAll { $0.candidateId == id || $0.targetDraftId == id }
+        session.lastTurnCandidateIDs?.removeAll { $0 == id }
+        session.draft = normalized(draft)
+        if session.draft == nil { session.lastTurnCandidateIDs = nil }
+        save()
+    }
+
     /// 用户确认提案并创建旅程后调用；此后的轮次回到旅程内（itinerary）模式。
     func clearPendingProposal() {
         session.pendingProposal = nil

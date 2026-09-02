@@ -515,8 +515,20 @@ AgentIntroGlobeView(diameter: 208)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(PrimaryTabPalette.secondaryText)
         ForEach(candidates) { candidate in
-            AgentV2CandidateCard(candidate: candidate) { value in
-                store.setSelected(value, id: candidate.id)
+            VStack(alignment: .trailing, spacing: 7) {
+                AgentV2CandidateCard(candidate: candidate) { value in
+                    store.setSelected(value, id: candidate.id)
+                }
+                Button(role: .destructive) {
+                    withAnimation(.snappy(duration: 0.25)) {
+                        store.rejectCandidate(id: candidate.id)
+                    }
+                } label: {
+                    Label("agent.rejectSuggestion", systemImage: "xmark.circle")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red.opacity(0.88))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -892,7 +904,7 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
         let client = APIClient()
         Task {
             do {
-                _ = try await client.commitAgentV2(
+                let result = try await client.commitAgentV2(
                     .init(
                         sessionId: store.session.id,
                         expectedTripVersion: trip.version,
@@ -903,7 +915,10 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
                     tripID: trip.id,
                     idempotencyKey: UUID()
                 )
-                store.clearCommittedDraft()
+                store.completeCommit(committedCandidateIDs: Set(result.committedCandidateIds))
+                if !(result.retryCandidateIds ?? []).isEmpty {
+                    runState.status = String(localized: "agent.commitRetryRetained")
+                }
                 await syncEngine.refresh()
             } catch {
                 runState.error = error.localizedDescription

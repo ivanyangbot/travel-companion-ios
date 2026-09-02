@@ -282,6 +282,38 @@ final class AgentV2StreamParserTests: XCTestCase {
         XCTAssertNoThrow(try parser.finishAtEOF())
     }
 
+    func testLegacyLongReasoningSummaryIsDiscardedWithoutBreakingFollowingEvents() throws {
+        let reasoning = String(repeating: "内部推理不应进入界面。", count: 5_000)
+        let encodedReasoning = try XCTUnwrap(
+            String(data: JSONEncoder().encode(reasoning), encoding: .utf8)
+        )
+        let fixture = """
+        event: reasoning_summary
+        data: \(encodedReasoning)
+
+        event: status
+        data: "正在整理结果"
+
+        event: done
+        data: {}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var events: [AgentV2StreamEvent] = []
+
+        for byte in fixture.utf8 {
+            if let event = try parser.consume(byte) { events.append(event) }
+        }
+
+        XCTAssertEqual(events.count, 2)
+        guard case .status(let status) = events[0], case .done = events[1] else {
+            return XCTFail("unexpected events \(events)")
+        }
+        XCTAssertEqual(status, "正在整理结果")
+        XCTAssertNoThrow(try parser.finishAtEOF())
+    }
+
     func testLiveCardRecognizesFlightKindFromStreamedField() {
         var card = AgentV2LiveCard(id: UUID(), index: 0)
 

@@ -443,8 +443,9 @@ actor APIClient {
         return try decoder.decode(APIEnvelope<AIExpenseDraft>.self, from: data).data
     }
 
-    /// V2 Agent stream. Reasoning summaries remain ephemeral UI progress;
-    /// durable candidate patches use stable identifiers. `tripID` 为 nil 表示
+    /// V2 Agent stream. Provider reasoning is discarded; only user-facing
+    /// progress, replies and durable candidate patches cross into UI state.
+    /// `tripID` 为 nil 表示
     /// plan_new 轮次（无旅程上下文），服务端不强制本接口的旅程鉴权。
     func agentV2Stream(
         _ payload: AgentV2TurnRequest,
@@ -524,7 +525,12 @@ actor APIClient {
         decoder.dateDecodingStrategy = .iso8601
         switch name {
         case "status": return .status(try decoder.decode(String.self, from: data))
-        case "reasoning_summary": return .reasoningSummary(try decoder.decode(String.self, from: data))
+        case "reasoning_summary":
+            // Compatibility with older servers: never publish provider
+            // reasoning into SwiftUI. Replacing an ever-growing Text value
+            // repeatedly causes main-thread layout stalls that worsen with
+            // response length; status events already provide safe progress.
+            return nil
         case "assistant_delta": return .assistantDelta(try decoder.decode(String.self, from: data))
         case "card_begin":
             struct Begin: Decodable { let id: UUID; let index: Int }

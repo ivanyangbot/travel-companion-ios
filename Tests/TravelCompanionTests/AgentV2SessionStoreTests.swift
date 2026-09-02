@@ -425,6 +425,66 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCompleteCommitRemovesOnlyCommittedCandidates() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let committed = candidate(
+            kind: .activity,
+            status: .verified,
+            place: AIChatPlace(name: "浅草寺", address: "东京", latitude: 35.7, longitude: 139.7, placeId: "asakusa", cityCode: nil)
+        )
+        var retained = candidate(kind: .flight, status: .notRequired, place: nil)
+        retained.selected = false
+        let committedChange = AgentV2Change(id: UUID(), operation: .add, candidateId: committed.id, targetCardId: nil, targetDraftId: nil, summary: "加入浅草寺", impact: nil)
+        let retainedChange = AgentV2Change(id: UUID(), operation: .add, candidateId: retained.id, targetCardId: nil, targetDraftId: nil, summary: "保留航班", impact: nil)
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [committed, retained], changes: [committedChange, retainedChange]),
+            summary: nil,
+            lastTurnCandidateIDs: [committed.id, retained.id]
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        store.completeCommit(committedCandidateIDs: [committed.id])
+
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [retained.id])
+        XCTAssertEqual(store.session.draft?.changes.map(\.id), [retainedChange.id])
+        XCTAssertEqual(store.session.lastTurnCandidateIDs, [retained.id])
+        XCTAssertFalse(store.session.draft?.candidates.first?.selected ?? true)
+    }
+
+    @MainActor
+    func testRejectCandidateRemovesOnlyThatSuggestionAndItsChanges() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let rejected = candidate(kind: .flight, status: .notRequired, place: nil)
+        let retained = candidate(kind: .flight, status: .notRequired, place: nil)
+        let rejectedChange = AgentV2Change(id: UUID(), operation: .add, candidateId: rejected.id, targetCardId: nil, targetDraftId: nil, summary: "拒绝", impact: nil)
+        let retainedChange = AgentV2Change(id: UUID(), operation: .add, candidateId: retained.id, targetCardId: nil, targetDraftId: nil, summary: "保留", impact: nil)
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [rejected, retained], changes: [rejectedChange, retainedChange]),
+            summary: nil,
+            lastTurnCandidateIDs: [rejected.id, retained.id]
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        store.rejectCandidate(id: rejected.id)
+
+        XCTAssertEqual(store.session.draft?.candidates.map(\.id), [retained.id])
+        XCTAssertEqual(store.session.draft?.changes.map(\.id), [retainedChange.id])
+        XCTAssertEqual(store.session.lastTurnCandidateIDs, [retained.id])
+    }
+
+    @MainActor
     func testDiscardAfterSummaryAndCandidatePreservesOldDraftAndSummary() throws {
         let defaults = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }

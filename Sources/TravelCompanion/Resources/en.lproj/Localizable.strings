@@ -705,11 +705,13 @@
 "agent.pendingRemovalCount" = "· %lld to remove";
 "agent.deselectAll" = "Deselect All";
 "agent.selectAll" = "Select All";
+"agent.rejectSuggestion" = "Reject this suggestion";
 "agent.confirmRemove" = "Remove (%lld)";
 "agent.confirmAdd" = "Add to Itinerary (%lld)";
 "agent.captionVerify" = "These candidates remain available to review and select. Import validation runs only when you confirm; failed items won't be written to the trip.";
 "agent.captionRemove" = "Only the cards listed in the change list will be removed from the itinerary; everything else stays.";
 "agent.captionKeep" = "Your current itinerary isn't touched until you confirm; unselected candidates stay in local drafts.";
+"agent.commitRetryRetained" = "Some candidates could not be verified yet and remain available for an AI retry.";
 "agent.proposalLabel" = "Trip Proposal";
 "agent.proposalRange" = "%@ to %@";
 "agent.proposalCurrency" = "Currency %@";

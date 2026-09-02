@@ -705,11 +705,13 @@
 "agent.pendingRemovalCount" = "· 待移除 %lld 项";
 "agent.deselectAll" = "取消全选";
 "agent.selectAll" = "全选";
+"agent.rejectSuggestion" = "拒绝此行程建议";
 "agent.confirmRemove" = "确认移除（%lld）";
 "agent.confirmAdd" = "确认加入行程（%lld）";
 "agent.captionVerify" = "这些候选仍可查看和选择；仅在确认导入时校验，未通过的项目不会写入行程。";
 "agent.captionRemove" = "确认后只会从行程中移除变更清单里列出的卡片，其他内容不变。";
 "agent.captionKeep" = "确认前不会改动当前行程，未选择的候选仍留在本机草稿中。";
+"agent.commitRetryRetained" = "部分候选暂未通过验证，已保留在列表中供 AI 重试。";
 "agent.proposalLabel" = "旅程提案";
 "agent.proposalRange" = "%@ 至 %@";
 "agent.proposalCurrency" = "币种 %@";
