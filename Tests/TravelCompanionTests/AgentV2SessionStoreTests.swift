@@ -534,7 +534,10 @@ final class AgentV2SessionStoreTests: XCTestCase {
             id: UUID(), updatedAt: .now,
             preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
-            draft: AgentV2Draft(candidates: [first, second], changes: []), summary: nil
+            draft: AgentV2Draft(candidates: [first, second], changes: [
+                AgentV2Change(id: UUID(), operation: .add, candidateId: first.id, targetCardId: nil, summary: "新增第一项", impact: nil),
+                AgentV2Change(id: UUID(), operation: .add, candidateId: second.id, targetCardId: nil, summary: "新增第二项", impact: nil),
+            ]), summary: nil
         )
         defaults.set(try encoder.encode(session), forKey: sessionKey)
         let store = AgentV2SessionStore(defaults: defaults)
@@ -542,6 +545,33 @@ final class AgentV2SessionStoreTests: XCTestCase {
         store.setSelected(true, ids: Set([first.id, second.id]))
 
         XCTAssertEqual(store.session.draft?.candidates.filter(\.selected).map(\.id), [first.id, second.id])
+    }
+
+    @MainActor
+    func testInformationOnlyCandidateCannotBeSelectedOrCommitted() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        var information = candidate(
+            kind: .activity,
+            status: .verified,
+            place: AIChatPlace(name: "婆罗浮屠", address: "Central Java", latitude: -7.6079, longitude: 110.2038, placeId: "borobudur", cityCode: nil)
+        )
+        information.selected = false
+        let session = AgentV2LocalSession(
+            id: UUID(), updatedAt: .now,
+            preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
+            messages: [], attachments: [],
+            draft: AgentV2Draft(candidates: [information], changes: []), summary: nil
+        )
+        defaults.set(try encoder.encode(session), forKey: sessionKey)
+        let store = AgentV2SessionStore(defaults: defaults)
+
+        store.setSelected(true, id: information.id)
+        store.setSelected(true, ids: [information.id])
+
+        XCTAssertEqual(store.session.draft?.actionableCandidateIDs, [])
+        XCTAssertFalse(store.session.draft?.candidates.first?.selected ?? true)
+        XCTAssertNil(store.commitSnapshot())
     }
 
     @MainActor

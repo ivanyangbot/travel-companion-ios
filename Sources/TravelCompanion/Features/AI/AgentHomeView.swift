@@ -1274,10 +1274,10 @@ struct AgentHomeView: View {
                     let carried = draft.candidates.filter { !lastTurnIDs.contains($0.id) }
                     VStack(alignment: .leading, spacing: 10) {
                         if !current.isEmpty {
-                            candidateGroup(title: carried.isEmpty ? String(localized: "agent.candidatesGroup") : String(format: String(localized: "agent.newThisRound"), current.count), candidates: current)
+                            candidateGroup(title: carried.isEmpty ? String(localized: "agent.candidatesGroup") : String(format: String(localized: "agent.newThisRound"), current.count), candidates: current, actionableIDs: draft.actionableCandidateIDs)
                         }
                         if !carried.isEmpty {
-                            candidateGroup(title: String(format: String(localized: "agent.carriedOver"), carried.count), candidates: carried)
+                            candidateGroup(title: String(format: String(localized: "agent.carriedOver"), carried.count), candidates: carried, actionableIDs: draft.actionableCandidateIDs)
                         }
                     }
                 }
@@ -1318,8 +1318,9 @@ struct AgentHomeView: View {
                     .tint(PrimaryTabPalette.secondaryText)
                 }
 
-                let selected = draft.candidates.filter(\.selected)
-                let allCandidatesSelected = !draft.candidates.isEmpty && draft.candidates.allSatisfy(\.selected)
+                let actionableCandidates = draft.candidates.filter { draft.actionableCandidateIDs.contains($0.id) }
+                let selected = actionableCandidates.filter(\.selected)
+                let allCandidatesSelected = !actionableCandidates.isEmpty && actionableCandidates.allSatisfy(\.selected)
                 // 变更清单中待确认的“移除行程卡”提案：无选中候选时也可单独提交。
                 let pendingRemovals = draft.changes.filter { $0.operation == .remove && $0.targetCardId != nil }
                 let hasInvalidSelection = selected.contains(where: { !$0.isCommitReady })
@@ -1331,11 +1332,11 @@ struct AgentHomeView: View {
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                         Spacer()
                         Button(allCandidatesSelected ? String(localized: "agent.deselectAll") : String(localized: "agent.selectAll")) {
-                            store.setSelected(!allCandidatesSelected, ids: Set(draft.candidates.map(\.id)))
+                            store.setSelected(!allCandidatesSelected, ids: Set(actionableCandidates.map(\.id)))
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(PrimaryTabPalette.accent)
-                        .disabled(draft.candidates.isEmpty || runState.isCommitting)
+                        .disabled(actionableCandidates.isEmpty || runState.isCommitting)
                     }
 
                     Button { commit() } label: {
@@ -1415,13 +1416,13 @@ struct AgentHomeView: View {
     }
 
     @ViewBuilder
-    private func candidateGroup(title: String, candidates: [AgentV2Candidate]) -> some View {
+    private func candidateGroup(title: String, candidates: [AgentV2Candidate], actionableIDs: Set<UUID>) -> some View {
         Text(title)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(PrimaryTabPalette.secondaryText)
         ForEach(candidates) { candidate in
             VStack(alignment: .trailing, spacing: 7) {
-                AgentV2CandidateCard(candidate: candidate) { value in
+                AgentV2CandidateCard(candidate: candidate, isSelectable: actionableIDs.contains(candidate.id)) { value in
                     store.setSelected(value, id: candidate.id)
                 }
                 Button(role: .destructive) {
@@ -3161,6 +3162,7 @@ struct AgentMissingCandidateCard: View {
 
 struct AgentV2CandidateCard: View {
     let candidate: AgentV2Candidate
+    var isSelectable = true
     let selection: (Bool) -> Void
     @State private var imageIndex = 0
     @State private var isShowingDetails = false
@@ -3168,7 +3170,7 @@ struct AgentV2CandidateCard: View {
     @ViewBuilder
     var body: some View {
         if candidate.kind == .flight {
-            AgentFlightCandidateCard(candidate: candidate, selection: selection)
+            AgentFlightCandidateCard(candidate: candidate, isSelectable: isSelectable, selection: selection)
         } else {
             standardCard
         }
@@ -3257,20 +3259,22 @@ struct AgentV2CandidateCard: View {
                 Divider().overlay(Color.white.opacity(0.08))
 
                 HStack(spacing: 10) {
-                    Button {
-                        selection(!candidate.selected)
-                    } label: {
-                        Label(candidate.selected ? String(localized: "agent.selectedButton") : String(localized: "agent.joinTrip"), systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(candidate.selected ? .black : .white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(
-                                candidate.selected ? PrimaryTabPalette.accent : Color.white.opacity(0.10),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            )
+                    if isSelectable {
+                        Button {
+                            selection(!candidate.selected)
+                        } label: {
+                            Label(candidate.selected ? String(localized: "agent.selectedButton") : String(localized: "agent.joinTrip"), systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(candidate.selected ? .black : .white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(
+                                    candidate.selected ? PrimaryTabPalette.accent : Color.white.opacity(0.10),
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
 
                     Button { isShowingDetails = true } label: {
                         HStack(spacing: 5) {
@@ -3297,7 +3301,7 @@ struct AgentV2CandidateCard: View {
         }
         .shadow(color: .black.opacity(0.18), radius: 14, y: 7)
         .sheet(isPresented: $isShowingDetails) {
-            AgentCandidatePOIDetailSheet(candidate: candidate, selection: selection)
+            AgentCandidatePOIDetailSheet(candidate: candidate, isSelectable: isSelectable, selection: selection)
                 .presentationDetents([.fraction(0.78), .large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(30)
@@ -3342,6 +3346,7 @@ struct AgentV2CandidateCard: View {
 
 private struct AgentFlightCandidateCard: View {
     let candidate: AgentV2Candidate
+    let isSelectable: Bool
     let selection: (Bool) -> Void
     @State private var isShowingDetails = false
 
@@ -3367,23 +3372,25 @@ private struct AgentFlightCandidateCard: View {
             ticketDivider
 
             HStack(spacing: 10) {
-                Button {
-                    selection(!candidate.selected)
-                } label: {
-                    Label(
-                        candidate.selected ? String(localized: "agent.selectedButton") : String(localized: "agent.joinTrip"),
-                        systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill"
-                    )
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(candidate.selected ? .black : .white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(
-                        candidate.selected ? PrimaryTabPalette.accent : Color.white.opacity(0.09),
-                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    )
+                if isSelectable {
+                    Button {
+                        selection(!candidate.selected)
+                    } label: {
+                        Label(
+                            candidate.selected ? String(localized: "agent.selectedButton") : String(localized: "agent.joinTrip"),
+                            systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill"
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(candidate.selected ? .black : .white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(
+                            candidate.selected ? PrimaryTabPalette.accent : Color.white.opacity(0.09),
+                            in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 Button { isShowingDetails = true } label: {
                     Label("agent.flightDetails", systemImage: "arrow.up.right")
@@ -3412,7 +3419,7 @@ private struct AgentFlightCandidateCard: View {
         .shadow(color: .black.opacity(0.22), radius: 18, y: 9)
         .animation(.snappy(duration: 0.28), value: candidate.selected)
         .sheet(isPresented: $isShowingDetails) {
-            AgentFlightDetailSheet(candidate: candidate, selection: selection)
+            AgentFlightDetailSheet(candidate: candidate, isSelectable: isSelectable, selection: selection)
                 .presentationDetents([.fraction(0.72), .large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(30)
@@ -3519,6 +3526,7 @@ private struct AgentFlightCandidateCard: View {
 
 private struct AgentFlightDetailSheet: View {
     let candidate: AgentV2Candidate
+    let isSelectable: Bool
     let selection: (Bool) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -3589,23 +3597,25 @@ private struct AgentFlightDetailSheet: View {
         .scrollIndicators(.hidden)
         .background(PrimaryTabPalette.background.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                Divider().overlay(Color.white.opacity(0.08))
-                Button { selection(!candidate.selected) } label: {
-                    Label(
-                        candidate.selected ? String(localized: "agent.selectedTapToCancel") : String(localized: "agent.selectForTrip"),
-                        systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill"
-                    )
-                    .font(.headline)
-                    .foregroundStyle(candidate.selected ? .black : .white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(candidate.selected ? Color.white : PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+            if isSelectable {
+                VStack(spacing: 0) {
+                    Divider().overlay(Color.white.opacity(0.08))
+                    Button { selection(!candidate.selected) } label: {
+                        Label(
+                            candidate.selected ? String(localized: "agent.selectedTapToCancel") : String(localized: "agent.selectForTrip"),
+                            systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill"
+                        )
+                        .font(.headline)
+                        .foregroundStyle(candidate.selected ? .black : .white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(candidate.selected ? Color.white : PrimaryTabPalette.accent, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(12)
                 }
-                .buttonStyle(.plain)
-                .padding(12)
+                .background(.ultraThinMaterial)
             }
-            .background(.ultraThinMaterial)
         }
         .overlay(alignment: .topTrailing) {
             Button { dismiss() } label: {
@@ -3820,6 +3830,7 @@ private struct AgentCandidateImagePager: View {
 
 private struct AgentCandidatePOIDetailSheet: View {
     let candidate: AgentV2Candidate
+    let isSelectable: Bool
     let selection: (Bool) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -3929,7 +3940,9 @@ private struct AgentCandidatePOIDetailSheet: View {
         .scrollIndicators(.hidden)
         .background(PrimaryTabPalette.background.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            selectionBar
+            if isSelectable {
+                selectionBar
+            }
         }
         .overlay(alignment: .topTrailing) {
             Button { dismiss() } label: {

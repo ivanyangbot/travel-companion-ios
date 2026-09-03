@@ -565,7 +565,9 @@ final class AgentV2SessionStore: ObservableObject {
     }
 
     func setSelected(_ selected: Bool, id: UUID) {
-        guard var draft = session.draft, let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
+        guard var draft = session.draft,
+              draft.actionableCandidateIDs.contains(id),
+              let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
         draft.candidates[index].selected = selected
         session.draft = draft
         save()
@@ -573,7 +575,10 @@ final class AgentV2SessionStore: ObservableObject {
 
     func setSelected(_ selected: Bool, ids: Set<UUID>) {
         guard var draft = session.draft, !ids.isEmpty else { return }
-        for index in draft.candidates.indices where ids.contains(draft.candidates[index].id) {
+        let actionableIDs = draft.actionableCandidateIDs
+        for index in draft.candidates.indices
+        where ids.contains(draft.candidates[index].id)
+            && actionableIDs.contains(draft.candidates[index].id) {
             draft.candidates[index].selected = selected
         }
         session.draft = draft
@@ -586,7 +591,8 @@ final class AgentV2SessionStore: ObservableObject {
     /// tap and the confirm-button action.
     func commitSnapshot() -> (draft: AgentV2Draft, selected: [AgentV2Candidate])? {
         guard let draft = session.draft else { return nil }
-        let selected = draft.candidates.filter(\.selected)
+        let actionableIDs = draft.actionableCandidateIDs
+        let selected = draft.candidates.filter { $0.selected && actionableIDs.contains($0.id) }
         // A pure-removal commit (no selected candidates but at least one
         // pending remove targeting a committed trip card) is valid too.
         let hasPendingRemoval = draft.changes.contains { $0.operation == .remove && $0.targetCardId != nil }

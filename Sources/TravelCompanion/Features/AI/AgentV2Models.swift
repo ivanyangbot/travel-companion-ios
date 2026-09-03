@@ -115,6 +115,16 @@ struct AgentV2Draft: Codable, Sendable, Equatable {
             return !candidateIDs.contains(candidateID)
         }
     }
+
+    /// Only candidates backed by an explicit add/replace operation may be
+    /// selected and committed. Read-only search or information cards remain
+    /// inspectable without accidentally turning a query into a trip mutation.
+    var actionableCandidateIDs: Set<UUID> {
+        Set(changes.compactMap { change in
+            guard change.operation == .add || change.operation == .replace else { return nil }
+            return change.candidateId
+        })
+    }
 }
 
 struct AgentV2Source: Codable, Sendable, Equatable, Identifiable {

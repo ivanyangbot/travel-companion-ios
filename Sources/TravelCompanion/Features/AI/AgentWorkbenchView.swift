@@ -369,10 +369,10 @@ AgentIntroGlobeView(diameter: 208)
                     let carried = draft.candidates.filter { !lastTurnIDs.contains($0.id) }
                     VStack(alignment: .leading, spacing: 10) {
                         if !current.isEmpty {
-                            candidateGroup(title: carried.isEmpty ? String(localized: "agent.candidatesGroup") : String(format: String(localized: "agent.newThisRound"), current.count), candidates: current)
+                            candidateGroup(title: carried.isEmpty ? String(localized: "agent.candidatesGroup") : String(format: String(localized: "agent.newThisRound"), current.count), candidates: current, actionableIDs: draft.actionableCandidateIDs)
                         }
                         if !carried.isEmpty {
-                            candidateGroup(title: String(format: String(localized: "agent.carriedOver"), carried.count), candidates: carried)
+                            candidateGroup(title: String(format: String(localized: "agent.carriedOver"), carried.count), candidates: carried, actionableIDs: draft.actionableCandidateIDs)
                         }
                     }
                 }
@@ -413,8 +413,9 @@ AgentIntroGlobeView(diameter: 208)
                     .tint(PrimaryTabPalette.secondaryText)
                 }
 
-                let selected = draft.candidates.filter(\.selected)
-                let allCandidatesSelected = !draft.candidates.isEmpty && draft.candidates.allSatisfy(\.selected)
+                let actionableCandidates = draft.candidates.filter { draft.actionableCandidateIDs.contains($0.id) }
+                let selected = actionableCandidates.filter(\.selected)
+                let allCandidatesSelected = !actionableCandidates.isEmpty && actionableCandidates.allSatisfy(\.selected)
                 // 变更清单中待确认的“移除行程卡”提案：无选中候选时也可单独提交。
                 let pendingRemovals = draft.changes.filter { $0.operation == .remove && $0.targetCardId != nil }
                 let hasInvalidSelection = selected.contains(where: { !$0.isCommitReady })
@@ -426,11 +427,11 @@ AgentIntroGlobeView(diameter: 208)
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                         Spacer()
                         Button(allCandidatesSelected ? String(localized: "agent.deselectAll") : String(localized: "agent.selectAll")) {
-                            store.setSelected(!allCandidatesSelected, ids: Set(draft.candidates.map(\.id)))
+                            store.setSelected(!allCandidatesSelected, ids: Set(actionableCandidates.map(\.id)))
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(PrimaryTabPalette.accent)
-                        .disabled(draft.candidates.isEmpty || runState.isCommitting)
+                        .disabled(actionableCandidates.isEmpty || runState.isCommitting)
                     }
 
                     Button { commit() } label: {
@@ -510,13 +511,13 @@ AgentIntroGlobeView(diameter: 208)
     }
 
     @ViewBuilder
-    private func candidateGroup(title: String, candidates: [AgentV2Candidate]) -> some View {
+    private func candidateGroup(title: String, candidates: [AgentV2Candidate], actionableIDs: Set<UUID>) -> some View {
         Text(title)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(PrimaryTabPalette.secondaryText)
         ForEach(candidates) { candidate in
             VStack(alignment: .trailing, spacing: 7) {
-                AgentV2CandidateCard(candidate: candidate) { value in
+                AgentV2CandidateCard(candidate: candidate, isSelectable: actionableIDs.contains(candidate.id)) { value in
                     store.setSelected(value, id: candidate.id)
                 }
                 Button(role: .destructive) {
