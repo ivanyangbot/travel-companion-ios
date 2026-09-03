@@ -5,11 +5,14 @@ import Foundation
 /// A card may carry its own `priceCurrency`; legacy cards fall back to the trip
 /// currency. Most ISO 4217 currencies use two minor
 /// units, but a few (JPY, KRW, VND, ISK, CLP) use none, so the amount is the
-/// minor value as-is. This keeps the displayed price consistent with the
-/// currency without bundling a full currency-clients table into the app.
+/// minor value as-is. IDR officially has a 2-digit minor unit, but the sen is
+/// unused everywhere in practice, so Rupiah amounts are written whole by the
+/// agent and users alike and must not be scaled. This keeps the displayed
+/// price consistent with the currency without bundling a full
+/// currency-clients table into the app.
 enum CardPrice {
-    /// ISO 4217 currencies whose minor unit is 0 (amount is already the major unit).
-    private static let zeroDecimalCurrencies: Set<String> = ["JPY", "KRW", "VND", "ISK", "CLP", "PYG", "UGX", "RWF", "VUV", "XAF", "XOF", "XPF", "BIF", "DJF", "GNF", "KMF", "KRW"]
+    /// Currencies whose minor unit is 0 (amount is already the major unit).
+    private static let zeroDecimalCurrencies: Set<String> = ["JPY", "KRW", "VND", "ISK", "CLP", "PYG", "UGX", "RWF", "VUV", "XAF", "XOF", "XPF", "BIF", "DJF", "GNF", "KMF", "IDR"]
 
     static func minorExponent(for currency: String?) -> Int {
         guard let currency else { return 2 }
