@@ -731,7 +731,7 @@ struct AgentV2IncompleteStreamError: LocalizedError, Equatable, Sendable {
 }
 
 enum AgentV2StreamRetryPolicy {
-    static let maximumReconnectAttempts = 2
+    static let maximumReconnectAttempts = 5
 
     static func shouldRetry(_ error: Error) -> Bool {
         if error is AgentV2IncompleteStreamError { return true }
