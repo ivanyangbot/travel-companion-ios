@@ -789,7 +789,7 @@ struct ItineraryView: View {
             projectedOccurrences: projectedOccurrences,
             day: day
         )
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: ItineraryCardRailLayout.spacing) {
             if cards.isEmpty, projectedOccurrences.isEmpty {
                 Button {
                     activeCardEditor = .create(day)
@@ -801,58 +801,70 @@ struct ItineraryView: View {
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(draggedListCardDestinationDayID == day.id ? .orange : .white.opacity(0.62))
                         .frame(maxWidth: .infinity, minHeight: 78)
+                        // 与卡片列左缘对齐：留出左侧类别轨道的宽度。
+                        .padding(.leading, ItineraryCardRailLayout.iconDiameter + ItineraryCardRailLayout.spacing)
                 }
                 .buttonStyle(.plain)
             } else {
                 ForEach(Array(listItems.enumerated()), id: \.element.id) { itemIndex, item in
-                    if let ownIndex = item.ownIndex {
-                        VStack(alignment: .leading, spacing: 10) {
-                            itineraryCompactCard(
-                                item.card,
-                                index: ownIndex,
-                                day: day,
-                                cards: cards,
-                                days: days,
-                                currentOrNextCardID: currentOrNextCardID
-                            )
+                    // 左侧类别轨道（机票/酒店/景点徽章 + 连接虚线）随每行卡片绘制：
+                    // 卡片列整体右移缩窄、左侧留白，类别提示从卡内文字/icon 转移到
+                    // 轨道徽章上，更醒目。
+                    HStack(alignment: .top, spacing: ItineraryCardRailLayout.spacing) {
+                        ItineraryCardRail(
+                            kind: item.card.kind,
+                            showsConnector: itemIndex < listItems.count - 1
+                        )
 
-                            // Route legs connect adjacent cards using the point
-                            // where the previous card ends and the next begins.
-                            // A flight therefore contributes its arrival airport
-                            // as an origin, or its departure airport as a destination.
-                            if itemIndex + 1 < listItems.count,
-                               let nextIndex = listItems[itemIndex + 1].ownIndex,
-                               nextIndex == ownIndex + 1,
-                               let originPoint = ItineraryListPresentation.legOriginPoint(for: item.card),
-                               let destinationPoint = ItineraryListPresentation.legDestinationPoint(for: listItems[itemIndex + 1].card) {
-                                CardLegEstimateView(
-                                    originCard: item.card,
-                                    destinationCard: listItems[itemIndex + 1].card,
-                                    originPoint: originPoint,
-                                    destinationPoint: destinationPoint,
-                                    presentation: .itineraryList
+                        if let ownIndex = item.ownIndex {
+                            VStack(alignment: .leading, spacing: 10) {
+                                itineraryCompactCard(
+                                    item.card,
+                                    index: ownIndex,
+                                    day: day,
+                                    cards: cards,
+                                    days: days,
+                                    currentOrNextCardID: currentOrNextCardID
                                 )
-                                .id("\(CardLegStore.legKey(origin: item.card, destination: listItems[itemIndex + 1].card))-\(routeRefreshRevision)")
-                                .padding(.horizontal, 2)
+
+                                // Route legs connect adjacent cards using the point
+                                // where the previous card ends and the next begins.
+                                // A flight therefore contributes its arrival airport
+                                // as an origin, or its departure airport as a destination.
+                                if itemIndex + 1 < listItems.count,
+                                   let nextIndex = listItems[itemIndex + 1].ownIndex,
+                                   nextIndex == ownIndex + 1,
+                                   let originPoint = ItineraryListPresentation.legOriginPoint(for: item.card),
+                                   let destinationPoint = ItineraryListPresentation.legDestinationPoint(for: listItems[itemIndex + 1].card) {
+                                    CardLegEstimateView(
+                                        originCard: item.card,
+                                        destinationCard: listItems[itemIndex + 1].card,
+                                        originPoint: originPoint,
+                                        destinationPoint: destinationPoint,
+                                        presentation: .itineraryList
+                                    )
+                                    .id("\(CardLegStore.legKey(origin: item.card, destination: listItems[itemIndex + 1].card))-\(routeRefreshRevision)")
+                                    .padding(.horizontal, 2)
+                                }
                             }
+                            .offset(y: placeholderOffset(for: item.card, in: day, cards: cards))
+                            .animation(.snappy(duration: 0.2), value: draggedListCardDestinationIndex)
+                            .animation(.snappy(duration: 0.2), value: draggedListCardDestinationDayID)
+                            .zIndex(draggedListCard?.cardID == item.card.id ? 100 : 0)
+                        } else {
+                            itineraryCompactCardContent(
+                                item.card,
+                                index: itemIndex,
+                                showsTimeAccent: false,
+                                progressLabel: itineraryCardProgressLabel(item.progress)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                            .accessibilityHint(
+                                item.isHotelNight
+                                    ? Text("itinerary.projectedHotelNightHint")
+                                    : Text("itinerary.projectedMultiDayHint")
+                            )
                         }
-                        .offset(y: placeholderOffset(for: item.card, in: day, cards: cards))
-                        .animation(.snappy(duration: 0.2), value: draggedListCardDestinationIndex)
-                        .animation(.snappy(duration: 0.2), value: draggedListCardDestinationDayID)
-                        .zIndex(draggedListCard?.cardID == item.card.id ? 100 : 0)
-                    } else {
-                        itineraryCompactCardContent(
-                            item.card,
-                            index: itemIndex,
-                            showsTimeAccent: false,
-                            progressLabel: itineraryCardProgressLabel(item.progress)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        .accessibilityHint(
-                            item.isHotelNight
-                                ? Text("itinerary.projectedHotelNightHint")
-                                : Text("itinerary.projectedMultiDayHint")
-                        )
                     }
                 }
             }
@@ -1200,9 +1212,6 @@ struct ItineraryView: View {
                             cornerRadius: 10
                         )
                         VStack(alignment: .leading, spacing: 5) {
-                            Label(card.kind.title, systemImage: "airplane.departure")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(PrimaryTabPalette.accent)
                             Text(itineraryFlightNumber(for: card))
                                 .font(.subheadline.monospaced().weight(.semibold))
                                 .foregroundStyle(.white)
@@ -1294,10 +1303,6 @@ struct ItineraryView: View {
                             .font(.caption.weight(.medium))
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                             .lineLimit(1)
-                    } else {
-                        Label(card.kind.title, systemImage: "airplane")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
                     Spacer(minLength: 8)
                     HStack(spacing: 5) {
@@ -1356,15 +1361,6 @@ struct ItineraryView: View {
                         itineraryProgressBadge(progressLabel)
                     }
                     HStack(alignment: .top, spacing: 11) {
-                        // 酒店没有航司徽章，用主题色床铺贴片保持同款头部节奏。
-                        Image(systemName: "bed.double.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(PrimaryTabPalette.accent)
-                            .frame(width: 38, height: 38)
-                            .background(
-                                PrimaryTabPalette.accent.opacity(0.15),
-                                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            )
                         VStack(alignment: .leading, spacing: 3) {
                             Text(card.title)
                                 .font(.system(size: 16, weight: .semibold))
@@ -1424,10 +1420,6 @@ struct ItineraryView: View {
                             HStack(spacing: 4) {
                                 Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
                                 Rectangle().fill(Color.white.opacity(0.17)).frame(height: 1)
-                                Image(systemName: "bed.double")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(PrimaryTabPalette.accent)
-                                Rectangle().fill(Color.white.opacity(0.17)).frame(height: 1)
                                 Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
                             }
                         }
@@ -1460,10 +1452,6 @@ struct ItineraryView: View {
                             .font(.caption.monospaced().weight(.medium))
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                             .lineLimit(1)
-                    } else {
-                        Label(card.kind.title, systemImage: "bed.double")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
                     Spacer(minLength: 8)
                     HStack(spacing: 5) {
@@ -3548,6 +3536,70 @@ enum ItineraryLargeImageCardLayout {
         max(0, cardWidth - outerPadding * 2) / imageAspectRatio
     }
 
+}
+
+/// 左侧行程时间线轨道的几何常量：徽章直径即轨道宽度；卡片列从轨道右侧
+/// 起排，因此每张卡整体缩窄（轨道宽 + 列间距），左侧留出轨道空间。
+/// spacing 必须与 itineraryDayContent 外层 VStack 的行间距一致，虚线
+/// 才能跨过行间接住下一枚徽章。
+enum ItineraryCardRailLayout {
+    static let iconDiameter: CGFloat = 30
+    static let spacing: CGFloat = 10
+}
+
+/// 行程卡左侧的类别徽章（机票/酒店/景点），向下延伸一条虚线接到下一张
+/// 卡的徽章，串起一整天的行程。类别提示从卡内的小字 Label 转移到这枚
+/// 彩色徽章上，按类别着色、更醒目。
+private struct ItineraryCardRail: View {
+    let kind: TravelCardSnapshot.Kind
+    var showsConnector: Bool
+
+    private var tint: Color {
+        switch kind {
+        case .flight: JourneyPalette.tripBlue
+        case .hotel: PrimaryTabPalette.accent
+        case .activity: Color(red: 0.32, green: 0.76, blue: 0.47)
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            if showsConnector {
+                ItineraryRailConnectorShape()
+                    .stroke(
+                        Color.white.opacity(0.24),
+                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 4.5])
+                    )
+                    .frame(width: ItineraryCardRailLayout.iconDiameter)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, ItineraryCardRailLayout.iconDiameter + 3)
+                    // 行与行之间的 VStack 间距里也要有虚线，才能接住下一行的徽章。
+                    .offset(y: ItineraryCardRailLayout.spacing)
+                    .allowsHitTesting(false)
+            }
+
+            Image(systemName: kind == .hotel ? "bed.double.fill" : kind.systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(
+                    width: ItineraryCardRailLayout.iconDiameter,
+                    height: ItineraryCardRailLayout.iconDiameter
+                )
+                .background(tint.opacity(0.16), in: Circle())
+                .overlay(Circle().strokeBorder(tint.opacity(0.55), lineWidth: 1))
+        }
+        .frame(width: ItineraryCardRailLayout.iconDiameter)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ItineraryRailConnectorShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        return path
+    }
 }
 
 /// 上拱的飞行虚线弧线：两端落在 rect 底部两端，顶点朝上，呼应首页地图上
