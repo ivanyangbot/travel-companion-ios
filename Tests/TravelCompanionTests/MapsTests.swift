@@ -104,6 +104,39 @@ final class MapsTests: XCTestCase {
         XCTAssertTrue(routes.isEmpty)
     }
 
+    func testFlightAirportResolverKeepsArrivalWhenDepartureLookupFails() async throws {
+        let flight = TravelCardSnapshot(
+            dayID: 1,
+            kind: .flight,
+            title: "IU769",
+            startAt: .now,
+            fromAirport: "LOP",
+            toAirport: "CGK"
+        )
+
+        let locations = await AppleMapService.resolveFlightAirportLocations(cards: [flight]) { airport in
+            guard airport == "CGK" else { return nil }
+            return PlaceSearchResult(
+                id: "cgk",
+                name: "Soekarno-Hatta International Airport (CGK)",
+                address: "Tangerang, Indonesia",
+                latitude: -6.12557,
+                longitude: 106.655998,
+                placeId: nil
+            )
+        }
+
+        let resolution = try XCTUnwrap(locations.first)
+        XCTAssertEqual(resolution.cardID, flight.id)
+        XCTAssertNil(resolution.originLocation)
+        XCTAssertEqual(resolution.destinationLocation?.iata, "CGK")
+        XCTAssertEqual(resolution.destinationLocation?.latitude ?? 0, -6.12557, accuracy: 0.000_001)
+
+        // The map arc still needs both endpoints, but the independently cached
+        // arrival is enough for the following airport-to-activity ground leg.
+        XCTAssertTrue(AppleMapService.flightRoutes(cards: [flight], resolvedLocations: locations).isEmpty)
+    }
+
     func testAirportSearchUsesIATACodeFirstWithoutChineseLocationBias() {
         let queries = AppleMapService.airportSearchQueries(
             for: "纽约约翰·肯尼迪国际机场（JFK）"

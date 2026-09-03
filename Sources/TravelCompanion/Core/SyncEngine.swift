@@ -610,20 +610,36 @@ final class SyncEngine: ObservableObject {
     /// their cards. This is local enrichment only; it does not create a card
     /// PATCH or alter the server-owned trip version.
     func cacheFlightAirportLocations(from routes: [TodayFlightRoute]) {
-        guard var current = trip, !routes.isEmpty else { return }
+        cacheFlightAirportLocations(
+            from: routes.map {
+                FlightAirportLocationResolution(
+                    cardID: $0.cardID,
+                    originLocation: $0.originLocation,
+                    destinationLocation: $0.destinationLocation
+                )
+            }
+        )
+    }
+
+    /// Keeps whichever airport endpoint was resolved. Ground routing after an
+    /// arrival must not depend on the unrelated departure lookup succeeding.
+    func cacheFlightAirportLocations(from resolutions: [FlightAirportLocationResolution]) {
+        guard var current = trip, !resolutions.isEmpty else { return }
         var changed = false
-        for route in routes {
+        for resolution in resolutions {
             guard let dayIndex = current.days.firstIndex(where: { day in
-                day.cards.contains(where: { $0.id == route.cardID })
-            }), let cardIndex = current.days[dayIndex].cards.firstIndex(where: { $0.id == route.cardID }) else {
+                day.cards.contains(where: { $0.id == resolution.cardID })
+            }), let cardIndex = current.days[dayIndex].cards.firstIndex(where: { $0.id == resolution.cardID }) else {
                 continue
             }
-            if current.days[dayIndex].cards[cardIndex].fromAirportLocation != route.originLocation {
-                current.days[dayIndex].cards[cardIndex].fromAirportLocation = route.originLocation
+            if let originLocation = resolution.originLocation,
+               current.days[dayIndex].cards[cardIndex].fromAirportLocation != originLocation {
+                current.days[dayIndex].cards[cardIndex].fromAirportLocation = originLocation
                 changed = true
             }
-            if current.days[dayIndex].cards[cardIndex].toAirportLocation != route.destinationLocation {
-                current.days[dayIndex].cards[cardIndex].toAirportLocation = route.destinationLocation
+            if let destinationLocation = resolution.destinationLocation,
+               current.days[dayIndex].cards[cardIndex].toAirportLocation != destinationLocation {
+                current.days[dayIndex].cards[cardIndex].toAirportLocation = destinationLocation
                 changed = true
             }
         }

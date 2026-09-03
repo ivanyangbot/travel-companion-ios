@@ -729,9 +729,9 @@ struct ItineraryView: View {
             .task(id: ItineraryListPresentation.flightAirportResolutionKey(for: days)) {
                 let flights = days.flatMap(\.cards).filter { $0.kind == .flight }
                 guard !flights.isEmpty else { return }
-                let routes = await AppleMapService.resolveFlightRoutes(cards: flights)
+                let resolutions = await AppleMapService.resolveFlightAirportLocations(cards: flights)
                 guard !Task.isCancelled else { return }
-                syncEngine.cacheFlightAirportLocations(from: routes)
+                syncEngine.cacheFlightAirportLocations(from: resolutions)
             }
         }
     }

@@ -2,6 +2,16 @@ import CoreLocation
 import Contacts
 import MapKit
 
+/// Airport-coordinate enrichment is intentionally partial. A ground leg after
+/// a flight only needs the arrival airport, while a ground leg before it only
+/// needs the departure airport. Requiring both endpoints would discard a valid
+/// coordinate whenever the other airport temporarily fails to resolve.
+struct FlightAirportLocationResolution: Equatable, Sendable {
+    let cardID: UUID
+    let originLocation: FlightAirportLocationSnapshot?
+    let destinationLocation: FlightAirportLocationSnapshot?
+}
+
 /// Interactive POI and route work stays on-device through MapKit. Airports use
 /// the backend's static reference dataset first and fall back to MapKit.
 enum AppleMapService {
@@ -129,62 +139,115 @@ enum AppleMapService {
     static func resolveFlightRoutes(
         cards: [TravelCardSnapshot]
     ) async -> [TodayFlightRoute] {
-        await resolveFlightRoutesWithLocations(cards: cards) { airport in
+        let locations = await resolveFlightAirportLocationsWithResolver(cards: cards) { airport in
             await TodayFlightAirportSearchCache.shared.result(for: airport)
         }
+        return flightRoutes(cards: cards, resolvedLocations: locations)
     }
 
     static func resolveFlightRoutes(
         cards: [TravelCardSnapshot],
         search: @escaping @Sendable (String) async -> PlaceSearchResult?
     ) async -> [TodayFlightRoute] {
-        await resolveFlightRoutesWithLocations(cards: cards) { airport in
+        let locations = await resolveFlightAirportLocationsWithResolver(cards: cards) { airport in
+            guard let result = await search(airport) else { return nil }
+            return mapLocation(for: airport, result: result)
+        }
+        return flightRoutes(cards: cards, resolvedLocations: locations)
+    }
+
+    static func resolveFlightAirportLocations(
+        cards: [TravelCardSnapshot]
+    ) async -> [FlightAirportLocationResolution] {
+        await resolveFlightAirportLocationsWithResolver(cards: cards) { airport in
+            await TodayFlightAirportSearchCache.shared.result(for: airport)
+        }
+    }
+
+    static func resolveFlightAirportLocations(
+        cards: [TravelCardSnapshot],
+        search: @escaping @Sendable (String) async -> PlaceSearchResult?
+    ) async -> [FlightAirportLocationResolution] {
+        await resolveFlightAirportLocationsWithResolver(cards: cards) { airport in
             guard let result = await search(airport) else { return nil }
             return mapLocation(for: airport, result: result)
         }
     }
 
-    private static func resolveFlightRoutesWithLocations(
+    private static func resolveFlightAirportLocationsWithResolver(
         cards: [TravelCardSnapshot],
         resolve: @escaping @Sendable (String) async -> FlightAirportLocationSnapshot?
-    ) async -> [TodayFlightRoute] {
-        await withTaskGroup(of: (Int, TodayFlightRoute?).self, returning: [TodayFlightRoute].self) { group in
+    ) async -> [FlightAirportLocationResolution] {
+        await withTaskGroup(of: (Int, FlightAirportLocationResolution?).self, returning: [FlightAirportLocationResolution].self) { group in
             for (index, card) in cards.enumerated() where card.kind == .flight {
                 group.addTask {
-                    guard let fromAirport = nonEmptyAirport(card.fromAirport),
-                          let toAirport = nonEmptyAirport(card.toAirport) else {
+                    let fromAirport = nonEmptyAirport(card.fromAirport)
+                    let toAirport = nonEmptyAirport(card.toAirport)
+                    guard fromAirport != nil || toAirport != nil else {
                         return (index, nil)
                     }
-                    async let origin = card.fromAirportLocation?.isFresh(for: fromAirport) == true
-                        ? card.fromAirportLocation
-                        : resolve(fromAirport)
-                    async let destination = card.toAirportLocation?.isFresh(for: toAirport) == true
-                        ? card.toAirportLocation
-                        : resolve(toAirport)
-                    guard let originLocation = await origin,
-                          let destinationLocation = await destination else {
-                        return (index, nil)
-                    }
+                    async let originLocation = resolveAirportEndpoint(
+                        airport: fromAirport,
+                        cached: card.fromAirportLocation,
+                        resolve: resolve
+                    )
+                    async let destinationLocation = resolveAirportEndpoint(
+                        airport: toAirport,
+                        cached: card.toAirportLocation,
+                        resolve: resolve
+                    )
                     return (
                         index,
-                        TodayFlightRoute(
-                            id: card.id,
+                        FlightAirportLocationResolution(
                             cardID: card.id,
-                            title: card.title,
-                            fromAirport: fromAirport,
-                            toAirport: toAirport,
-                            originLocation: originLocation,
-                            destinationLocation: destinationLocation
+                            originLocation: await originLocation,
+                            destinationLocation: await destinationLocation
                         )
                     )
                 }
             }
 
-            var resolved: [(Int, TodayFlightRoute)] = []
-            for await (index, route) in group {
-                if let route { resolved.append((index, route)) }
+            var resolved: [(Int, FlightAirportLocationResolution)] = []
+            for await (index, locations) in group {
+                if let locations { resolved.append((index, locations)) }
             }
             return resolved.sorted { $0.0 < $1.0 }.map { $0.1 }
+        }
+    }
+
+    private static func resolveAirportEndpoint(
+        airport: String?,
+        cached: FlightAirportLocationSnapshot?,
+        resolve: @escaping @Sendable (String) async -> FlightAirportLocationSnapshot?
+    ) async -> FlightAirportLocationSnapshot? {
+        guard let airport else { return nil }
+        if cached?.isFresh(for: airport) == true { return cached }
+        return await resolve(airport)
+    }
+
+    static func flightRoutes(
+        cards: [TravelCardSnapshot],
+        resolvedLocations: [FlightAirportLocationResolution]
+    ) -> [TodayFlightRoute] {
+        let locationsByCardID = Dictionary(uniqueKeysWithValues: resolvedLocations.map { ($0.cardID, $0) })
+        return cards.compactMap { card in
+            guard card.kind == .flight,
+                  let fromAirport = nonEmptyAirport(card.fromAirport),
+                  let toAirport = nonEmptyAirport(card.toAirport),
+                  let locations = locationsByCardID[card.id],
+                  let originLocation = locations.originLocation,
+                  let destinationLocation = locations.destinationLocation else {
+                return nil
+            }
+            return TodayFlightRoute(
+                id: card.id,
+                cardID: card.id,
+                title: card.title,
+                fromAirport: fromAirport,
+                toAirport: toAirport,
+                originLocation: originLocation,
+                destinationLocation: destinationLocation
+            )
         }
     }
 
