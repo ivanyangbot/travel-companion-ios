@@ -744,11 +744,22 @@ final class AgentV2SessionStoreTests: XCTestCase {
         state.prepareForReconnect(attempt: 1, maximumAttempts: 2)
 
         XCTAssertTrue(state.isGenerating)
-        XCTAssertEqual(state.status, "连接中断，正在重新连接（1/2）…")
+        XCTAssertEqual(state.status, "正在理解你的需求…")
         XCTAssertEqual(state.streamingReply, "未完成回答")
         XCTAssertEqual(state.reasoningSummary, "未完成推理")
         XCTAssertEqual(state.stagedSummaryText, "未完成摘要")
         XCTAssertEqual(state.liveCards.count, 1)
+        XCTAssertNil(state.error)
+    }
+
+    @MainActor
+    func testReconnectUsesNeutralProgressWhenNoServerStatusExists() {
+        let state = AgentV2RunState()
+        state.status = nil
+
+        state.prepareForReconnect(attempt: 1, maximumAttempts: 5)
+
+        XCTAssertEqual(state.status, "仍在处理，正在同步最新进度…")
         XCTAssertNil(state.error)
     }
 

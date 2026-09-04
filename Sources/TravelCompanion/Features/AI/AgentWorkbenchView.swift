@@ -774,6 +774,10 @@ private func suggestionIcon(at index: Int, fallback prompt: String) -> String {
                         afterEventID: lastEventID
                     )
                     for try await envelope in stream {
+                        // A successful replay proves the connection recovered;
+                        // only consecutive failures should consume the retry
+                        // budget for this durable turn.
+                        reconnectAttempt = 0
                         if let eventID = envelope.eventID {
                             lastEventID = max(lastEventID, eventID)
                         }

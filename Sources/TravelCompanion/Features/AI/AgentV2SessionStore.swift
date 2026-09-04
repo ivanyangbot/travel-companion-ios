@@ -102,7 +102,12 @@ final class AgentV2RunState: ObservableObject {
     /// Keep the partial render in place; the server only replays newer events.
     func prepareForReconnect(attempt: Int, maximumAttempts: Int) {
         error = nil
-        status = "连接中断，正在重新连接（\(attempt)/\(maximumAttempts)）…"
+        // Durable turns are intentionally safe to resume. Keep the last
+        // meaningful server progress text instead of presenting a normal SSE
+        // rollover or a brief mobile-network handoff as a failed operation.
+        if status == nil || status?.isEmpty == true {
+            status = "仍在处理，正在同步最新进度…"
+        }
     }
 
     func discardPartialResponse() {
