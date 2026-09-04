@@ -3762,39 +3762,56 @@ enum ItineraryLocalTime {
 
     // MARK: 格式化（按 IANA 标识缓存 DateFormatter）
 
-    private static let formatterLock = NSLock()
-    private static var cachedTimeFormatters: [String: DateFormatter] = [:]
-    private static var cachedDateFormatters: [String: DateFormatter] = [:]
+    /// `DateFormatter` 本身不是 Sendable，因此缓存及其锁必须由同一个
+    /// Sendable 容器持有。所有读取、创建和格式化都在锁内完成，避免把
+    /// formatter 引用泄漏到临界区之外。
+    private final class FormatterCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var timeFormatters: [String: DateFormatter] = [:]
+        private var dateFormatters: [String: DateFormatter] = [:]
+
+        func shortTime(_ date: Date, in timeZone: TimeZone) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let key = timeZone.identifier
+            if let formatter = timeFormatters[key] {
+                return formatter.string(from: date)
+            }
+            let formatter = DateFormatter()
+            formatter.locale = .autoupdatingCurrent
+            formatter.timeStyle = .short
+            formatter.dateStyle = .none
+            formatter.timeZone = timeZone
+            timeFormatters[key] = formatter
+            return formatter.string(from: date)
+        }
+
+        func monthDay(_ date: Date, in timeZone: TimeZone) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let key = timeZone.identifier
+            if let formatter = dateFormatters[key] {
+                return formatter.string(from: date)
+            }
+            let formatter = DateFormatter()
+            formatter.locale = .autoupdatingCurrent
+            formatter.setLocalizedDateFormatFromTemplate("MMMd")
+            formatter.timeZone = timeZone
+            dateFormatters[key] = formatter
+            return formatter.string(from: date)
+        }
+    }
+
+    private static let formatterCache = FormatterCache()
 
     /// HH:mm（随系统语言），按指定时区。与卡内时刻同款式，只是换了时区。
     static func shortTime(_ date: Date, in timeZone: TimeZone) -> String {
-        formatterLock.lock()
-        defer { formatterLock.unlock() }
-        if let cached = cachedTimeFormatters[timeZone.identifier] {
-            return cached.string(from: date)
-        }
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        formatter.timeZone = timeZone
-        cachedTimeFormatters[timeZone.identifier] = formatter
-        return formatter.string(from: date)
+        formatterCache.shortTime(date, in: timeZone)
     }
 
     /// 月日（MMMd），按指定时区。
     static func monthDay(_ date: Date, in timeZone: TimeZone) -> String {
-        formatterLock.lock()
-        defer { formatterLock.unlock() }
-        if let cached = cachedDateFormatters[timeZone.identifier] {
-            return cached.string(from: date)
-        }
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.setLocalizedDateFormatFromTemplate("MMMd")
-        formatter.timeZone = timeZone
-        cachedDateFormatters[timeZone.identifier] = formatter
-        return formatter.string(from: date)
+        formatterCache.monthDay(date, in: timeZone)
     }
 
     private static func distanceMeters(
