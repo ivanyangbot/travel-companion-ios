@@ -188,6 +188,9 @@ struct PlaceSnapshot: Codable, Sendable, Equatable, Identifiable {
     var placeId: String?
     /// Optional so snapshots cached before cityCode was introduced still decode.
     var cityCode: String?
+    /// 服务端按坐标解析并落库的 IANA 时区（见后端 place_timezones 服务），
+    /// 客户端用它显示行程当地时间；旧服务端/旧行为空，走机场近似兜底。
+    var timeZone: String? = nil
     /// POI 营业时间；没有可靠数据时保持为空，页面不展示该行。
     var businessHours: String? = nil
     var updatedAt: Date

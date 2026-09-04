@@ -154,6 +154,38 @@ final class ItineraryLocalTimeTests: XCTestCase {
         XCTAssertNil(ItineraryLocalTime.nearestAirportTimeZone(for: unlocated, in: [day]))
     }
 
+    func testTimeZoneByCardIDPrefersServerPlaceTimeZone() {
+        // 行程里只有洛杉矶机场，但景点 place 带服务端解析的东京时区：
+        // 应直接采用 place 时区，而不是机场近似。
+        let lax = flight(
+            from: airportLocation(latitude: 33.94, longitude: -118.41, timeZone: "America/Los_Angeles"),
+            to: nil
+        )
+        let tokyoPOI = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "Shibuya",
+            startAt: .now,
+            place: PlaceSnapshot(
+                id: 1,
+                name: "Shibuya Crossing",
+                address: nil,
+                latitude: 35.66,
+                longitude: 139.70,
+                placeId: nil,
+                cityCode: nil,
+                timeZone: "Asia/Tokyo",
+                businessHours: nil,
+                updatedAt: .now
+            )
+        )
+        let day = TripDaySnapshot(date: "2026-09-04", position: 0, cards: [lax, tokyoPOI])
+
+        XCTAssertEqual(ItineraryLocalTime.timeZoneByCardID(in: [day])[tokyoPOI.id], tokyo)
+        // 没有服务端时区的卡仍走机场近似/无坐标兜底。
+        XCTAssertNil(ItineraryLocalTime.placeTimeZone(for: activityAt(latitude: 35.66, longitude: 139.70)))
+    }
+
     func testRailTimesUsePolicyStringsForHotelsAndEndAtForOthers() {
         let hotel = TravelCardSnapshot(
             dayID: 1,

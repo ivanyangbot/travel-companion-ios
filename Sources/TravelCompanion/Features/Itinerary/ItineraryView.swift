@@ -3715,18 +3715,24 @@ enum ItineraryLocalTime {
         return deviceTimeZone
     }
 
-    /// 非机票卡的近似当地时间表：每张卡取行程内最近的带时区机场。
-    /// 在列表页按数据变化算一次后逐层下发，避免每张卡都重扫全部航班。
+    /// 非机票卡的有效时区表：优先用服务端落在 place 上的时区（准确），
+    /// 缺失时退回「行程内最近的带时区机场」近似。在列表页按数据变化算
+    /// 一次后逐层下发，避免每张卡都重扫全部航班。
     static func timeZoneByCardID(in days: [TripDaySnapshot]) -> [UUID: TimeZone] {
         var result: [UUID: TimeZone] = [:]
         for day in days {
             for card in day.cards where card.kind != .flight {
-                if let timeZone = nearestAirportTimeZone(for: card, in: days) {
+                if let timeZone = placeTimeZone(for: card) ?? nearestAirportTimeZone(for: card, in: days) {
                     result[card.id] = timeZone
                 }
             }
         }
         return result
+    }
+
+    /// 服务端按坐标解析并随 place 下发的 IANA 时区。
+    static func placeTimeZone(for card: TravelCardSnapshot) -> TimeZone? {
+        card.place?.timeZone.flatMap { TimeZone(identifier: $0) }
     }
 
     /// 离卡片地点最近的带时区机场（行程内已解析的起降机场都参与）。超过
