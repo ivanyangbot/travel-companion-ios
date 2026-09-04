@@ -107,6 +107,8 @@
 "settings.languageZHHK" = "繁體中文（香港）";
 "settings.languageEN" = "English";
 "settings.languageNote" = "切換語言之後要重啟 App 先至生效。";
+"settings.itineraryRailTitle" = "行程時間線";
+"settings.itineraryRailDetail" = "喺行程卡片左側顯示當地時間同類別圖示";
 "settings.privacy" = "私隱政策";
 "settings.signOut" = "登出";
 "settings.version" = "版本 %@（%@）";

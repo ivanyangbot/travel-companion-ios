@@ -107,6 +107,8 @@
 "settings.languageZHHK" = "繁體中文（香港）";
 "settings.languageEN" = "English";
 "settings.languageNote" = "Restart the app for the new language to take effect.";
+"settings.itineraryRailTitle" = "Itinerary timeline rail";
+"settings.itineraryRailDetail" = "Show local times and category icons beside itinerary cards";
 "settings.privacy" = "Privacy Policy";
 "settings.signOut" = "Sign Out";
 "settings.version" = "Version %@ (%@)";

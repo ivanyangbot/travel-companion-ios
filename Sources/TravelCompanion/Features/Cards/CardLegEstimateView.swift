@@ -15,6 +15,9 @@ struct CardLegEstimateView: View {
     let originPoint: RoutePoint
     let destinationPoint: RoutePoint
     var presentation: CardLegEstimatePresentation = .standard
+    /// 估算结果变化时上报耗时（秒）；失败/清空时上报 nil。行程列表据此把
+    /// 相邻卡的交通耗时算进轨道时间线（最晚出发时刻）。
+    var onDurationChange: ((Int?) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @StateObject private var mapLinkHandler = MapLinkHandler()
@@ -36,6 +39,9 @@ struct CardLegEstimateView: View {
         }
         .task(id: legKey) {
             await load()
+        }
+        .onChange(of: estimate) { _, newValue in
+            onDurationChange?(newValue?.estimate.durationSeconds)
         }
         .alert("routeSheet.cannotOpenMap", isPresented: Binding(get: { mapLinkHandler.alertMessage != nil }, set: { if !$0 { mapLinkHandler.alertMessage = nil } })) {
             Button("common.ok", role: .cancel) { mapLinkHandler.alertMessage = nil }

@@ -177,6 +177,69 @@ final class ItineraryLocalTimeTests: XCTestCase {
         XCTAssertNil(ItineraryLocalTime.railEndTime(for: openEnded, timeZone: tokyo))
     }
 
+    // MARK: 轨道时间固定 24 小时制
+
+    private var utc: TimeZone { TimeZone(identifier: "UTC")! }
+
+    private var utcCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    private func utcDate(_ hour: Int, _ minute: Int) -> Date {
+        utcCalendar.date(
+            from: DateComponents(year: 2026, month: 9, day: 4, hour: hour, minute: minute)
+        )!
+    }
+
+    func testRailTimeTextUses24HourFormat() {
+        XCTAssertEqual(ItineraryLocalTime.railTimeText(utcDate(15, 5), in: utc), "15:05")
+        XCTAssertEqual(ItineraryLocalTime.railTimeText(utcDate(9, 30), in: utc), "09:30")
+        XCTAssertEqual(ItineraryLocalTime.railTimeText(utcDate(0, 0), in: utc), "00:00")
+    }
+
+    // MARK: 轨道底部时间把交通耗时计算进去
+
+    func testRailEndTimeAccountsForTransitToNextCard() {
+        let card = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "Museum",
+            startAt: utcDate(10, 0),
+            endAt: utcDate(11, 0)
+        )
+        let next = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "Lunch",
+            startAt: utcDate(11, 30)
+        )
+
+        // 无交通耗时：保持原结束时刻。
+        XCTAssertEqual(ItineraryLocalTime.railEndTime(for: card, timeZone: utc)?.text, "11:00")
+        // 交通 45 分钟：最晚出发时刻 = 下一站开始 − 交通耗时。
+        XCTAssertEqual(
+            ItineraryLocalTime.railEndTime(for: card, nextCard: next, transitSeconds: 45 * 60, timeZone: utc)?.text,
+            "10:45"
+        )
+        // 无结束时刻但已知交通耗时：以出发时刻为底部时间。
+        let openCard = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "Walk",
+            startAt: utcDate(10, 0)
+        )
+        XCTAssertEqual(
+            ItineraryLocalTime.railEndTime(for: openCard, nextCard: next, transitSeconds: 45 * 60, timeZone: utc)?.text,
+            "10:45"
+        )
+        // 交通耗时长过空档（出发时刻早于开始时刻）就不展示，避免误导。
+        XCTAssertNil(
+            ItineraryLocalTime.railEndTime(for: card, nextCard: next, transitSeconds: 2 * 3600, timeZone: utc)
+        )
+    }
+
     func testLocalBadgeMarksTimesOutsideDeviceTimeZone() {
         let device = ItineraryLocalTime.deviceTimeZone
         let card = flight(

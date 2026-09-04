@@ -1191,6 +1191,8 @@ struct TodaySettingsSheet: View {
 
     /// 语言偏好：同步写入系统 AppleLanguages，重启 App 后生效。
     @AppStorage("preferredAppLanguage") private var preferredLanguage = "system"
+    /// 行程列表左侧时间线轨道列；关闭后卡片满宽、卡内恢复类别标记。
+    @AppStorage("itinerary.showsCardRail") private var showsCardRail = true
     @State private var isLanguageExpanded = false
     @State private var showsPrivacyPolicy = false
     @State private var showsSignIn = false
@@ -1227,6 +1229,8 @@ struct TodaySettingsSheet: View {
                     if isLanguageExpanded {
                         languageOptionList
                     }
+
+                    itineraryRailRow
 
                     privacyRow
 
@@ -1308,6 +1312,43 @@ struct TodaySettingsSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .padding(.bottom, 18)
+    }
+
+    /// 行程列表左侧时间线轨道开关：关闭后卡片满宽、卡内恢复类别标记。
+    private var itineraryRailRow: some View {
+        Toggle(isOn: $showsCardRail) {
+            HStack(spacing: 14) {
+                Image(systemName: "sidebar.leading")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .frame(width: 38, height: 38)
+                    .background(
+                        PrimaryTabPalette.elevatedSurface,
+                        in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("settings.itineraryRailTitle")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("settings.itineraryRailDetail")
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+            }
+        }
+        .toggleStyle(.switch)
+        .tint(PrimaryTabPalette.accent)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 64)
+        .background(
+            PrimaryTabPalette.surface,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(PrimaryTabPalette.divider, lineWidth: 1)
+        }
     }
 
     private var languageRow: some View {
