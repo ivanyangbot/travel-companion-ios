@@ -577,6 +577,11 @@ final class AgentV2SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.session.draft?.actionableCandidateIDs, [])
         XCTAssertFalse(store.session.draft?.candidates.first?.selected ?? true)
         XCTAssertNil(store.commitSnapshot())
+        store.selectForImport(true, id: information.id)
+        XCTAssertEqual(store.commitSnapshot()?.selected.map(\.id), [information.id])
+        XCTAssertEqual(store.session.draft?.changes.first?.operation, .add)
+        store.selectForImport(true, id: information.id)
+        XCTAssertEqual(store.session.draft?.changes.count, 1)
     }
 
     @MainActor

@@ -569,6 +569,21 @@ final class AgentV2SessionStore: ObservableObject {
         return sanitized.candidates.isEmpty && sanitized.changes.isEmpty ? nil : sanitized
     }
 
+    /// A direct user tap may promote an informational suggestion to an add.
+    /// Existing-card proposals retain their original operation and target.
+    func selectForImport(_ selected: Bool, id: UUID) {
+        guard var draft = session.draft,
+              draft.candidates.contains(where: { $0.id == id }) else { return }
+        if selected && !draft.actionableCandidateIDs.contains(id) {
+            guard !draft.changes.contains(where: { $0.candidateId == id && $0.targetCardId != nil }) else { return }
+            draft.changes.removeAll { $0.candidateId == id }
+            draft.changes.append(AgentV2Change(id: UUID(), operation: .add, candidateId: id,
+                targetCardId: nil, summary: String(localized: "agent.joinTrip"), impact: nil))
+            session.draft = draft
+        }
+        setSelected(selected, id: id)
+    }
+
     func setSelected(_ selected: Bool, id: UUID) {
         guard var draft = session.draft,
               draft.actionableCandidateIDs.contains(id),

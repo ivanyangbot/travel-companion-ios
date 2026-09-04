@@ -437,7 +437,7 @@ AgentIntroGlobeView(diameter: 208)
                     Button { commit() } label: {
                         HStack {
                             if runState.isCommitting { ProgressView().tint(.white) }
-                            Text(selected.isEmpty ? String(format: String(localized: "agent.confirmRemove"), pendingRemovals.count) : String(format: String(localized: "agent.confirmAdd"), selected.count))
+                            Text(selected.isEmpty && !pendingRemovals.isEmpty ? String(format: String(localized: "agent.confirmRemove"), pendingRemovals.count) : String(format: String(localized: "agent.confirmAdd"), selected.count))
                             Spacer()
                             Image(systemName: "arrow.right")
                         }
@@ -517,8 +517,8 @@ AgentIntroGlobeView(diameter: 208)
             .foregroundStyle(PrimaryTabPalette.secondaryText)
         ForEach(candidates) { candidate in
             VStack(alignment: .trailing, spacing: 7) {
-                AgentV2CandidateCard(candidate: candidate, isSelectable: actionableIDs.contains(candidate.id)) { value in
-                    store.setSelected(value, id: candidate.id)
+                AgentV2CandidateCard(candidate: candidate, isSelectable: actionableIDs.contains(candidate.id) || !(store.session.draft?.changes.contains { $0.candidateId == candidate.id && $0.targetCardId != nil } ?? false)) { value in
+                    store.selectForImport(value, id: candidate.id)
                 }
                 Button(role: .destructive) {
                     withAnimation(.snappy(duration: 0.25)) {
