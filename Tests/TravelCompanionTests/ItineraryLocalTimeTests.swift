@@ -1,11 +1,29 @@
 import Foundation
 import XCTest
+import SwiftData
 @testable import TravelCompanion
 
 /// 「当地时间」换算口径：机票起降用机场时区、酒店/景点近似用最近的带时区
 /// 机场、都没有时退回设备时区。格式化输出依赖系统语言，断言全部对照同配置
 /// 的本地 DateFormatter，不写死字面量。
 final class ItineraryLocalTimeTests: XCTestCase {
+    @MainActor
+    func testManualDurationPersistsSeparatelyAndSurvivesRouteRefresh() throws {
+        let container = try ModelContainer(for: CardLegPreference.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = CardLegStore(modelContext: container.mainContext)
+        try store.setManualDuration(1800, routeKey: "driving-coordinates", for: "a-b")
+        try store.setManualDuration(3600, routeKey: "walking-coordinates", for: "a-b")
+        store.clearAllEstimateFailures()
+        let reloaded = CardLegStore(modelContext: ModelContext(container))
+        XCTAssertEqual(reloaded.manualDuration(routeKey: "driving-coordinates", for: "a-b"), 1800)
+        XCTAssertEqual(reloaded.manualDuration(routeKey: "walking-coordinates", for: "a-b"), 3600)
+        XCTAssertNil(reloaded.manualDuration(routeKey: "driving-new-coordinates", for: "a-b"))
+        XCTAssertNil(reloaded.manualDuration(routeKey: "driving-coordinates", for: "b-a"))
+        try store.setManualDuration(nil, routeKey: "driving-coordinates", for: "a-b")
+        XCTAssertNil(store.manualDuration(routeKey: "driving-coordinates", for: "a-b"))
+        XCTAssertEqual(store.manualDuration(routeKey: "walking-coordinates", for: "a-b"), 3600)
+    }
     private let tokyo = TimeZone(identifier: "Asia/Tokyo")!
     private let london = TimeZone(identifier: "Europe/London")!
 
@@ -123,8 +141,8 @@ final class ItineraryLocalTimeTests: XCTestCase {
             from: airportLocation(latitude: 33.94, longitude: -118.41, timeZone: "America/Los_Angeles"),
             to: nil
         )
-        let day = TripDaySnapshot(date: "2026-09-04", position: 0, cards: [haneda, lax])
         let shibuya = activityAt(latitude: 35.66, longitude: 139.70)
+        let day = TripDaySnapshot(date: "2026-09-04", position: 0, cards: [haneda, lax, shibuya])
 
         XCTAssertEqual(ItineraryLocalTime.nearestAirportTimeZone(for: shibuya, in: [day]), tokyo)
         XCTAssertEqual(ItineraryLocalTime.timeZoneByCardID(in: [day])[shibuya.id], tokyo)
@@ -231,7 +249,7 @@ final class ItineraryLocalTimeTests: XCTestCase {
         XCTAssertEqual(ItineraryLocalTime.railTimeText(utcDate(0, 0), in: utc), "00:00")
     }
 
-    // MARK: 轨道底部时间把交通耗时计算进去
+    // MARK: 交通衔接独立于计划时间
 
     func testRailEndTimeAccountsForTransitToNextCard() {
         let card = TravelCardSnapshot(
@@ -250,26 +268,61 @@ final class ItineraryLocalTimeTests: XCTestCase {
 
         // 无交通耗时：保持原结束时刻。
         XCTAssertEqual(ItineraryLocalTime.railEndTime(for: card, timeZone: utc)?.text, "11:00")
-        // 交通 45 分钟：最晚出发时刻 = 下一站开始 − 交通耗时。
+        // 即使交通需要提前出发，也不能篡改活动的计划结束时刻。
         XCTAssertEqual(
             ItineraryLocalTime.railEndTime(for: card, nextCard: next, transitSeconds: 45 * 60, timeZone: utc)?.text,
-            "10:45"
+            "11:00"
         )
-        // 无结束时刻但已知交通耗时：以出发时刻为底部时间。
+        // 无结束时刻不虚构时间。
         let openCard = TravelCardSnapshot(
             dayID: 1,
             kind: .activity,
             title: "Walk",
             startAt: utcDate(10, 0)
         )
-        XCTAssertEqual(
-            ItineraryLocalTime.railEndTime(for: openCard, nextCard: next, transitSeconds: 45 * 60, timeZone: utc)?.text,
-            "10:45"
-        )
-        // 交通耗时长过空档（出发时刻早于开始时刻）就不展示，避免误导。
-        XCTAssertNil(
-            ItineraryLocalTime.railEndTime(for: card, nextCard: next, transitSeconds: 2 * 3600, timeZone: utc)
-        )
+        XCTAssertNil(ItineraryLocalTime.railEndTime(for: openCard, nextCard: next, transitSeconds: 45 * 60, timeZone: utc))
+        // 即使完全赶不上，仍保留计划结束时刻，由交通行解释冲突。
+        XCTAssertEqual(ItineraryLocalTime.railEndTime(for: card, nextCard: next, transitSeconds: 2 * 3600, timeZone: utc)?.text, "11:00")
+    }
+
+    func testScreenshotConflictPreservesNineAMAndReports144MinutesShort() {
+        let card = TravelCardSnapshot(dayID: 1, kind: .activity, title: "Padar",
+                                      startAt: utcDate(6, 0), endAt: utcDate(9, 0))
+        let next = TravelCardSnapshot(dayID: 1, kind: .activity, title: "Komodo", startAt: utcDate(9, 30))
+        XCTAssertEqual(ItineraryLocalTime.railEndTime(for: card, nextCard: next, transitSeconds: 174 * 60, timeZone: utc)?.text, "09:00")
+        let arrival = ItineraryConnectionTiming.arrival(origin: card, duration: 174 * 60)!
+        XCTAssertEqual(arrival, utcDate(11, 54))
+        XCTAssertEqual(ItineraryConnectionTiming.shortageMinutes(arrival: arrival, destination: next), 144)
+        XCTAssertNil(ItineraryConnectionTiming.shortageMinutes(arrival: next.startAt, destination: next))
+        XCTAssertNil(ItineraryConnectionTiming.arrival(origin: card, duration: -1))
+    }
+
+    func testOvernightEndIncludesItsDateAndRejectsInvalidEnd() {
+        let start = utcDate(23, 30)
+        let card = TravelCardSnapshot(dayID: 1, kind: .activity, title: "Overnight",
+                                      startAt: start, endAt: start.addingTimeInterval(7200))
+        let result = ItineraryLocalTime.railEndTime(for: card, timeZone: utc)
+        XCTAssertEqual(result?.text, "01:30")
+        XCTAssertNotEqual(result?.dateText, ItineraryLocalTime.railStartTime(for: card, timeZone: utc)?.dateText)
+        let invalid = TravelCardSnapshot(dayID: 1, kind: .activity, title: "Invalid", startAt: start, endAt: start.addingTimeInterval(-60))
+        XCTAssertNil(ItineraryLocalTime.railEndTime(for: invalid, timeZone: utc))
+        XCTAssertNil(ItineraryConnectionTiming.arrival(origin: invalid, duration: 600))
+    }
+
+    func testConnectionUsesAbsoluteInstantsAcrossDSTAndAirportTimeZones() {
+        let parser = ISO8601DateFormatter()
+        let start = parser.date(from: "2026-11-01T00:30:00-07:00")!
+        let end = parser.date(from: "2026-11-01T01:30:00-07:00")!
+        let nextStart = parser.date(from: "2026-11-01T01:30:00-08:00")!
+        let origin = TravelCardSnapshot(dayID: 1, kind: .flight, title: "Flight", startAt: start, endAt: end)
+        let next = TravelCardSnapshot(dayID: 1, kind: .activity, title: "Visit", startAt: nextStart)
+        let arrival = ItineraryConnectionTiming.arrival(origin: origin, duration: 3600)!
+        XCTAssertEqual(arrival, nextStart)
+        XCTAssertNil(ItineraryConnectionTiming.shortageMinutes(arrival: arrival, destination: next))
+        XCTAssertEqual(ItineraryConnectionTiming.shortageMinutes(arrival: arrival.addingTimeInterval(1), destination: next), 1)
+        let hotel = TravelCardSnapshot(dayID: 1, kind: .hotel, title: "Hotel", startAt: start, endAt: end)
+        XCTAssertNil(ItineraryConnectionTiming.arrival(origin: hotel, duration: 600))
+        XCTAssertNil(ItineraryConnectionTiming.shortageMinutes(arrival: arrival, destination: hotel))
     }
 
     func testLocalBadgeMarksTimesOutsideDeviceTimeZone() {

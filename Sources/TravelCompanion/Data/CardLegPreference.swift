@@ -12,6 +12,8 @@ final class CardLegPreference {
     /// the leg preference prevents a recycled list row from retrying every
     /// time it enters the viewport. The page-level refresh action clears them.
     var failedRouteKeys: String = ""
+    /// Manual durations are keyed by coordinates and travel mode, independently of map estimates.
+    var manualDurationsJSON: String = "{}"
     var createdAt: Date
     var updatedAt: Date
 
@@ -53,6 +55,32 @@ final class CardLegStore {
     func hasEstimateFailure(routeKey: String, for legKey: String) -> Bool {
         guard let record = record(for: legKey) else { return false }
         return Self.failedRouteKeySet(record.failedRouteKeys).contains(routeKey)
+    }
+
+    func manualDuration(routeKey: String, for legKey: String) -> Int? {
+        guard let record = record(for: legKey),
+              let data = record.manualDurationsJSON.data(using: .utf8),
+              let values = try? JSONDecoder().decode([String: Int].self, from: data),
+              let seconds = values[routeKey], seconds > 0 else { return nil }
+        return seconds
+    }
+
+    func setManualDuration(_ seconds: Int?, routeKey: String, for legKey: String) throws {
+        guard seconds == nil || (1...172_740).contains(seconds!) else { return }
+        let existing = record(for: legKey)
+        let value = existing ?? CardLegPreference(legKey: legKey)
+        let previous = value.manualDurationsJSON
+        var durations = (try? JSONDecoder().decode([String: Int].self, from: Data(previous.utf8))) ?? [:]
+        durations[routeKey] = seconds
+        value.manualDurationsJSON = String(decoding: try JSONEncoder().encode(durations), as: UTF8.self)
+        if existing == nil { modelContext.insert(value) }
+        do {
+            try modelContext.save()
+        } catch {
+            value.manualDurationsJSON = previous
+            if existing == nil { modelContext.delete(value) }
+            throw error
+        }
     }
 
     func markEstimateFailure(routeKey: String, for legKey: String) {

@@ -69,7 +69,6 @@ struct ItineraryView: View {
     @AppStorage("itinerary.showsCardRail") private var showsCardRail = true
     /// 相邻卡的交通耗时（秒），由各段 CardLegEstimateView 异步上报；
     /// 轨道底部时间据此显示「最晚出发时刻」。
-    @State private var itineraryTransitSecondsByCardID: [UUID: Int] = [:]
     /// Members of the selected shared trip (signed-in only); >1 means the
     /// trip has companions and flight cards may reveal ticket passengers.
     @State private var sharedMemberCount = 0
@@ -834,10 +833,6 @@ struct ItineraryView: View {
                                 ),
                                 endTime: ItineraryLocalTime.railEndTime(
                                     for: item.card,
-                                    nextCard: itemIndex + 1 < listItems.count
-                                        ? listItems[itemIndex + 1].card
-                                        : nil,
-                                    transitSeconds: itineraryTransitSecondsByCardID[item.card.id],
                                     timeZone: timeZoneByCardID[item.card.id]
                                 )
                             )
@@ -870,14 +865,7 @@ struct ItineraryView: View {
                                         originPoint: originPoint,
                                         destinationPoint: destinationPoint,
                                         presentation: .itineraryList,
-                                        onDurationChange: { seconds in
-                                            // 上报本段交通耗时：轨道底部时间据此回推「最晚出发时刻」。
-                                            if let seconds {
-                                                itineraryTransitSecondsByCardID[item.card.id] = seconds
-                                            } else {
-                                                itineraryTransitSecondsByCardID.removeValue(forKey: item.card.id)
-                                            }
-                                        }
+                                        destinationTimeZone: timeZoneByCardID[listItems[itemIndex + 1].card.id]
                                     )
                                     .id("\(CardLegStore.legKey(origin: item.card, destination: listItems[itemIndex + 1].card))-\(routeRefreshRevision)")
                                     .padding(.horizontal, 2)
@@ -3631,11 +3619,15 @@ private struct ItineraryCardRail: View {
                     .allowsHitTesting(false)
             }
         }
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .combine)
     }
 
     private func railTime(_ time: ItineraryLocalTime.RailTime) -> some View {
         VStack(spacing: 0) {
+            if let caption = time.caption {
+                Text(caption).font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
             Text(time.text)
                 .font(.system(size: 14, weight: .semibold))
                 .monospacedDigit()
@@ -3645,6 +3637,10 @@ private struct ItineraryCardRail: View {
                 Text("itinerary.railLocalTimeBadge")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(PrimaryTabPalette.accent)
+            }
+            if let dateText = time.dateText {
+                Text(dateText).font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 1)
@@ -3703,6 +3699,8 @@ enum ItineraryLocalTime {
     struct RailTime: Equatable {
         let text: String
         let showsLocalBadge: Bool
+        var caption: String? = nil
+        var dateText: String? = nil
     }
 
     static let deviceTimeZone: TimeZone = .autoupdatingCurrent
@@ -3789,19 +3787,20 @@ enum ItineraryLocalTime {
         switch card.kind {
         case .hotel:
             guard let text = card.checkInTime?.nilIfEmpty else { return nil }
-            return RailTime(text: text, showsLocalBadge: timeZone.map(isDistinctFromDevice) ?? false)
+            return RailTime(text: text, showsLocalBadge: timeZone.map(isDistinctFromDevice) ?? false,
+                            caption: String(localized: "rail.checkInPolicy"))
         case .flight, .activity:
             let effective = card.kind == .flight
                 ? startTimeZone(for: card)
-                : (timeZone ?? deviceTimeZone)
-            return railTime(card.startAt, in: effective)
+                : (timeZone ?? placeTimeZone(for: card) ?? deviceTimeZone)
+            var result = railTime(card.startAt, in: effective)
+            result.caption = String(localized: card.kind == .flight ? "rail.departure" : "rail.start")
+            result.dateText = monthDay(card.startAt, in: effective)
+            return result
         }
     }
 
-    /// 轨道底部：结束当地时间。酒店用退房政策时间；机票按到达机场时区；
-    /// 景点卡会把到下一站的交通耗时计算进去——底部时间显示「最晚出发
-    /// 时刻」，即结束时刻与（下一站开始 − 交通耗时）的较早者，让相邻卡
-    /// 的时间经交通衔接。没有可用时刻就不展示。
+    /// 只显示卡片记录的结束时刻；交通估算绝不能改写行程时间。
     static func railEndTime(
         for card: TravelCardSnapshot,
         nextCard: TravelCardSnapshot? = nil,
@@ -3811,18 +3810,21 @@ enum ItineraryLocalTime {
         switch card.kind {
         case .hotel:
             guard let text = card.checkOutTime?.nilIfEmpty else { return nil }
-            return RailTime(text: text, showsLocalBadge: timeZone.map(isDistinctFromDevice) ?? false)
+            return RailTime(text: text, showsLocalBadge: timeZone.map(isDistinctFromDevice) ?? false,
+                            caption: String(localized: "rail.checkOutPolicy"))
         case .flight:
-            guard let endAt = card.endAt else { return nil }
-            return railTime(endAt, in: endTimeZone(for: card))
+            guard let endAt = card.endAt, endAt > card.startAt else { return nil }
+            var result = railTime(endAt, in: endTimeZone(for: card))
+            result.caption = String(localized: "rail.arrival")
+            result.dateText = monthDay(endAt, in: endTimeZone(for: card))
+            return result
         case .activity:
-            var endAt = card.endAt
-            if let transitSeconds, transitSeconds > 0, let nextCard {
-                let leaveBy = nextCard.startAt.addingTimeInterval(-Double(transitSeconds))
-                endAt = endAt.map { min($0, leaveBy) } ?? leaveBy
-            }
-            guard let endAt, endAt > card.startAt else { return nil }
-            return railTime(endAt, in: timeZone ?? deviceTimeZone)
+            guard let endAt = card.endAt, endAt > card.startAt else { return nil }
+            let zone = timeZone ?? placeTimeZone(for: card) ?? deviceTimeZone
+            var result = railTime(endAt, in: zone)
+            result.caption = String(localized: "rail.end")
+            result.dateText = monthDay(endAt, in: zone)
+            return result
         }
     }
 
