@@ -171,6 +171,7 @@
 "itinerary.hotelNightProgress" = "第%lld晚 · 共%lld晚";
 "itinerary.projectedHotelNightHint" = "開啟同一住宿詳情；編輯住宿後，所有晚數會同步更新。";
 "itinerary.multiDayProgress" = "第%lld天 · 共%lld天";
+"itinerary.flightFromPreviousDay" = "來自前一日";
 "itinerary.projectedMultiDayHint" = "開啟同一行程詳情；編輯後，所有日期中的顯示會同步更新。";
 "itinerary.newTripMenu" = "新建旅程";
 "itinerary.switchTripA11y" = "切換旅程";

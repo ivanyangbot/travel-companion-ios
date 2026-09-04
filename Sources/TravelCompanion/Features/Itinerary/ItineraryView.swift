@@ -898,7 +898,10 @@ struct ItineraryView: View {
                                 days: days,
                                 currentOrNextCardID: nil,
                                 timeZone: timeZoneByCardID[item.card.id] ?? ItineraryLocalTime.deviceTimeZone,
-                                progressLabel: itineraryCardProgressLabel(item.progress)
+                                // 机票投影低调标注「来自前一天」；其他卡沿用进度标签。
+                                progressLabel: item.card.kind == .flight
+                                    ? String(localized: "itinerary.flightFromPreviousDay")
+                                    : itineraryCardProgressLabel(item.progress)
                             )
                             .accessibilityHint(
                                 item.isHotelNight
@@ -1135,15 +1138,7 @@ struct ItineraryView: View {
                 card,
                 index: index,
                 showsTimeAccent: currentOrNextCardID == card.id,
-                progressLabel: progressLabel ?? itineraryCardProgressLabel(
-                    ItineraryListPresentation.cardProgress(
-                        for: card,
-                        // Own-day row: the card's source day is `day` itself,
-                        // so skip the cross-day lookup.
-                        sourceDay: day,
-                        targetDay: day
-                    )
-                ),
+                progressLabel: progressLabel ?? ownDayProgressLabel(for: card, day: day),
                 timeZone: timeZone
             )
                 .clipShape(
@@ -1259,7 +1254,11 @@ struct ItineraryView: View {
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 14) {
                     if let progressLabel {
-                        itineraryProgressBadge(progressLabel)
+                        // 跨天航班的投影行：低调的「来自前一天」说明文字，
+                        // 不再用橙色「第X日 共X日」徽章。
+                        Text(progressLabel)
+                            .font(.caption2)
+                            .foregroundStyle(PrimaryTabPalette.tertiaryText)
                     }
                     HStack(alignment: .center, spacing: 12) {
                         AirlineLogoBadge(
@@ -1660,7 +1659,7 @@ struct ItineraryView: View {
     }
 
     /// 航线中段（参考票券样式）：两端圆点之间用上拱虚线弧线连接起降地，
-    /// 弧线顶点悬浮飞行时长胶囊（时长 + 飞机图标）。
+    /// 弧线顶点悬浮白底飞行时长胶囊（无图标；时长未知时只留弧线）。
     private func itineraryFlightArcConnector(durationText: String?) -> some View {
         GeometryReader { proxy in
             let height: CGFloat = 23
@@ -1682,19 +1681,14 @@ struct ItineraryView: View {
                         .position(x: width - 2, y: height - 2)
                 }
 
-                HStack(spacing: 4) {
-                    if let durationText {
-                        Text(durationText)
-                            .font(.caption2.monospacedDigit().weight(.bold))
-                    }
-                    Image(systemName: "airplane")
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(durationText == nil ? 3 : 0)
+                if let durationText {
+                    Text(durationText)
+                        .font(.caption2.monospacedDigit().weight(.bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.white, in: Capsule())
                 }
-                .foregroundStyle(.black)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(PrimaryTabPalette.accent, in: Capsule())
             }
         }
         .frame(height: 23)
@@ -1706,14 +1700,33 @@ struct ItineraryView: View {
         ItineraryListPresentation.progressLabel(progress)
     }
 
+    /// 当日行的进度标签：酒店/跨天活动保持「第X晚/第X日」；机票出发当日
+    /// 不需要跨天说明（只有投影到后续日期时才标「来自前一天」）。
+    private func ownDayProgressLabel(
+        for card: TravelCardSnapshot,
+        day: TripDaySnapshot
+    ) -> String? {
+        guard card.kind != .flight else { return nil }
+        return itineraryCardProgressLabel(
+            ItineraryListPresentation.cardProgress(
+                for: card,
+                // Own-day row: the card's source day is `day` itself,
+                // so skip the cross-day lookup.
+                sourceDay: day,
+                targetDay: day
+            )
+        )
+    }
+
     private func itineraryProgressBadge(_ label: String) -> some View {
+        // 进度徽章统一白色系（此前为主题橙）：白字 + 白色淡底胶囊。
         Text(label)
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(PrimaryTabPalette.accent)
+            .foregroundStyle(.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
-                PrimaryTabPalette.accent.opacity(0.14),
+                Color.white.opacity(0.14),
                 in: Capsule(style: .continuous)
             )
     }
