@@ -243,13 +243,13 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(ItineraryListPresentation.legDestinationPoint(for: activity), activityPoint.point)
     }
 
-    func testFlightsAndHotelsCannotBeLongPressDragged() {
+    func testAllCardKindsSupportLongPressDrag() {
         let flight = TravelCardSnapshot(dayID: 1, kind: .flight, title: "PEK → CGK", startAt: .now)
         let hotel = TravelCardSnapshot(dayID: 1, kind: .hotel, title: "Airport Hotel", startAt: .now)
         let activity = TravelCardSnapshot(dayID: 1, kind: .activity, title: "National Monument", startAt: .now)
 
-        XCTAssertFalse(ItineraryCardDragPolicy.allowsLongPressDrag(flight))
-        XCTAssertFalse(ItineraryCardDragPolicy.allowsLongPressDrag(hotel))
+        XCTAssertTrue(ItineraryCardDragPolicy.allowsLongPressDrag(flight))
+        XCTAssertTrue(ItineraryCardDragPolicy.allowsLongPressDrag(hotel))
         XCTAssertTrue(ItineraryCardDragPolicy.allowsLongPressDrag(activity))
     }
 

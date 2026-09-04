@@ -313,6 +313,7 @@ enum AppleMapService {
             country: reference.country,
             latitude: reference.latitude,
             longitude: reference.longitude,
+            timeZone: reference.timeZone,
             resolvedAt: .now
         )
     }

@@ -464,6 +464,7 @@ struct ItineraryView: View {
 
     @ViewBuilder
     private func draggedItineraryCardOverlay(days: [TripDaySnapshot]) -> some View {
+        let timeZoneByCardID = ItineraryLocalTime.timeZoneByCardID(in: days)
         if let draggedListCard,
            let day = days.first(where: { $0.id == draggedListCard.dayID }),
            let card = day.cards.first(where: { $0.id == draggedListCard.cardID }),
@@ -472,7 +473,8 @@ struct ItineraryView: View {
             itineraryCompactCardContent(
                 card,
                 index: index,
-                showsTimeAccent: isCurrentOrNext(card, in: days)
+                showsTimeAccent: isCurrentOrNext(card, in: days),
+                timeZone: timeZoneByCardID[card.id] ?? ItineraryLocalTime.deviceTimeZone
             )
                 .frame(width: startFrame.width, height: startFrame.height)
                 .scaleEffect(1.025)
@@ -490,7 +492,8 @@ struct ItineraryView: View {
             itineraryCompactCardContent(
                 settlingListCard.card,
                 index: settlingListCard.destinationIndex,
-                showsTimeAccent: isCurrentOrNext(settlingListCard.card, in: days)
+                showsTimeAccent: isCurrentOrNext(settlingListCard.card, in: days),
+                timeZone: timeZoneByCardID[settlingListCard.card.id] ?? ItineraryLocalTime.deviceTimeZone
             )
             .frame(width: settlingListCard.startFrame.width, height: settlingListCard.startFrame.height)
             .scaleEffect(settlingListCardIsAnimating ? 1 : 1.025)
@@ -619,6 +622,8 @@ struct ItineraryView: View {
         // Computed once per data change instead of inside every day
         // section's body — see projectedMultiDayCardsByDay.
         let projectedByDayID = ItineraryListPresentation.projectedMultiDayCardsByDay(in: days)
+        // 非机票卡的近似当地时间（最近的带时区机场），同样只在数据变化时算一次。
+        let timeZoneByCardID = ItineraryLocalTime.timeZoneByCardID(in: days)
 
         return ScrollViewReader { scrollProxy in
             ScrollView {
@@ -642,7 +647,8 @@ struct ItineraryView: View {
                                 day: day,
                                 days: days,
                                 currentOrNextCardID: currentOrNextCardID,
-                                projectedOccurrences: projectedByDayID[day.id] ?? []
+                                projectedOccurrences: projectedByDayID[day.id] ?? [],
+                                timeZoneByCardID: timeZoneByCardID
                             )
                         } header: {
                             itineraryDayHeader(day, city: cityByDate[day.date])
@@ -779,7 +785,8 @@ struct ItineraryView: View {
         day: TripDaySnapshot,
         days: [TripDaySnapshot],
         currentOrNextCardID: UUID?,
-        projectedOccurrences: [ItineraryListPresentation.ProjectedCardOccurrence]
+        projectedOccurrences: [ItineraryListPresentation.ProjectedCardOccurrence],
+        timeZoneByCardID: [UUID: TimeZone]
     ) -> some View {
         let cards = orderedListCards(for: day)
         // Multi-day projections (an overnight flight, a hotel night) merge
@@ -802,7 +809,7 @@ struct ItineraryView: View {
                         .foregroundStyle(draggedListCardDestinationDayID == day.id ? .orange : .white.opacity(0.62))
                         .frame(maxWidth: .infinity, minHeight: 78)
                         // 与卡片列左缘对齐：留出左侧类别轨道的宽度。
-                        .padding(.leading, ItineraryCardRailLayout.iconDiameter + ItineraryCardRailLayout.spacing)
+                        .padding(.leading, ItineraryCardRailLayout.width + ItineraryCardRailLayout.spacing)
                 }
                 .buttonStyle(.plain)
             } else {
@@ -813,7 +820,15 @@ struct ItineraryView: View {
                     HStack(alignment: .top, spacing: ItineraryCardRailLayout.spacing) {
                         ItineraryCardRail(
                             kind: item.card.kind,
-                            showsConnector: itemIndex < listItems.count - 1
+                            showsConnector: itemIndex < listItems.count - 1,
+                            startTime: ItineraryLocalTime.railStartTime(
+                                for: item.card,
+                                timeZone: timeZoneByCardID[item.card.id]
+                            ),
+                            endTime: ItineraryLocalTime.railEndTime(
+                                for: item.card,
+                                timeZone: timeZoneByCardID[item.card.id]
+                            )
                         )
 
                         if let ownIndex = item.ownIndex {
@@ -824,7 +839,8 @@ struct ItineraryView: View {
                                     day: day,
                                     cards: cards,
                                     days: days,
-                                    currentOrNextCardID: currentOrNextCardID
+                                    currentOrNextCardID: currentOrNextCardID,
+                                    timeZone: timeZoneByCardID[item.card.id] ?? ItineraryLocalTime.deviceTimeZone
                                 )
 
                                 // Route legs connect adjacent cards using the point
@@ -852,13 +868,18 @@ struct ItineraryView: View {
                             .animation(.snappy(duration: 0.2), value: draggedListCardDestinationDayID)
                             .zIndex(draggedListCard?.cardID == item.card.id ? 100 : 0)
                         } else {
-                            itineraryCompactCardContent(
+                            // 跨天卡的投影片段（酒店多晚/过夜航班）同样支持左滑
+                            // 编辑/询问/删除——操作作用于底层卡；长按拖动排序仍
+                            // 从源日的那张卡发起（投影不报告拖拽命中 frame）。
+                            itinerarySwipeableCard(
                                 item.card,
                                 index: itemIndex,
-                                showsTimeAccent: false,
+                                day: day,
+                                days: days,
+                                currentOrNextCardID: nil,
+                                timeZone: timeZoneByCardID[item.card.id] ?? ItineraryLocalTime.deviceTimeZone,
                                 progressLabel: itineraryCardProgressLabel(item.progress)
                             )
-                            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                             .accessibilityHint(
                                 item.isHotelNight
                                     ? Text("itinerary.projectedHotelNightHint")
@@ -906,7 +927,8 @@ struct ItineraryView: View {
         day: TripDaySnapshot,
         cards: [TravelCardSnapshot],
         days: [TripDaySnapshot],
-        currentOrNextCardID: UUID?
+        currentOrNextCardID: UUID?,
+        timeZone: TimeZone
     ) -> some View {
         let supportsLongPressDrag = ItineraryCardDragPolicy.allowsLongPressDrag(card)
         let canReorder = supportsLongPressDrag
@@ -918,7 +940,8 @@ struct ItineraryView: View {
             index: index,
             day: day,
             days: days,
-            currentOrNextCardID: currentOrNextCardID
+            currentOrNextCardID: currentOrNextCardID,
+            timeZone: timeZone
         )
         .background {
             GeometryReader { proxy in
@@ -943,7 +966,9 @@ struct ItineraryView: View {
         index: Int,
         day: TripDaySnapshot,
         days: [TripDaySnapshot],
-        currentOrNextCardID: UUID?
+        currentOrNextCardID: UUID?,
+        timeZone: TimeZone,
+        progressLabel: String? = nil
     ) -> some View {
         let swipeOffset = listCardSwipeOffset(for: card.id)
         let revealedWidth = -swipeOffset
@@ -1090,7 +1115,7 @@ struct ItineraryView: View {
                 card,
                 index: index,
                 showsTimeAccent: currentOrNextCardID == card.id,
-                progressLabel: itineraryCardProgressLabel(
+                progressLabel: progressLabel ?? itineraryCardProgressLabel(
                     ItineraryListPresentation.cardProgress(
                         for: card,
                         // Own-day row: the card's source day is `day` itself,
@@ -1098,7 +1123,8 @@ struct ItineraryView: View {
                         sourceDay: day,
                         targetDay: day
                     )
-                )
+                ),
+                timeZone: timeZone
             )
                 .clipShape(
                     RoundedRectangle(
@@ -1149,12 +1175,18 @@ struct ItineraryView: View {
         _ card: TravelCardSnapshot,
         index: Int,
         showsTimeAccent: Bool,
-        progressLabel: String? = nil
+        progressLabel: String? = nil,
+        timeZone: TimeZone = ItineraryLocalTime.deviceTimeZone
     ) -> some View {
         if card.kind == .flight {
             itineraryFlightCardContent(card, isActive: showsTimeAccent, progressLabel: progressLabel)
         } else if card.kind == .hotel {
-            itineraryHotelCardContent(card, isActive: showsTimeAccent, progressLabel: progressLabel)
+            itineraryHotelCardContent(
+                card,
+                isActive: showsTimeAccent,
+                progressLabel: progressLabel,
+                timeZone: timeZone
+            )
         } else {
             ZStack(alignment: .leading) {
                 if showsTimeAccent {
@@ -1167,13 +1199,15 @@ struct ItineraryView: View {
                         itineraryLargeImageCardContent(
                             card,
                             index: index,
-                            progressLabel: progressLabel
+                            progressLabel: progressLabel,
+                            timeZone: timeZone
                         )
                     } else {
                         itineraryOrdinaryCardContent(
                             card,
                             index: index,
-                            progressLabel: progressLabel
+                            progressLabel: progressLabel,
+                            timeZone: timeZone
                         )
                     }
                 }
@@ -1190,6 +1224,9 @@ struct ItineraryView: View {
     ) -> some View {
         let price = compactCardPrice(for: card)
         let summary = ItineraryListPresentation.cardSummary(for: card)
+        // 起降各自按机场当地时间显示（时区来自 /v1/airports 缓存）。
+        let originTimeZone = ItineraryLocalTime.startTimeZone(for: card)
+        let destinationTimeZone = ItineraryLocalTime.endTimeZone(for: card)
 
         return Button {
             guard suppressedListCardTapID != card.id else { return }
@@ -1245,7 +1282,7 @@ struct ItineraryView: View {
                     HStack(alignment: .top, spacing: 0) {
                         itineraryFlightAirportBlock(
                             airport: card.fromAirport,
-                            time: itineraryFlightTime(card.startAt),
+                            time: ItineraryLocalTime.shortTime(card.startAt, in: originTimeZone),
                             alignment: .leading
                         )
                         .frame(width: 86)
@@ -1253,7 +1290,7 @@ struct ItineraryView: View {
                             itineraryFlightArcConnector(
                                 durationText: itineraryFlightDuration(for: card)
                             )
-                            Text(Self.itineraryFlightDateFormatter.string(from: card.startAt))
+                            Text(ItineraryLocalTime.monthDay(card.startAt, in: originTimeZone))
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(PrimaryTabPalette.secondaryText)
                                 .lineLimit(1)
@@ -1262,7 +1299,9 @@ struct ItineraryView: View {
                         .padding(.top, 5)
                         itineraryFlightAirportBlock(
                             airport: card.toAirport,
-                            time: card.endAt.map { itineraryFlightTime($0) } ?? String(localized: "agent.timePending"),
+                            time: card.endAt.map {
+                                ItineraryLocalTime.shortTime($0, in: destinationTimeZone)
+                            } ?? String(localized: "agent.timePending"),
                             alignment: .trailing
                         )
                         .frame(width: 86)
@@ -1284,38 +1323,26 @@ struct ItineraryView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    if let passengers = itinerarySharedPassengers(for: card) {
-                        Text(passengers)
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                    // 乘机人行右侧常驻「查看详情」入口；原票券底栏（航司名 +
+                    // 详情）已移除以缩减高度，点击卡片任意处同样进入详情。
+                    HStack(spacing: 8) {
+                        if let passengers = itinerarySharedPassengers(for: card) {
+                            Text(passengers)
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
+                        HStack(spacing: 5) {
+                            Text("travelcard.viewDetails")
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.bold))
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.9))
                     }
                 }
                 .padding(14)
-
-                itineraryFlightTicketDivider(isActive: isActive)
-
-                HStack(spacing: 8) {
-                    if let airlineName = card.airlineName?.nilIfEmpty {
-                        Text(airlineName)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    HStack(spacing: 5) {
-                        Text("travelcard.viewDetails")
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                }
-                .frame(minHeight: 40)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(JourneyPalette.flightCardSurface)
@@ -1336,12 +1363,14 @@ struct ItineraryView: View {
         .buttonStyle(ItineraryCardNoFadeButtonStyle())
     }
 
-    /// 酒店专属列表卡：突出房型、价格与入住/退房时间，结构对齐机票票根卡
-    /// （头部徽章+价格 → 关键字段 → 双端点时间线 → 打孔分隔线 → 信息底栏）。
+    /// 酒店专属列表卡：突出房型、价格与入住/退房时间（头部+价格 → 关键字段
+    /// → 双端点时间线）。原底部「查看详情」行已移除以缩减高度——点击卡片
+    /// 任意处即可进入详情。
     private func itineraryHotelCardContent(
         _ card: TravelCardSnapshot,
         isActive: Bool,
-        progressLabel: String?
+        progressLabel: String?,
+        timeZone: TimeZone
     ) -> some View {
         let price = compactCardPrice(for: card)
         let summary = ItineraryListPresentation.cardSummary(for: card)
@@ -1401,12 +1430,14 @@ struct ItineraryView: View {
                     }
 
                     // 入住/退房双端点 + 中段「N 晚」，对应机票卡的航线时间线。
+                    // 日期按酒店当地时间显示（近似自最近的带时区机场）。
                     HStack(alignment: .center, spacing: 9) {
                         itineraryHotelStayBlock(
                             label: "hotelcard.checkIn",
                             date: card.startAt,
                             time: card.checkInTime,
-                            alignment: .leading
+                            alignment: .leading,
+                            timeZone: timeZone
                         )
                         VStack(spacing: 6) {
                             if let nights {
@@ -1428,7 +1459,8 @@ struct ItineraryView: View {
                             label: "hotelcard.checkOut",
                             date: card.endAt ?? card.startAt,
                             time: card.checkOutTime,
-                            alignment: .trailing
+                            alignment: .trailing,
+                            timeZone: timeZone
                         )
                     }
 
@@ -1443,28 +1475,6 @@ struct ItineraryView: View {
                     }
                 }
                 .padding(14)
-
-                itineraryFlightTicketDivider(isActive: isActive)
-
-                HStack(spacing: 8) {
-                    if let bookingCode = card.bookingCode?.nilIfEmpty {
-                        Text(bookingCode)
-                            .font(.caption.monospaced().weight(.medium))
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    HStack(spacing: 5) {
-                        Text("travelcard.viewDetails")
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                }
-                .frame(minHeight: 40)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
@@ -1522,14 +1532,15 @@ struct ItineraryView: View {
         label: LocalizedStringKey,
         date: Date,
         time: String?,
-        alignment: HorizontalAlignment
+        alignment: HorizontalAlignment,
+        timeZone: TimeZone
     ) -> some View {
         VStack(alignment: alignment, spacing: 4) {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
             // 复用机票卡的月日格式，保证两种卡片时间线视觉一致。
-            Text(Self.itineraryFlightDateFormatter.string(from: date))
+            Text(ItineraryLocalTime.monthDay(date, in: timeZone))
                 .font(.system(size: 19, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -1583,24 +1594,6 @@ struct ItineraryView: View {
                 .foregroundStyle(.white.opacity(0.86))
         }
         .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
-    }
-
-    private func itineraryFlightTicketDivider(isActive: Bool) -> some View {
-        HStack(spacing: 5) {
-            ForEach(0..<18, id: \.self) { _ in
-                Capsule().fill(Color.white.opacity(0.10)).frame(maxWidth: .infinity).frame(height: 1)
-            }
-        }
-        .overlay(alignment: .leading) {
-            if !isActive {
-                Circle().fill(JourneyPalette.listSurface).frame(width: 16, height: 16).offset(x: -8)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            if !isActive {
-                Circle().fill(JourneyPalette.listSurface).frame(width: 16, height: 16).offset(x: 8)
-            }
-        }
     }
 
     private func itineraryAirlineLogoURL(for card: TravelCardSnapshot) -> URL? {
@@ -1663,25 +1656,6 @@ struct ItineraryView: View {
         .frame(height: 23)
     }
 
-    private func itineraryFlightTime(_ date: Date) -> String {
-        Self.itineraryFlightTimeFormatter.string(from: date)
-    }
-
-    private static let itineraryFlightTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter
-    }()
-
-    private static let itineraryFlightDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.setLocalizedDateFormatFromTemplate("MMMd")
-        return formatter
-    }()
-
     private func itineraryCardProgressLabel(
         _ progress: ItineraryListPresentation.CardProgress?
     ) -> String? {
@@ -1703,7 +1677,8 @@ struct ItineraryView: View {
     private func itineraryOrdinaryCardContent(
         _ card: TravelCardSnapshot,
         index: Int,
-        progressLabel: String? = nil
+        progressLabel: String? = nil,
+        timeZone: TimeZone = ItineraryLocalTime.deviceTimeZone
     ) -> some View {
         let summary = ItineraryListPresentation.cardSummary(for: card)
         let price = compactCardPrice(for: card)
@@ -1749,7 +1724,7 @@ struct ItineraryView: View {
                     HStack(spacing: 14) {
                         compactCardMetadata(
                             icon: "icon-pin-outline",
-                            text: ItineraryListPresentation.timeRange(for: card)
+                            text: ItineraryListPresentation.timeRange(for: card, timeZone: timeZone)
                         )
 
                         if let price {
@@ -1789,7 +1764,8 @@ struct ItineraryView: View {
     private func itineraryLargeImageCardContent(
         _ card: TravelCardSnapshot,
         index: Int,
-        progressLabel: String? = nil
+        progressLabel: String? = nil,
+        timeZone: TimeZone = ItineraryLocalTime.deviceTimeZone
     ) -> some View {
         let summary = ItineraryListPresentation.cardSummary(for: card)
         let price = compactCardPrice(for: card)
@@ -3538,21 +3514,24 @@ enum ItineraryLargeImageCardLayout {
 
 }
 
-/// 左侧行程时间线轨道的几何常量：徽章直径即轨道宽度；卡片列从轨道右侧
-/// 起排，因此每张卡整体缩窄（轨道宽 + 列间距），左侧留出轨道空间。
-/// spacing 必须与 itineraryDayContent 外层 VStack 的行间距一致，虚线
-/// 才能跨过行间接住下一枚徽章。
+/// 左侧行程时间线轨道的几何常量：轨道列以能放下一档 "09:30" 短时间为准；
+/// 卡片列从轨道右侧起排，因此每张卡整体缩窄（轨道宽 + 列间距），左侧留出
+/// 轨道空间。spacing 必须与 itineraryDayContent 外层 VStack 的行间距一致，
+/// 虚线才能跨过行间接住下一行的轨道。
 enum ItineraryCardRailLayout {
-    static let iconDiameter: CGFloat = 30
+    static let width: CGFloat = 38
     static let spacing: CGFloat = 10
 }
 
-/// 行程卡左侧的类别徽章（机票/酒店/景点），向下延伸一条虚线接到下一张
-/// 卡的徽章，串起一整天的行程。类别提示从卡内的小字 Label 转移到这枚
-/// 彩色徽章上，按类别着色、更醒目。
+/// 行程卡左侧的时间线轨道：顶部/底部分别是卡片起始/结束的当地时间，
+/// 中部是与卡片垂直居中的类别 icon（机票/酒店/景点，按类别着色），一条
+/// 虚线从头贯到底、跨过行间接住下一张卡。时间与 icon 用表面同色小块
+/// 遮住穿过的虚线，保持轨道连贯又不叠字。
 private struct ItineraryCardRail: View {
     let kind: TravelCardSnapshot.Kind
-    var showsConnector: Bool
+    let showsConnector: Bool
+    let startTime: ItineraryLocalTime.RailTime?
+    let endTime: ItineraryLocalTime.RailTime?
 
     private var tint: Color {
         switch kind {
@@ -3563,33 +3542,56 @@ private struct ItineraryCardRail: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
+        VStack(spacing: 3) {
+            if let startTime {
+                railTime(startTime)
+            }
+
+            Spacer(minLength: 4)
+
+            Image(systemName: kind == .hotel ? "bed.double.fill" : kind.systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .padding(.horizontal, 4)
+                .background(JourneyPalette.listSurface)
+
+            Spacer(minLength: 4)
+
+            if let endTime {
+                railTime(endTime)
+            }
+        }
+        .frame(width: ItineraryCardRailLayout.width)
+        .background {
             if showsConnector {
                 ItineraryRailConnectorShape()
                     .stroke(
                         Color.white.opacity(0.24),
                         style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 4.5])
                     )
-                    .frame(width: ItineraryCardRailLayout.iconDiameter)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.top, ItineraryCardRailLayout.iconDiameter + 3)
-                    // 行与行之间的 VStack 间距里也要有虚线，才能接住下一行的徽章。
+                    // 行与行之间的 VStack 间距里也要有虚线，才能接住下一行的轨道。
                     .offset(y: ItineraryCardRailLayout.spacing)
                     .allowsHitTesting(false)
             }
-
-            Image(systemName: kind == .hotel ? "bed.double.fill" : kind.systemImage)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(
-                    width: ItineraryCardRailLayout.iconDiameter,
-                    height: ItineraryCardRailLayout.iconDiameter
-                )
-                .background(tint.opacity(0.16), in: Circle())
-                .overlay(Circle().strokeBorder(tint.opacity(0.55), lineWidth: 1))
         }
-        .frame(width: ItineraryCardRailLayout.iconDiameter)
         .accessibilityHidden(true)
+    }
+
+    private func railTime(_ time: ItineraryLocalTime.RailTime) -> some View {
+        VStack(spacing: 0) {
+            Text(time.text)
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white.opacity(0.8))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if time.showsLocalBadge {
+                Text("itinerary.railLocalTimeBadge")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+            }
+        }
+        .padding(.horizontal, 2)
+        .background(JourneyPalette.listSurface)
     }
 }
 
@@ -3632,9 +3634,194 @@ enum ItineraryFlightCardPresentation {
     }
 }
 
+/// 行程时间的「当地时间」口径。卡片本身只存绝对时刻（UTC instant），展示层
+/// 在这里补齐时区：
+/// - 机票：起飞/降落直接用出发/到达机场的时区（`/v1/airports` 返回的 IANA
+///   标识，随机场坐标缓存在卡上，见 ``FlightAirportLocationSnapshot/timeZone``）；
+/// - 酒店/景点：没有时区数据，用行程内离卡片地点最近的带时区机场近似
+///   （300km 内），找不到时退回设备时区。
+/// 换算只在展示层进行；按天分组的日历口径（day key）仍用设备时区，两者刻意分开。
+enum ItineraryLocalTime {
+    /// 左侧轨道一枚起止时间：文本 + 是否需要「当地」标注（时区与设备不同时）。
+    struct RailTime: Equatable {
+        let text: String
+        let showsLocalBadge: Bool
+    }
+
+    static let deviceTimeZone: TimeZone = .autoupdatingCurrent
+
+    // MARK: 时区解析
+
+    /// 时刻所属时区：机票起飞用出发机场时区；其余暂按设备时区（列表页的
+    /// 非机票卡请改用 `timeZoneByCardID` 的推导结果）。
+    static func startTimeZone(for card: TravelCardSnapshot) -> TimeZone {
+        if card.kind == .flight,
+           let timeZone = card.fromAirportLocation?.timeZone.flatMap({ TimeZone(identifier: $0) }) {
+            return timeZone
+        }
+        return deviceTimeZone
+    }
+
+    /// 时刻所属时区：机票降落用到达机场时区；其余暂按设备时区。
+    static func endTimeZone(for card: TravelCardSnapshot) -> TimeZone {
+        if card.kind == .flight,
+           let timeZone = card.toAirportLocation?.timeZone.flatMap({ TimeZone(identifier: $0) }) {
+            return timeZone
+        }
+        return deviceTimeZone
+    }
+
+    /// 非机票卡的近似当地时间表：每张卡取行程内最近的带时区机场。
+    /// 在列表页按数据变化算一次后逐层下发，避免每张卡都重扫全部航班。
+    static func timeZoneByCardID(in days: [TripDaySnapshot]) -> [UUID: TimeZone] {
+        var result: [UUID: TimeZone] = [:]
+        for day in days {
+            for card in day.cards where card.kind != .flight {
+                if let timeZone = nearestAirportTimeZone(for: card, in: days) {
+                    result[card.id] = timeZone
+                }
+            }
+        }
+        return result
+    }
+
+    /// 离卡片地点最近的带时区机场（行程内已解析的起降机场都参与）。超过
+    /// 300km 视为不在同一片区域，宁缺毋滥返回 nil。
+    static func nearestAirportTimeZone(
+        for card: TravelCardSnapshot,
+        in days: [TripDaySnapshot]
+    ) -> TimeZone? {
+        guard let latitude = card.place?.latitude,
+              let longitude = card.place?.longitude else { return nil }
+        var best: (distanceMeters: Double, timeZone: TimeZone)?
+        for other in days.flatMap(\.cards) {
+            for location in [other.fromAirportLocation, other.toAirportLocation].compactMap({ $0 }) {
+                guard location.hasValidCoordinate,
+                      let timeZone = location.timeZone.flatMap({ TimeZone(identifier: $0) }) else { continue }
+                let distance = distanceMeters(
+                    fromLatitude: latitude,
+                    longitude: longitude,
+                    toLatitude: location.latitude,
+                    toLongitude: location.longitude
+                )
+                if distance <= 300_000, best == nil || distance < best!.distanceMeters {
+                    best = (distance, timeZone)
+                }
+            }
+        }
+        return best?.timeZone
+    }
+
+    static func isDistinctFromDevice(_ timeZone: TimeZone) -> Bool {
+        timeZone.identifier != deviceTimeZone.identifier
+    }
+
+    // MARK: 轨道起止时间
+
+    /// 轨道顶部：起始当地时间。酒店用入住政策时间（本来就是当地时间字符串）。
+    static func railStartTime(
+        for card: TravelCardSnapshot,
+        timeZone: TimeZone? = nil
+    ) -> RailTime? {
+        switch card.kind {
+        case .hotel:
+            guard let text = card.checkInTime?.nilIfEmpty else { return nil }
+            return RailTime(text: text, showsLocalBadge: timeZone.map(isDistinctFromDevice) ?? false)
+        case .flight, .activity:
+            let effective = card.kind == .flight
+                ? startTimeZone(for: card)
+                : (timeZone ?? deviceTimeZone)
+            return railTime(card.startAt, in: effective)
+        }
+    }
+
+    /// 轨道底部：结束当地时间。酒店用退房政策时间；没有结束时刻就不展示。
+    static func railEndTime(
+        for card: TravelCardSnapshot,
+        timeZone: TimeZone? = nil
+    ) -> RailTime? {
+        switch card.kind {
+        case .hotel:
+            guard let text = card.checkOutTime?.nilIfEmpty else { return nil }
+            return RailTime(text: text, showsLocalBadge: timeZone.map(isDistinctFromDevice) ?? false)
+        case .flight, .activity:
+            guard let endAt = card.endAt else { return nil }
+            let effective = card.kind == .flight
+                ? endTimeZone(for: card)
+                : (timeZone ?? deviceTimeZone)
+            return railTime(endAt, in: effective)
+        }
+    }
+
+    private static func railTime(_ date: Date, in timeZone: TimeZone) -> RailTime {
+        RailTime(
+            text: shortTime(date, in: timeZone),
+            showsLocalBadge: isDistinctFromDevice(timeZone)
+        )
+    }
+
+    // MARK: 格式化（按 IANA 标识缓存 DateFormatter）
+
+    private static let formatterLock = NSLock()
+    private static var cachedTimeFormatters: [String: DateFormatter] = [:]
+    private static var cachedDateFormatters: [String: DateFormatter] = [:]
+
+    /// HH:mm（随系统语言），按指定时区。与卡内时刻同款式，只是换了时区。
+    static func shortTime(_ date: Date, in timeZone: TimeZone) -> String {
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
+        if let cached = cachedTimeFormatters[timeZone.identifier] {
+            return cached.string(from: date)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        formatter.timeZone = timeZone
+        cachedTimeFormatters[timeZone.identifier] = formatter
+        return formatter.string(from: date)
+    }
+
+    /// 月日（MMMd），按指定时区。
+    static func monthDay(_ date: Date, in timeZone: TimeZone) -> String {
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
+        if let cached = cachedDateFormatters[timeZone.identifier] {
+            return cached.string(from: date)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMMd")
+        formatter.timeZone = timeZone
+        cachedDateFormatters[timeZone.identifier] = formatter
+        return formatter.string(from: date)
+    }
+
+    private static func distanceMeters(
+        fromLatitude: Double,
+        longitude fromLongitude: Double,
+        toLatitude: Double,
+        toLongitude: Double
+    ) -> Double {
+        func radians(_ degrees: Double) -> Double { degrees * .pi / 180 }
+        let radius = 6_371_000.0
+        let phi = radians(fromLatitude)
+        let otherPhi = radians(toLatitude)
+        let deltaPhi = radians(toLatitude - fromLatitude)
+        let deltaLambda = radians(toLongitude - fromLongitude)
+        let haversine = pow(sin(deltaPhi / 2), 2)
+            + cos(phi) * cos(otherPhi) * pow(sin(deltaLambda / 2), 2)
+        return 2 * radius * asin(min(1, sqrt(haversine)))
+    }
+}
+
 enum ItineraryCardDragPolicy {
+    /// 长按拖动排序对所有卡片类别开放（此前仅景点卡）。跨天卡的投影
+    /// 片段支持左滑操作，但拖动排序仍从源日的那张卡发起。
     static func allowsLongPressDrag(_ card: TravelCardSnapshot) -> Bool {
-        card.kind == .activity
+        switch card.kind {
+        case .flight, .hotel, .activity: true
+        }
     }
 }
 
@@ -4251,10 +4438,18 @@ enum ItineraryListPresentation {
         return result
     }
 
-    static func timeRange(for card: TravelCardSnapshot) -> String {
-        let start = timeFormatter.string(from: card.startAt)
+    /// 卡片起止时间区间，按传入时区格式化（列表页传卡片当地时间）。
+    static func timeRange(
+        for card: TravelCardSnapshot,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
+        let start = ItineraryLocalTime.shortTime(card.startAt, in: timeZone)
         guard let endAt = card.endAt else { return start }
-        return String(format: String(localized: "itinerary.cardTimeRange"), start, timeFormatter.string(from: endAt))
+        return String(
+            format: String(localized: "itinerary.cardTimeRange"),
+            start,
+            ItineraryLocalTime.shortTime(endAt, in: timeZone)
+        )
     }
 
     static func currentOrNextCardID(
@@ -4399,13 +4594,6 @@ enum ItineraryListPresentation {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "MM.dd"
-        return formatter
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
         return formatter
     }()
 

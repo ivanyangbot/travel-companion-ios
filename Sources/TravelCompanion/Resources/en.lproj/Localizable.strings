@@ -198,6 +198,7 @@
 "itinerary.statusLocal" = "Local mode · everything available";
 "itinerary.daySummaryEmpty" = "Nothing planned yet";
 "itinerary.cardTimeRange" = "%@–%@";
+"itinerary.railLocalTimeBadge" = "local";
 "itinerary.agentDate" = "Date: %@";
 "itinerary.agentCard" = "Itinerary card: %@";
 "itinerary.agentTime" = "Time: %@";

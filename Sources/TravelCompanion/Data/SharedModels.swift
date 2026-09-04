@@ -213,6 +213,9 @@ struct FlightAirportLocationSnapshot: Codable, Sendable, Equatable {
     var country: String?
     var latitude: Double
     var longitude: Double
+    /// IANA 时区标识（来自 /v1/airports），MapKit 兜底解析时为空。行程时间
+    /// 展示用它换算机场当地时间；属于本地缓存富化，不进 PATCH。
+    var timeZone: String? = nil
     var resolvedAt: Date
 
     var hasValidCoordinate: Bool {

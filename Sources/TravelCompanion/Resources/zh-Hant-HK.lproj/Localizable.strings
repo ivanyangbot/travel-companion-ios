@@ -198,6 +198,7 @@
 "itinerary.statusLocal" = "本機模式·全部功能用得";
 "itinerary.daySummaryEmpty" = "仲未排行程";
 "itinerary.cardTimeRange" = "%@~%@";
+"itinerary.railLocalTimeBadge" = "當地";
 "itinerary.agentDate" = "日期：%@";
 "itinerary.agentCard" = "行程卡：%@";
 "itinerary.agentTime" = "時間：%@";
