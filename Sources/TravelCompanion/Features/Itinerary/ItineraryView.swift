@@ -3814,58 +3814,78 @@ enum ItineraryLocalTime {
         )
     }
 
-    // MARK: 格式化（按 IANA 标识缓存 DateFormatter）
+    // MARK: 格式化（按 IANA 标识缓存 DateFormatter；远端并发安全版本）
 
-    private static let formatterLock = NSLock()
-    private static var cachedTimeFormatters: [String: DateFormatter] = [:]
-    private static var cachedDateFormatters: [String: DateFormatter] = [:]
-    private static var cachedRailTimeFormatters: [String: DateFormatter] = [:]
+    private final class FormatterCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var timeFormatters: [String: DateFormatter] = [:]
+        private var dateFormatters: [String: DateFormatter] = [:]
+        private var railTimeFormatters: [String: DateFormatter] = [:]
 
-    /// 轨道时间固定 24 小时制（HH:mm），不受系统 12/24 小时设置影响，
-    /// 保证轨道时间宽度稳定不溢出。
-    static func railTimeText(_ date: Date, in timeZone: TimeZone) -> String {
-        formatterLock.lock()
-        defer { formatterLock.unlock() }
-        if let cached = cachedRailTimeFormatters[timeZone.identifier] {
-            return cached.string(from: date)
+        func shortTime(_ date: Date, in timeZone: TimeZone) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let key = timeZone.identifier
+            if let formatter = timeFormatters[key] {
+                return formatter.string(from: date)
+            }
+            let formatter = DateFormatter()
+            formatter.locale = .autoupdatingCurrent
+            formatter.timeStyle = .short
+            formatter.dateStyle = .none
+            formatter.timeZone = timeZone
+            timeFormatters[key] = formatter
+            return formatter.string(from: date)
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
-        formatter.timeZone = timeZone
-        cachedRailTimeFormatters[timeZone.identifier] = formatter
-        return formatter.string(from: date)
+
+        func monthDay(_ date: Date, in timeZone: TimeZone) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let key = timeZone.identifier
+            if let formatter = dateFormatters[key] {
+                return formatter.string(from: date)
+            }
+            let formatter = DateFormatter()
+            formatter.locale = .autoupdatingCurrent
+            formatter.setLocalizedDateFormatFromTemplate("MMMd")
+            formatter.timeZone = timeZone
+            dateFormatters[key] = formatter
+            return formatter.string(from: date)
+        }
+
+        /// 轨道时间固定 24 小时制（HH:mm），不受系统 12/24 小时设置影响，
+        /// 保证轨道时间宽度稳定不溢出。
+        func railTime(_ date: Date, in timeZone: TimeZone) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let key = timeZone.identifier
+            if let formatter = railTimeFormatters[key] {
+                return formatter.string(from: date)
+            }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "HH:mm"
+            formatter.timeZone = timeZone
+            railTimeFormatters[key] = formatter
+            return formatter.string(from: date)
+        }
     }
+
+    private static let formatterCache = FormatterCache()
 
     /// HH:mm（随系统语言），按指定时区。与卡内时刻同款式，只是换了时区。
     static func shortTime(_ date: Date, in timeZone: TimeZone) -> String {
-        formatterLock.lock()
-        defer { formatterLock.unlock() }
-        if let cached = cachedTimeFormatters[timeZone.identifier] {
-            return cached.string(from: date)
-        }
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        formatter.timeZone = timeZone
-        cachedTimeFormatters[timeZone.identifier] = formatter
-        return formatter.string(from: date)
+        formatterCache.shortTime(date, in: timeZone)
     }
 
     /// 月日（MMMd），按指定时区。
     static func monthDay(_ date: Date, in timeZone: TimeZone) -> String {
-        formatterLock.lock()
-        defer { formatterLock.unlock() }
-        if let cached = cachedDateFormatters[timeZone.identifier] {
-            return cached.string(from: date)
-        }
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.setLocalizedDateFormatFromTemplate("MMMd")
-        formatter.timeZone = timeZone
-        cachedDateFormatters[timeZone.identifier] = formatter
-        return formatter.string(from: date)
+        formatterCache.monthDay(date, in: timeZone)
+    }
+
+    /// 轨道时间：24 小时制，按指定时区。
+    static func railTimeText(_ date: Date, in timeZone: TimeZone) -> String {
+        formatterCache.railTime(date, in: timeZone)
     }
 
     private static func distanceMeters(
