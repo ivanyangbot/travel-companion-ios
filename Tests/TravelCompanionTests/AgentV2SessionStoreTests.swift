@@ -412,7 +412,12 @@ final class AgentV2SessionStoreTests: XCTestCase {
             id: UUID(), updatedAt: .now,
             preferences: .init(pace: nil, companions: nil, budget: nil, interests: []),
             messages: [], attachments: [],
-            draft: AgentV2Draft(candidates: [selected, unselected], changes: []), summary: nil
+            draft: AgentV2Draft(candidates: [selected, unselected], changes: [
+                AgentV2Change(
+                    id: UUID(), operation: .add, candidateId: selected.id,
+                    targetCardId: nil, summary: "新增浅草寺", impact: nil
+                ),
+            ]), summary: nil
         )
         defaults.set(try encoder.encode(session), forKey: sessionKey)
         let store = AgentV2SessionStore(defaults: defaults)
