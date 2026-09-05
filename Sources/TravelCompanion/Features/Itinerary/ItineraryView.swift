@@ -900,11 +900,14 @@ struct ItineraryView: View {
                                 timeZone: timeZoneByCardID[item.card.id] ?? ItineraryLocalTime.deviceTimeZone,
                                 isPreviousDayContinuation: visit.purpose == "return"
                             )
-                        } else if let ownIndex = item.ownIndex {
+                        } else if item.ownIndex != nil {
                             VStack(alignment: .leading, spacing: 6) {
                                 itineraryCompactCard(
                                     item.card,
-                                    index: ownIndex,
+                                    index: ItineraryListPresentation.activityDisplayIndex(
+                                        at: itemIndex,
+                                        in: listItems
+                                    ),
                                     day: day,
                                     cards: cards,
                                     days: days,
@@ -923,7 +926,10 @@ struct ItineraryView: View {
                             // 从源日的那张卡发起（投影不报告拖拽命中 frame）。
                             itinerarySwipeableCard(
                                 item.card,
-                                index: itemIndex,
+                                index: ItineraryListPresentation.activityDisplayIndex(
+                                    at: itemIndex,
+                                    in: listItems
+                                ),
                                 day: day,
                                 days: days,
                                 currentOrNextCardID: nil,
@@ -4678,6 +4684,14 @@ enum ItineraryListPresentation {
         }
     }
 
+    static func chronologicalCards(_ cards: [TravelCardSnapshot]) -> [TravelCardSnapshot] {
+        cards.sorted {
+            if $0.startAt != $1.startAt { return $0.startAt < $1.startAt }
+            if $0.position != $1.position { return $0.position < $1.position }
+            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+    }
+
     struct DayListItem: Identifiable {
         let id: String
         let card: TravelCardSnapshot
@@ -4723,7 +4737,7 @@ enum ItineraryListPresentation {
               days.contains(where: {
                 localDayStart($0.date, timeZone: timeZone) == previousStart
               }),
-              let destination = orderedCards(targetDay.cards).first(where: {
+              let destination = chronologicalCards(targetDay.cards).first(where: {
                 legDestinationPoint(for: $0) != nil
               }) else { return nil }
 
@@ -4833,6 +4847,15 @@ enum ItineraryListPresentation {
             merged.sort { ($0.effectiveStart ?? .distantFuture) < ($1.effectiveStart ?? .distantFuture) }
         }
         return merged
+    }
+
+    /// Activity numbers follow the final visible timeline. Flights, hotels,
+    /// projected stays and hotel visits never consume an activity number.
+    static func activityDisplayIndex(at itemIndex: Int, in items: [DayListItem]) -> Int {
+        guard itemIndex > 0 else { return 0 }
+        return items.prefix(itemIndex).reduce(into: 0) { count, item in
+            if item.card.kind == .activity { count += 1 }
+        }
     }
 
     static func localDayStart(

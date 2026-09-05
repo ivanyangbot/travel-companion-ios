@@ -413,6 +413,47 @@ final class ItineraryLocalTimeTests: XCTestCase {
         XCTAssertEqual(leg?.destination.id, activity.id)
     }
 
+    func testDayStartLegUsesChronologicalFirstStopInsteadOfStoredPosition() {
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "Hotel",
+            startAt: utcDate(15, 0),
+            endAt: utcDate(11, 0).addingTimeInterval(24 * 3600),
+            place: PlaceSnapshot(
+                id: 1, name: "Hotel", address: nil, latitude: -8.69, longitude: 115.17,
+                placeId: nil, cityCode: nil, businessHours: nil, updatedAt: .now
+            )
+        )
+        let early = TravelCardSnapshot(
+            dayID: 2,
+            kind: .activity,
+            title: "Early",
+            startAt: utcDate(9, 0).addingTimeInterval(24 * 3600),
+            place: PlaceSnapshot(
+                id: 2, name: "Early", address: nil, latitude: -8.7, longitude: 115.2,
+                placeId: nil, cityCode: nil, businessHours: nil, updatedAt: .now
+            ),
+            position: 7
+        )
+        let late = TravelCardSnapshot(
+            dayID: 2,
+            kind: .activity,
+            title: "Late",
+            startAt: utcDate(16, 0).addingTimeInterval(24 * 3600),
+            place: PlaceSnapshot(
+                id: 3, name: "Late", address: nil, latitude: -8.6, longitude: 115.1,
+                placeId: nil, cityCode: nil, businessHours: nil, updatedAt: .now
+            ),
+            position: 0
+        )
+        let previous = TripDaySnapshot(date: "2026-09-04", position: 0, cards: [hotel])
+        let target = TripDaySnapshot(date: "2026-09-05", position: 1, cards: [late, early])
+
+        let leg = ItineraryListPresentation.dayStartHotelLeg(for: target, in: [previous, target], timeZone: utc)
+        XCTAssertEqual(leg?.destination.id, early.id)
+    }
+
     func testDayStartLegConnectsPreviousNightHotelToDepartureAirport() {
         let hotel = TravelCardSnapshot(
             dayID: 1,

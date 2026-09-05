@@ -1166,6 +1166,53 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(decoded.hotelVisits, hotel.hotelVisits)
     }
 
+    func testActivityDisplayIndexesFollowVisibleTimelineAfterHotelVisitSorting() throws {
+        let formatter = ISO8601DateFormatter()
+        let zone = try XCTUnwrap(TimeZone(identifier: "Asia/Makassar"))
+        let hotel = TravelCardSnapshot(
+            dayID: 1, kind: .hotel, title: "Aloft",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-25T18:30:00+08:00")),
+            hotelVisits: [
+                HotelVisit(date: "2026-09-25", arrivalTime: "17:30", departureTime: "18:15", purpose: "checkIn")
+            ],
+            position: 2
+        )
+        let yellowBridge = TravelCardSnapshot(
+            dayID: 1, kind: .activity, title: "Yellow Bridge",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-25T11:00:00+08:00")),
+            position: 3
+        )
+        let crystalBay = TravelCardSnapshot(
+            dayID: 1, kind: .activity, title: "Crystal Bay",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-25T15:00:00+08:00")),
+            position: 7
+        )
+        let banjarNyuh = TravelCardSnapshot(
+            dayID: 1, kind: .activity, title: "Banjar Nyuh",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-25T16:00:00+08:00")),
+            position: 0
+        )
+        let day = TripDaySnapshot(
+            date: "2026-09-25",
+            position: 0,
+            cards: [banjarNyuh, hotel, yellowBridge, crystalBay]
+        )
+        let items = ItineraryListPresentation.mergedDayListItems(
+            ownCards: ItineraryListPresentation.orderedCards(day.cards),
+            projectedOccurrences: [],
+            day: day,
+            timeZoneByCardID: [hotel.id: zone],
+            timeZone: zone
+        )
+        let activityIndexes = items.indices.compactMap { index -> Int? in
+            guard items[index].card.kind == .activity else { return nil }
+            return ItineraryListPresentation.activityDisplayIndex(at: index, in: items)
+        }
+
+        XCTAssertEqual(items.map(\.card.title), ["Yellow Bridge", "Crystal Bay", "Banjar Nyuh", "Aloft"])
+        XCTAssertEqual(activityIndexes, [0, 1, 2])
+    }
+
     func testCardRequestEncodesAndClearsHotelRoomType() throws {
         let request = CardRequest(roomType: "海景大床房")
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
