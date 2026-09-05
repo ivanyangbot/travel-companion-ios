@@ -1140,6 +1140,16 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(object["baggageAllowance"] as? String, "23 kg")
     }
 
+    func testCardRequestEncodesAndClearsHotelRoomType() throws {
+        let request = CardRequest(roomType: "海景大床房")
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        XCTAssertEqual(object["roomType"] as? String, "海景大床房")
+
+        let cleared = CardRequest(fieldsToClear: ["roomType"])
+        let clearedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(cleared)) as? [String: Any])
+        XCTAssertTrue(clearedObject["roomType"] is NSNull)
+    }
+
     func testCardSnapshotDecodesImagesAndFoldsLegacyImageURL() throws {
         UserDefaults.standard.set("https://api.example.com", forKey: AppConfiguration.apiBaseURLKey)
         defer { UserDefaults.standard.removeObject(forKey: AppConfiguration.apiBaseURLKey) }

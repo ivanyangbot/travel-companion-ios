@@ -1351,7 +1351,6 @@ struct ItineraryView: View {
                                         .foregroundStyle(PrimaryTabPalette.accent)
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.8)
-                                        .fixedSize(horizontal: true, vertical: false)
                                 }
                             }
                         }
@@ -1368,7 +1367,6 @@ struct ItineraryView: View {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.75)
                             }
-                            .fixedSize(horizontal: true, vertical: false)
                             .layoutPriority(2)
                         }
                     }
@@ -1385,9 +1383,7 @@ struct ItineraryView: View {
                             itineraryFlightArcConnector(
                                 durationText: itineraryFlightDuration(for: card)
                             )
-                            // 让弧线端点延伸到机场码下方，而不是只占两块机场
-                            // 信息之间的狭窄余量。
-                            .padding(.horizontal, -40)
+                            .padding(.horizontal, -16)
                             Text(ItineraryLocalTime.monthDay(card.startAt, in: originTimeZone))
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -1473,7 +1469,6 @@ struct ItineraryView: View {
         isPreviousDayContinuation: Bool
     ) -> some View {
         let price = compactCardPrice(for: card)
-        let summary = ItineraryListPresentation.cardSummary(for: card)
         let nights = itineraryHotelNights(for: card)
 
         return Button {
@@ -1496,8 +1491,8 @@ struct ItineraryView: View {
                                 .foregroundStyle(.white)
                                 .lineLimit(2)
                                 .multilineTextAlignment(.leading)
-                            if let placeName = card.place?.name.nilIfEmpty {
-                                Text(placeName)
+                            if let roomType = card.roomType?.nilIfEmpty {
+                                Text(roomType)
                                     .font(.caption)
                                     .foregroundStyle(PrimaryTabPalette.secondaryText)
                                     .lineLimit(1)
@@ -1516,19 +1511,6 @@ struct ItineraryView: View {
                                     .minimumScaleFactor(0.75)
                             }
                         }
-                    }
-
-                    // 房型：酒店卡的核心字段，用主题色胶囊突出（同进度徽章样式）。
-                    if let roomType = card.roomType?.nilIfEmpty {
-                        Text(roomType)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(isPreviousDayContinuation ? Color.white.opacity(0.78) : PrimaryTabPalette.accent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                (isPreviousDayContinuation ? Color.white : PrimaryTabPalette.accent).opacity(0.14),
-                                in: Capsule(style: .continuous)
-                            )
                     }
 
                     // 入住/退房双端点 + 中段「N 晚」，对应机票卡的航线时间线。
@@ -1566,15 +1548,6 @@ struct ItineraryView: View {
                         )
                     }
 
-                    if let summary {
-                        Text(summary)
-                            .font(.footnote)
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                            .lineSpacing(2)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
                 }
                 .padding(14)
             }

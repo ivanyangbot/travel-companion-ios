@@ -166,6 +166,7 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var priceMinor: Int64?
     var ticketPriceMinor: Int64?
     var stayDurationMinutes: Int?
+    var roomType: String? = nil
     var tips: [String]
     var bookingCode: String?
     var fromAirport: String?
@@ -261,6 +262,7 @@ extension AgentV2Candidate {
         priceMinor = try container.decodeIfPresent(Int64.self, forKey: .priceMinor)
         ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)
         stayDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .stayDurationMinutes)
+        roomType = try container.decodeIfPresent(String.self, forKey: .roomType)
         tips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
         bookingCode = try container.decodeIfPresent(String.self, forKey: .bookingCode)
         fromAirport = try container.decodeIfPresent(String.self, forKey: .fromAirport)

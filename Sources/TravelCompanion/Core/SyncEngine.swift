@@ -1037,6 +1037,7 @@ final class SyncEngine: ObservableObject {
                 ticketPriceMinor: request.ticketPriceMinor,
                 priceCurrency: request.priceCurrency,
                 stayDurationMinutes: request.stayDurationMinutes,
+                roomType: request.roomType,
                 tips: request.tips,
                 images: request.images,
                 notes: request.notes,
@@ -1506,6 +1507,7 @@ final class SyncEngine: ObservableObject {
         updated.ticketPriceMinor = request.ticketPriceMinor ?? (request.fieldsToClear.contains("ticketPriceMinor") ? nil : updated.ticketPriceMinor)
         updated.priceCurrency = request.priceCurrency ?? (request.fieldsToClear.contains("priceCurrency") ? nil : updated.priceCurrency)
         updated.stayDurationMinutes = request.stayDurationMinutes ?? (request.fieldsToClear.contains("stayDurationMinutes") ? nil : updated.stayDurationMinutes)
+        updated.roomType = request.roomType ?? (request.fieldsToClear.contains("roomType") ? nil : updated.roomType)
         updated.tips = request.tips ?? (request.fieldsToClear.contains("tips") ? nil : updated.tips)
         if let images = request.images {
             updated.images = images
@@ -1647,6 +1649,7 @@ final class SyncEngine: ObservableObject {
             ticketPriceMinor: card.ticketPriceMinor,
             priceCurrency: card.priceCurrency,
             stayDurationMinutes: card.stayDurationMinutes,
+            roomType: card.roomType,
             tips: card.tips,
             images: card.images,
             notes: card.notes,
@@ -1859,6 +1862,7 @@ private struct MigrationCardFingerprint: Hashable {
     let ticketPriceMinor: Int64?
     let priceCurrency: String?
     let stayDurationMinutes: Int?
+    let roomType: String?
     let tips: [String]?
     let images: [String]?
     let notes: String?
@@ -1884,6 +1888,7 @@ private struct MigrationCardFingerprint: Hashable {
         ticketPriceMinor = card.ticketPriceMinor
         priceCurrency = card.priceCurrency
         stayDurationMinutes = card.stayDurationMinutes
+        roomType = card.roomType
         tips = card.tips
         images = card.images
         notes = card.notes

@@ -24,6 +24,7 @@ struct CardEditorView: View {
     @State private var ticketPriceText: String
     @State private var priceCurrency: String
     @State private var stayDurationText: String
+    @State private var roomType: String
     @State private var tips: [String]
     @State private var notes: String
     @State private var placeMode: PlaceMode
@@ -59,6 +60,7 @@ struct CardEditorView: View {
         _actualPriceText = State(initialValue: Self.priceText(from: existingCard?.actualPriceMinor, currency: priceCurrency))
         _ticketPriceText = State(initialValue: Self.priceText(from: existingCard?.ticketPriceMinor, currency: priceCurrency))
         _stayDurationText = State(initialValue: existingCard?.stayDurationMinutes.map(String.init) ?? "")
+        _roomType = State(initialValue: existingCard?.roomType ?? "")
         _tips = State(initialValue: existingCard?.tips ?? [])
         _notes = State(initialValue: existingCard?.notes ?? "")
         _placeMode = State(initialValue: (existingCard?.place?.id ?? 0) > 0 ? .existing : existingCard?.place == nil ? .none : .new)
@@ -101,6 +103,9 @@ struct CardEditorView: View {
                 }
                 Section("cardeditor.basicSection") {
                     TextField(kind == .flight ? String(localized: "cardeditor.nameFlight") : kind == .hotel ? String(localized: "cardeditor.nameHotel") : String(localized: "cardeditor.nameActivity"), text: $title)
+                    if kind == .hotel {
+                        TextField("hotelcard.roomType", text: $roomType)
+                    }
                     DatePicker("cardeditor.startTime", selection: $startAt)
                     Toggle("cardeditor.setEndTime", isOn: $hasEndAt)
                     if hasEndAt {
@@ -269,6 +274,9 @@ struct CardEditorView: View {
             if CardPrice.minorUnits(from: actualPriceText, currency: priceCurrency) == nil { clearFields.insert("actualPriceMinor") }
             if CardPrice.minorUnits(from: ticketPriceText, currency: priceCurrency) == nil { clearFields.insert("ticketPriceMinor") }
             if stayDuration == nil { clearFields.insert("stayDurationMinutes") }
+            if kind != .hotel || roomType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                clearFields.insert("roomType")
+            }
             if cleanedTips.isEmpty { clearFields.insert("tips") }
             if notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { clearFields.insert("notes") }
             if placeMode == .none { clearFields.insert("place") }
@@ -303,6 +311,7 @@ struct CardEditorView: View {
             ticketPriceMinor: CardPrice.minorUnits(from: ticketPriceText, currency: priceCurrency),
             priceCurrency: priceCurrency,
             stayDurationMinutes: stayDuration,
+            roomType: kind == .hotel ? emptyToNil(roomType) : nil,
             tips: cleanedTips.isEmpty ? nil : cleanedTips,
             images: imagesValue,
             notes: emptyToNil(notes),
