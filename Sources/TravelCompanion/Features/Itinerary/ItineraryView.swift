@@ -4706,9 +4706,9 @@ enum ItineraryListPresentation {
         let destination: TravelCardSnapshot
     }
 
-    /// The first located activity can start from the hotel occupied during the
-    /// previous night. This also handles multi-night stays whose source card
-    /// lives several days earlier.
+    /// The first located itinerary stop can start from the hotel occupied
+    /// during the previous night. This also handles multi-night stays whose
+    /// source card lives several days earlier.
     static func dayStartHotelLeg(
         for targetDay: TripDaySnapshot,
         in days: [TripDaySnapshot],
@@ -4724,7 +4724,7 @@ enum ItineraryListPresentation {
                 localDayStart($0.date, timeZone: timeZone) == previousStart
               }),
               let destination = orderedCards(targetDay.cards).first(where: {
-                $0.kind == .activity && legDestinationPoint(for: $0) != nil
+                $0.kind != .hotel && legDestinationPoint(for: $0) != nil
               }) else { return nil }
 
         let hotel = days.flatMap { sourceDay in
