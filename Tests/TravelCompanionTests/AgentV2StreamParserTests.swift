@@ -187,7 +187,7 @@ final class AgentV2StreamParserTests: XCTestCase {
         let candidateID = UUID().uuidString.lowercased()
         let fixture = """
         event: candidate_upsert
-        data: {"id":"\(candidateID)","kind":"hotel","title":"机场酒店","date":"2026-10-01","dateStatus":"inRange","startAt":"15:00","endAt":"11:00","endDate":"2026-10-03","place":{"name":"机场酒店","address":"雅加达","latitude":-6.12,"longitude":106.65,"placeId":"hotel-1"},"placeStatus":"verified","tips":[],"risks":[],"missingFields":[],"selected":true}
+        data: {"id":"\(candidateID)","kind":"hotel","title":"机场酒店","date":"2026-10-01","dateStatus":"inRange","startAt":"15:00","endAt":"11:00","endDate":"2026-10-03","place":{"name":"机场酒店","address":"雅加达","latitude":-6.12,"longitude":106.65,"placeId":"hotel-1"},"placeStatus":"verified","priceMinor":2110,"priceCurrency":"usd","tips":[],"risks":[],"missingFields":[],"selected":true}
 
         event: done
         data: {}
@@ -203,10 +203,12 @@ final class AgentV2StreamParserTests: XCTestCase {
 
         let decoded = try XCTUnwrap(candidate)
         XCTAssertEqual(decoded.endDate, "2026-10-03")
+        XCTAssertEqual(decoded.priceCurrency, "USD")
 
         let encoded = try JSONEncoder().encode(decoded)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         XCTAssertEqual(object["endDate"] as? String, "2026-10-03")
+        XCTAssertEqual(object["priceCurrency"] as? String, "USD")
     }
 
     func testFliggyEventsDecodeAsPairedStructuredSignals() throws {

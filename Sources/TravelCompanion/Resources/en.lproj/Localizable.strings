@@ -731,6 +731,10 @@
 "agent.errorCreateFailed" = "Couldn't create the trip. Please try again later.";
 "agent.errorNoCandidates" = "No candidates to confirm. Re-select and try again.";
 "agent.errorNotReady" = "Some selected candidates have incomplete details or an unverified location, so they couldn't be imported.";
+"agent.repairingSelection" = "Filling in the schedule and verifying the place…";
+"agent.repairBeforeSelection" = "A candidate can only be added after its details are complete and verified.";
+"agent.repairComplete" = "The details are complete. This candidate can now be added.";
+"agent.errorRepairFailed" = "AI couldn't complete this candidate yet. Try again or provide the missing details.";
 "agent.historyEmptyTitle" = "No Conversations Yet";
 "agent.historyEmptyDesc" = "Tap “New Conversation” and the current chat will be saved here automatically.";
 "agent.messageCount" = "· %lld messages";

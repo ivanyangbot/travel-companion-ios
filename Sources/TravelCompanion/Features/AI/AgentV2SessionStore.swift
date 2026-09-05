@@ -490,7 +490,9 @@ final class AgentV2SessionStore: ObservableObject {
                 // Candidates that survive sanitization and existed in the
                 // previous draft keep their selected state.
                 if var draft = completed.draft, !previousSelectedIDs.isEmpty {
-                    for index in draft.candidates.indices where previousSelectedIDs.contains(draft.candidates[index].id) {
+                    for index in draft.candidates.indices
+                    where previousSelectedIDs.contains(draft.candidates[index].id)
+                        && draft.candidates[index].isCommitReady {
                         draft.candidates[index].selected = true
                     }
                     completed.draft = draft
@@ -528,9 +530,10 @@ final class AgentV2SessionStore: ObservableObject {
             // re-verification upsert). The server always sends selected=false;
             // overwriting would silently lose the user's intent.
             if let index = draft.candidates.firstIndex(where: { $0.id == candidate.id }) {
-                candidate.selected = draft.candidates[index].selected
+                candidate.selected = candidate.isCommitReady && draft.candidates[index].selected
                 draft.candidates[index] = candidate
             } else {
+                candidate.selected = candidate.isCommitReady && candidate.selected
                 draft.candidates.append(candidate)
             }
             stagedDraft = draft
@@ -538,9 +541,10 @@ final class AgentV2SessionStore: ObservableObject {
             hasStagedResult = true
             var draft = stagedDraft ?? AgentV2Draft(candidates: [], changes: [])
             if let index = draft.candidates.firstIndex(where: { $0.id == id }) {
-                candidate.selected = draft.candidates[index].selected
+                candidate.selected = candidate.isCommitReady && draft.candidates[index].selected
                 draft.candidates[index] = candidate
             } else {
+                candidate.selected = candidate.isCommitReady && candidate.selected
                 draft.candidates.append(candidate)
             }
             stagedDraft = draft
@@ -588,6 +592,7 @@ final class AgentV2SessionStore: ObservableObject {
         guard var draft = session.draft,
               draft.actionableCandidateIDs.contains(id),
               let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
+        guard !selected || draft.candidates[index].isCommitReady else { return }
         draft.candidates[index].selected = selected
         session.draft = draft
         save()
@@ -598,7 +603,8 @@ final class AgentV2SessionStore: ObservableObject {
         let actionableIDs = draft.actionableCandidateIDs
         for index in draft.candidates.indices
         where ids.contains(draft.candidates[index].id)
-            && actionableIDs.contains(draft.candidates[index].id) {
+            && actionableIDs.contains(draft.candidates[index].id)
+            && (!selected || draft.candidates[index].isCommitReady) {
             draft.candidates[index].selected = selected
         }
         session.draft = draft

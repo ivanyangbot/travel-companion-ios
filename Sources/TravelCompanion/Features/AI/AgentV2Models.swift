@@ -164,6 +164,9 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var sources: [AgentV2Source] = []
     var sourceProof: String? = nil
     var priceMinor: Int64?
+    /// ISO 4217 currency explicitly read from the source. Nil is retained for
+    /// legacy candidates that predate per-card currency support.
+    var priceCurrency: String? = nil
     var ticketPriceMinor: Int64?
     var stayDurationMinutes: Int?
     var roomType: String? = nil
@@ -223,10 +226,33 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !date.isEmpty, !startAt.isEmpty,
               dateStatus != .outOfRange, dateStatus != .invalid else { return false }
+        if priceMinor != nil || ticketPriceMinor != nil {
+            guard let priceCurrency,
+                  priceCurrency.range(of: #"^[A-Z]{3}$"#, options: .regularExpression) != nil
+            else { return false }
+        }
         if kind == .activity || kind == .hotel {
             return hasConcreteVerifiedPlace || hasExplicitUnverifiedPlace || hasAllowedUnverifiedPlace
         }
         return kind != .flight || (bookingCode?.isEmpty == false && fromAirport?.isEmpty == false && toAirport?.isEmpty == false)
+    }
+}
+
+enum AgentV2CommitRepairRequest {
+    static func message(for candidates: [AgentV2Candidate]) -> String {
+        let items = candidates.map { candidate in
+            let reportedIssues = candidate.missingFields
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let issueText = reportedIssues.isEmpty ? "commit validation failed" : reportedIssues.joined(separator: "; ")
+            return "- id=\(candidate.id.uuidString), title=\(candidate.title), issues=\(issueText)"
+        }
+        .joined(separator: "\n")
+
+        return """
+        This is an automatic repair required before the user is shown the option to select itinerary items for import. Repair only the active-draft candidates listed below. For each repaired item, output a replace change whose targetDraftId is the listed UUID and whose candidateId points to its repaired card. Fill missing or invalid dates and times within the current trip, verify activity/hotel places with the available place tools, and preserve the source currency in priceCurrency whenever a price exists (for example USD when the user wrote USD or the source shows $). Update dateStatus, placeStatus, place, and missingFields accordingly. Do not add unrelated suggestions and do not ask the user to confirm information that can be reasonably inferred or verified.
+        \(items)
+        """
     }
 }
 
@@ -260,6 +286,8 @@ extension AgentV2Candidate {
         sources = try container.decodeIfPresent([AgentV2Source].self, forKey: .sources) ?? []
         sourceProof = try container.decodeIfPresent(String.self, forKey: .sourceProof)
         priceMinor = try container.decodeIfPresent(Int64.self, forKey: .priceMinor)
+        let decodedPriceCurrency = try container.decodeIfPresent(String.self, forKey: .priceCurrency)
+        priceCurrency = decodedPriceCurrency?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)
         stayDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .stayDurationMinutes)
         roomType = try container.decodeIfPresent(String.self, forKey: .roomType)

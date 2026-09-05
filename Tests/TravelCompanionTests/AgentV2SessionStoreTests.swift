@@ -3,6 +3,51 @@ import XCTest
 @testable import TravelCompanion
 
 final class AgentV2SessionStoreTests: XCTestCase {
+    func testCommitRepairRequestKeepsCandidateIdentityAndReportsMissingFields() {
+        let candidateID = UUID()
+        var incomplete = candidate(kind: .activity, status: .pending, place: nil)
+        incomplete = AgentV2Candidate(
+            id: candidateID, kind: incomplete.kind, title: "Tanjung Aan", date: "", startAt: "", endAt: nil,
+            place: nil, placeStatus: .pending, description: nil, notes: nil, url: nil, priceMinor: nil,
+            ticketPriceMinor: nil, stayDurationMinutes: nil, tips: [], bookingCode: nil,
+            fromAirport: nil, toAirport: nil, reason: nil, risks: [],
+            missingFields: ["日期待确认", "地点待验证"], selected: false
+        )
+
+        let message = AgentV2CommitRepairRequest.message(for: [incomplete])
+
+        XCTAssertTrue(message.contains(candidateID.uuidString))
+        XCTAssertTrue(message.contains("Tanjung Aan"))
+        XCTAssertTrue(message.contains("日期待确认; 地点待验证"))
+        XCTAssertTrue(message.contains("targetDraftId is the listed UUID"))
+    }
+
+    @MainActor
+    func testIncompleteCandidateCannotArrivePreselected() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults)
+        var incomplete = candidate(kind: .activity, status: .pending, place: nil)
+        incomplete.date = ""
+        incomplete.startAt = ""
+        incomplete.missingFields = ["日期待确认"]
+        incomplete.selected = true
+
+        store.beginTurn()
+        store.apply(.candidateUpsert(incomplete))
+        store.apply(.changeSet([
+            AgentV2Change(
+                id: UUID(), operation: .add, candidateId: incomplete.id,
+                targetCardId: nil, targetDraftId: nil,
+                summary: incomplete.title, impact: nil
+            )
+        ]))
+        store.completeTurn()
+
+        XCTAssertFalse(store.session.draft?.candidates.first?.selected == true)
+        XCTAssertFalse(store.session.draft?.candidates.first?.isCommitReady == true)
+    }
+
     @MainActor
     func testSendingAttachmentsMovesThemFromComposerToPersistedUserMessage() throws {
         let defaults = try makeDefaults()
@@ -63,6 +108,16 @@ final class AgentV2SessionStoreTests: XCTestCase {
 
         XCTAssertFalse(outOfRange.isCommitReady)
         XCTAssertEqual(draft.unresolvedCandidateChanges.map(\.id), [dangling.id])
+    }
+
+    func testPricedCandidateRequiresExplicitCurrencyBeforeCommit() {
+        var priced = candidate(kind: .flight, status: .notRequired, place: nil)
+        priced.priceMinor = 2_110
+        priced.priceCurrency = nil
+        XCTAssertFalse(priced.isCommitReady)
+
+        priced.priceCurrency = "USD"
+        XCTAssertTrue(priced.isCommitReady)
     }
 
     @MainActor
@@ -372,7 +427,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testCandidatePatchPreservesExistingSelection() throws {
+    func testCandidatePatchDoesNotPreselectCandidateBeforeExplicitJoin() throws {
         let defaults = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
         let candidateID = UUID()
@@ -393,7 +448,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
         store.completeTurn()
 
         XCTAssertEqual(store.session.draft?.candidates.first?.id, candidateID)
-        XCTAssertTrue(store.session.draft?.candidates.first?.selected == true)
+        XCTAssertFalse(store.session.draft?.candidates.first?.selected == true)
     }
 
     @MainActor

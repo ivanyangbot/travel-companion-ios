@@ -79,6 +79,10 @@ struct AgentHomeView: View {
     /// 成功提交后短暂保留候选区，并在页面中央播放确认反馈；动画落稳后再
     /// 清理草稿，避免服务器成功时卡片毫无解释地瞬间消失。
     @State private var commitSuccess: AgentCommitSuccess?
+    /// Candidates stay unselected while the agent fills their schedule/place
+    /// fields. They only become eligible for import after the repaired upsert
+    /// passes the same validation used by commit.
+    @State private var repairingCandidateIDs: Set<UUID> = []
     @State private var isReasoningExpanded = false
     /// 悬浮 Agent 欢迎态由服务端按当前行程生成的问题推荐。
     @State private var suggestedPrompts: [String] = []
@@ -493,6 +497,7 @@ struct AgentHomeView: View {
                 store.activateTripPreferences(forTripID: syncEngine.selectedTripID)
                 consumeInitialMessageIfNeeded()
                 loadSuggestionsIfNeeded()
+                Task { @MainActor in repairIncompleteActionableCandidatesIfNeeded() }
             }
             // 「旅行与偏好」的规划条件按旅程隔离：切换生效旅程时把当前偏好
             // 存回原旅程的槽位，载入新旅程自己的槽位（无行程用独立槽位）。
@@ -500,7 +505,10 @@ struct AgentHomeView: View {
                 store.activateTripPreferences(forTripID: newTripID)
             }
             .onChange(of: syncEngine.trip?.id) { _, _ in loadSuggestionsIfNeeded() }
-            .onChange(of: syncEngine.trip?.isConfigured) { _, _ in loadSuggestionsIfNeeded() }
+            .onChange(of: syncEngine.trip?.isConfigured) { _, _ in
+                loadSuggestionsIfNeeded()
+                repairIncompleteActionableCandidatesIfNeeded()
+            }
             .onChange(of: runState.isGenerating) { _, isGenerating in
                 // 新一轮生成从折叠状态开始；生成结束后思考摘要整体隐藏。
                 if !isGenerating { isReasoningExpanded = false }
@@ -1324,7 +1332,10 @@ struct AgentHomeView: View {
                 // 变更清单中待确认的“移除行程卡”提案：无选中候选时也可单独提交。
                 let pendingRemovals = draft.changes.filter { $0.operation == .remove && $0.targetCardId != nil }
                 let hasInvalidSelection = selected.contains(where: { !$0.isCommitReady })
-                let canCommit = !runState.isCommitting && (!selected.isEmpty || !pendingRemovals.isEmpty)
+                let canCommit = !runState.isCommitting
+                    && repairingCandidateIDs.isEmpty
+                    && !hasInvalidSelection
+                    && (!selected.isEmpty || !pendingRemovals.isEmpty)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(String(format: String(localized: "agent.candidateCount"), draft.candidates.count) + (pendingRemovals.isEmpty ? "" : " " + String(format: String(localized: "agent.pendingRemovalCount"), pendingRemovals.count)))
@@ -1332,7 +1343,7 @@ struct AgentHomeView: View {
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                         Spacer()
                         Button(allCandidatesSelected ? String(localized: "agent.deselectAll") : String(localized: "agent.selectAll")) {
-                            store.setSelected(!allCandidatesSelected, ids: Set(actionableCandidates.map(\.id)))
+                            selectAllCandidates(actionableCandidates, selected: !allCandidatesSelected)
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(PrimaryTabPalette.accent)
@@ -1422,7 +1433,12 @@ struct AgentHomeView: View {
             .foregroundStyle(PrimaryTabPalette.secondaryText)
         ForEach(candidates) { candidate in
             VStack(alignment: .trailing, spacing: 7) {
-                AgentV2CandidateCard(candidate: candidate, isSelectable: actionableIDs.contains(candidate.id) || !(store.session.draft?.changes.contains { $0.candidateId == candidate.id && $0.targetCardId != nil } ?? false)) { value in
+                AgentV2CandidateCard(
+                    candidate: candidate,
+                    isSelectable: candidate.isCommitReady
+                        && !repairingCandidateIDs.contains(candidate.id)
+                        && (actionableIDs.contains(candidate.id) || !(store.session.draft?.changes.contains { $0.candidateId == candidate.id && $0.targetCardId != nil } ?? false))
+                ) { value in
                     store.selectForImport(value, id: candidate.id)
                 }
                 Button(role: .destructive) {
@@ -2263,18 +2279,35 @@ struct AgentHomeView: View {
         }
     }
 
-    private func send() {
-        let submittedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? String(localized: "lottery.analyzeMessage")
-            : message
-        guard let request = makeRequest(message: submittedMessage) else { runState.error = String(localized: "agent.errorSetup"); return }
+    private func send(
+        messageOverride: String? = nil,
+        includePendingAttachments: Bool = true,
+        appendUserMessage: Bool = true,
+        automaticallyRepairIncompleteCandidates: Bool = true,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        let submittedMessage = messageOverride ?? (
+            message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? String(localized: "lottery.analyzeMessage")
+                : message
+        )
+        guard let request = makeRequest(
+            message: submittedMessage,
+            includePendingAttachments: includePendingAttachments
+        ) else {
+            runState.error = String(localized: "agent.errorSetup")
+            completion?(false)
+            return
+        }
         // plan_new（无生效旅程或「暂不选择行程」）时 tripID 为 nil，服务端不强制本接口的旅程鉴权。
         let tripID = syncEngine.trip?.id
         let userMessage = AgentV2TurnRequest.Message(id: UUID(), role: "user", content: submittedMessage, createdAt: .now)
         store.beginTurn()
-        store.append(userMessage, consumingAttachments: request.attachments)
-        acknowledgeInitialMessageSubmissionIfNeeded(userMessage.content)
-        message = "" 
+        if appendUserMessage {
+            store.append(userMessage, consumingAttachments: request.attachments)
+            acknowledgeInitialMessageSubmissionIfNeeded(userMessage.content)
+            message = ""
+        }
         runState.prepareForTurn()
         isComposerFocused = false
         let state = runState
@@ -2375,6 +2408,10 @@ struct AgentHomeView: View {
             state.liveCards = []
             state.stagedSummaryText = ""
             state.finishGeneration(id: generationID)
+            if didComplete && automaticallyRepairIncompleteCandidates {
+                repairIncompleteActionableCandidatesIfNeeded()
+            }
+            completion?(didComplete)
         }
         runState.attach(task, id: generationID)
     }
@@ -2390,21 +2427,25 @@ struct AgentHomeView: View {
         onInitialMessageSubmitted?()
     }
 
-    private func makeRequest(message requestMessage: String) -> AgentV2TurnRequest? {
+    private func makeRequest(
+        message requestMessage: String,
+        includePendingAttachments: Bool = true
+    ) -> AgentV2TurnRequest? {
+        let requestAttachments = includePendingAttachments ? store.session.attachments : []
         if plansNewTrip {
-            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: requestMessage, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: requestMessage, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: requestAttachments)
         }
         guard let trip = syncEngine.trip, trip.isConfigured else {
             // 无生效旅程：从零规划模式（plan_new）。服务端会产出待用户确认的
             // 旅程提案（trip_proposal），确认前不落库创建旅程。
-            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: requestMessage, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: requestMessage, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: requestAttachments)
         }
         let days = trip.days.map { day in
             AgentV2TurnRequest.Day(date: day.date, cards: day.cards.map { card in
                 AgentV2TurnRequest.Card(id: card.serverID, kind: card.kind.rawValue, title: card.title, startAt: ISO8601DateFormatter().string(from: card.startAt), endAt: card.endAt.map { ISO8601DateFormatter().string(from: $0) }, place: card.place?.name, notes: card.notes)
             })
         }
-        return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: requestMessage, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: store.session.attachments)
+        return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: requestMessage, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: requestAttachments)
     }
 
     /// 用户确认旅程提案：复用既有建旅程链路创建旅程，随后清除提案。
@@ -2445,10 +2486,13 @@ struct AgentHomeView: View {
             return
         }
         guard snapshot.selected.allSatisfy(\.isCommitReady) else {
-            runState.error = String(localized: "agent.errorNotReady")
+            // Defensive fallback for an old locally persisted draft. New and
+            // repaired candidates cannot be selected until they are ready.
+            let invalidIDs = Set(snapshot.selected.filter { !$0.isCommitReady }.map(\.id))
+            store.setSelected(false, ids: invalidIDs)
+            runState.status = String(localized: "agent.repairBeforeSelection")
             return
         }
-
         runState.isCommitting = true
         let client = APIClient()
         Task {
@@ -2497,6 +2541,57 @@ struct AgentHomeView: View {
             }
             runState.isCommitting = false
         }
+    }
+
+    private func selectAllCandidates(_ candidates: [AgentV2Candidate], selected: Bool) {
+        let readyIDs = Set(candidates.filter(\.isCommitReady).map(\.id))
+        store.setSelected(selected, ids: readyIDs)
+    }
+
+    private func repairIncompleteActionableCandidatesIfNeeded() {
+        guard syncEngine.trip?.isConfigured == true,
+              !runState.isGenerating,
+              repairingCandidateIDs.isEmpty,
+              let draft = store.session.draft else { return }
+        let actionableIDs = draft.actionableCandidateIDs
+        let candidates = draft.candidates.filter {
+            actionableIDs.contains($0.id) && !$0.isCommitReady
+        }
+        guard !candidates.isEmpty else { return }
+        let repairIDs = Set(candidates.map(\.id))
+        repairingCandidateIDs = repairIDs
+        send(
+            messageOverride: AgentV2CommitRepairRequest.message(for: candidates),
+            includePendingAttachments: false,
+            appendUserMessage: false,
+            automaticallyRepairIncompleteCandidates: false
+        ) { completed in
+            defer { repairingCandidateIDs = [] }
+            guard completed, let draft = store.session.draft else {
+                runState.error = String(localized: "agent.errorRepairFailed")
+                return
+            }
+            var replacementsByTarget: [UUID: UUID] = [:]
+            for change in draft.changes {
+                guard let targetID = change.targetDraftId,
+                      repairIDs.contains(targetID),
+                      let candidateID = change.candidateId else { continue }
+                replacementsByTarget[targetID] = candidateID
+            }
+            let candidatesByID = Dictionary(uniqueKeysWithValues: draft.candidates.map { ($0.id, $0) })
+            let repairedIDs = Set(repairIDs.compactMap { originalID -> UUID? in
+                let resultingID = replacementsByTarget[originalID] ?? originalID
+                return candidatesByID[resultingID]?.isCommitReady == true ? resultingID : nil
+            })
+            guard repairedIDs.count == repairIDs.count else {
+                runState.error = String(localized: "agent.errorRepairFailed")
+                return
+            }
+            runState.status = String(localized: "agent.repairComplete")
+        }
+        // send() seeds the ordinary “understanding” status while preparing a
+        // turn; replace it with the more precise repair state for this flow.
+        runState.status = String(localized: "agent.repairingSelection")
     }
 }
 
@@ -4182,11 +4277,16 @@ private struct AgentCandidatePOIDetailSheet: View {
 private extension AgentV2Candidate {
     var agentPriceText: String? {
         if let minor = kind == .flight ? (ticketPriceMinor ?? priceMinor) : priceMinor {
+            if let priceCurrency, !priceCurrency.isEmpty {
+                return CardPrice.format(minor: minor, currency: priceCurrency)
+            }
             let major = Double(minor) / 100
             let amount = major.truncatingRemainder(dividingBy: 1) == 0
                 ? String(format: "%.0f", major)
                 : String(format: "%.2f", major)
-            return String(format: String(localized: "agent.priceFormat"), amount)
+            // Legacy candidates may have an amount but no source currency.
+            // Showing a bare amount is safer than falsely labelling it CNY.
+            return amount
         }
         if notes?.contains("实时价格见预订链接") == true { return String(localized: "agent.priceLive") }
         return nil

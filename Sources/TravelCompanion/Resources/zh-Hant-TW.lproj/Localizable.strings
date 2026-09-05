@@ -733,6 +733,10 @@
 "agent.errorCreateFailed" = "旅程建立失敗，請稍後重試。";
 "agent.errorNoCandidates" = "目前沒有可確認的候選，請重新選擇後確認。";
 "agent.errorNotReady" = "部分已選候選的資訊不完整或地點未通過驗證，無法匯入。";
+"agent.repairingSelection" = "正在補齊日期並驗證地點…";
+"agent.repairBeforeSelection" = "候選補齊並通過驗證後才可加入行程。";
+"agent.repairComplete" = "資訊已補齊，可以加入行程。";
+"agent.errorRepairFailed" = "AI 暫時未能補齊此候選，請重試或告訴我缺少的資訊。";
 "agent.historyEmptyTitle" = "暫無歷史對話";
 "agent.historyEmptyDesc" = "點一下「新建對話」後，目前對話會自動儲存在這裡。";
 "agent.messageCount" = "· %lld 則訊息";
