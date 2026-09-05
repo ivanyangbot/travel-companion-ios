@@ -3968,8 +3968,15 @@ enum ItineraryLocalTime {
     ) -> RailTime? {
         switch card.kind {
         case .hotel:
-            guard let text = card.checkInTime?.nilIfEmpty else { return nil }
             let zone = timeZone ?? placeTimeZone(for: card) ?? deviceTimeZone
+            guard let text = card.checkInTime?.nilIfEmpty else {
+                return RailTime(
+                    text: railTimeText(card.startAt, in: zone),
+                    showsLocalBadge: isDistinctFromDevice(zone),
+                    caption: String(localized: "hotelcard.checkIn"),
+                    dateText: dateTextIfOutsideDisplayedDay(card.startAt, displayedDay: displayedDay, in: zone)
+                )
+            }
             return RailTime(
                 text: text,
                 showsLocalBadge: isDistinctFromDevice(zone),

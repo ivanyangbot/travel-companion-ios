@@ -227,6 +227,24 @@ final class ItineraryLocalTimeTests: XCTestCase {
         XCTAssertNil(ItineraryLocalTime.railEndTime(for: openEnded, timeZone: tokyo))
     }
 
+    func testHotelRailStartFallsBackToActualStartWhenPolicyTimeIsMissing() {
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "CAESAR",
+            startAt: utcDate(17, 0)
+        )
+
+        let result = ItineraryLocalTime.railStartTime(
+            for: hotel,
+            timeZone: utc,
+            displayedDay: "2026-09-04"
+        )
+
+        XCTAssertEqual(result?.text, "17:00")
+        XCTAssertNil(result?.dateText)
+    }
+
     // MARK: 轨道时间固定 24 小时制
 
     private var utc: TimeZone { TimeZone(identifier: "UTC")! }

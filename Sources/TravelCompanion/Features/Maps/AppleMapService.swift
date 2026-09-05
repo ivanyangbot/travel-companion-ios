@@ -65,10 +65,18 @@ enum AppleMapService {
     ) async throws -> [PlaceSearchResult] {
         let request = MKLocalSearch.Request(completion: completion)
         request.resultTypes = [.pointOfInterest, .address]
+        let cleanedCity = city?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        if let cleanedCity,
+           let scope = await searchScope(for: cleanedCity) {
+            request.region = scope.region
+            if scope.requiresMatch {
+                request.regionPriority = .required
+            }
+        }
         let response = try await MKLocalSearch(request: request).start()
         return rankedPlaceResults(
             query: query,
-            city: city,
+            city: cleanedCity,
             candidates: response.mapItems.map(placeSearchResult(for:)),
             filtersWeakMatches: false
         )
@@ -83,6 +91,7 @@ enum AppleMapService {
         filtersWeakMatches: Bool = true
     ) -> [PlaceSearchResult] {
         let queryTokens = meaningfulSearchTokens(in: query)
+        let cityTokens = meaningfulSearchTokens(in: city ?? "")
         let requiresIdentityMatch = queryTokens.count >= 2
 
         var seen: Set<String> = []
@@ -106,6 +115,16 @@ enum AppleMapService {
                 let compactSearchable = normalizePlaceName(searchable)
                 let compactQuery = normalizePlaceName(query)
                 let matchedTokens = queryTokens.filter { searchable.contains($0) }
+                let matchedCityTokens = cityTokens.filter { searchable.contains($0) }
+
+                // When the user explicitly supplies a destination, do not let
+                // MapKit's current-country bias leak unrelated local results
+                // into a generic search such as "airport".
+                if filtersWeakMatches,
+                   !cityTokens.isEmpty,
+                   matchedCityTokens.isEmpty {
+                    return nil
+                }
 
                 // A multi-part identity such as "fairfield jakarta airport"
                 // must match more than a generic brand/category word.
@@ -124,6 +143,7 @@ enum AppleMapService {
                     let compactCity = normalizePlaceName(city)
                     if compactSearchable.contains(compactCity) { score += 90 }
                 }
+                score += matchedCityTokens.count * 45
                 return (score, index, candidate)
             }
             .sorted {
@@ -620,6 +640,12 @@ enum AppleMapService {
     private struct SearchScope {
         let region: MKCoordinateRegion
         let requiresMatch: Bool
+    }
+
+    static func searchRegion(for city: String) async -> MKCoordinateRegion? {
+        let cleanedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedCity.isEmpty else { return nil }
+        return await searchScope(for: cleanedCity)?.region
     }
 
     private static func searchScope(for city: String) async -> SearchScope? {

@@ -378,7 +378,34 @@ final class MapsTests: XCTestCase {
         )
 
         XCTAssertEqual(ranked.first?.id, "jakarta-a")
-        XCTAssertEqual(ranked.count, 2)
+        XCTAssertEqual(ranked.map(\.id), ["jakarta-a"])
+    }
+
+    func testPlaceRankingRejectsDomesticAirportOutsideExplicitDestination() {
+        let domestic = PlaceSearchResult(
+            id: "yushu",
+            name: "玉树巴塘机场",
+            address: "中国青海省玉树市",
+            latitude: 32.84,
+            longitude: 97.04,
+            placeId: nil
+        )
+        let komodo = PlaceSearchResult(
+            id: "lbj",
+            name: "Komodo International Airport",
+            address: "Labuan Bajo, East Nusa Tenggara, Indonesia",
+            latitude: -8.49,
+            longitude: 119.89,
+            placeId: nil
+        )
+
+        let ranked = AppleMapService.rankedPlaceResults(
+            query: "airport",
+            city: "Labuan Bajo",
+            candidates: [domestic, komodo]
+        )
+
+        XCTAssertEqual(ranked.map(\.id), ["lbj"])
     }
 
     private func edgeMember(

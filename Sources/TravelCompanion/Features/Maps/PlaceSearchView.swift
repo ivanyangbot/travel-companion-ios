@@ -122,7 +122,7 @@ struct PlaceSearchView: View {
                 query: cleanedKeyword,
                 city: cleanedCity,
                 candidates: candidates,
-                filtersWeakMatches: fallbackSuggestions.isEmpty
+                filtersWeakMatches: cleanedCity != nil || fallbackSuggestions.isEmpty
             )
             if results.isEmpty {
                 errorMessage = completedRequest
@@ -147,6 +147,13 @@ private final class ApplePlaceSearchCompleter: NSObject, ObservableObject, @prec
     @Published private(set) var suggestions: [ApplePlaceSearchSuggestion] = []
 
     private let completer: MKLocalSearchCompleter
+    private var regionTask: Task<Void, Never>?
+    private var requestedCity = ""
+
+    private static let worldRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+        span: MKCoordinateSpan(latitudeDelta: 180, longitudeDelta: 360)
+    )
 
     override init() {
         let completer = MKLocalSearchCompleter()
@@ -158,15 +165,30 @@ private final class ApplePlaceSearchCompleter: NSObject, ObservableObject, @prec
 
     func update(query: String, city: String) {
         let cleanedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        requestedCity = cleanedCity
+        regionTask?.cancel()
         guard !cleanedQuery.isEmpty else {
             completer.queryFragment = ""
             suggestions = []
             return
         }
-        let cleanedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        completer.region = Self.worldRegion
         completer.queryFragment = [cleanedQuery, cleanedCity]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+        guard !cleanedCity.isEmpty else { return }
+
+        regionTask = Task { @MainActor [weak self] in
+            guard let region = await AppleMapService.searchRegion(for: cleanedCity),
+                  !Task.isCancelled,
+                  let self,
+                  self.requestedCity == cleanedCity else { return }
+            self.completer.region = region
+            // Re-submit after setting the region so existing current-country
+            // suggestions are replaced instead of lingering in the sheet.
+            self.completer.queryFragment = [cleanedQuery, cleanedCity].joined(separator: " ")
+        }
     }
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
