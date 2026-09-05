@@ -1553,12 +1553,7 @@ struct ItineraryView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                if isPreviousDayContinuation {
-                    // 从上一晚延续而来的住宿提示保持低调，不使用住宿主题橙色。
-                    Color(red: 0.105, green: 0.105, blue: 0.11)
-                } else {
-                    itineraryHotelCardBackground(card)
-                }
+                itineraryHotelCardBackground(card)
             }
             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             .overlay {
@@ -3777,9 +3772,7 @@ private struct ItineraryCardRail: View {
 
             Spacer(minLength: 4)
 
-            Image(systemName: isPreviousDayContinuation
-                  ? "arrow.turn.down.right"
-                  : (kind == .hotel ? "bed.double.fill" : kind.systemImage))
+            Image(systemName: kind == .hotel ? "bed.double.fill" : kind.systemImage)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
                 .padding(.horizontal, 4)
