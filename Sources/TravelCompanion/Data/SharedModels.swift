@@ -1,6 +1,52 @@
 import Foundation
 import SwiftData
 
+/// A visit references its containing hotel booking; it owns no price or POI.
+struct HotelVisit: Codable, Sendable, Equatable, Hashable {
+    var date: String
+    var arrivalTime: String
+    var departureTime: String?
+    var purpose: String
+
+    static func areValid(_ visits: [HotelVisit]) -> Bool {
+        guard visits.count <= 100 else { return false }
+        let zone = TimeZone(secondsFromGMT: 0)!
+        let ordered = visits.sorted { ($0.date, $0.arrivalTime) < ($1.date, $1.arrivalTime) }
+        guard Set(ordered.map { "\($0.date) \($0.arrivalTime)" }).count == ordered.count,
+              !ordered.dropFirst().contains(where: { $0.purpose == "checkIn" }) else { return false }
+        for (index, visit) in ordered.enumerated() {
+            guard ["checkIn", "return"].contains(visit.purpose),
+                  let arrival = visit.arrival(in: zone) else { return false }
+            if visit.departureTime != nil {
+                guard let departure = visit.departure(in: zone), departure > arrival else { return false }
+                if index + 1 < ordered.count,
+                   let next = ordered[index + 1].arrival(in: zone), departure > next { return false }
+            }
+        }
+        return true
+    }
+
+    func arrival(in timeZone: TimeZone) -> Date? {
+        timestamp(arrivalTime, in: timeZone)
+    }
+
+    func departure(in timeZone: TimeZone) -> Date? {
+        departureTime.flatMap { timestamp($0, in: timeZone) }
+    }
+
+    private func timestamp(_ time: String, in timeZone: TimeZone) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        formatter.isLenient = false
+        let value = "\(date) \(time)"
+        guard let result = formatter.date(from: value),
+              formatter.string(from: result) == value else { return nil }
+        return result
+    }
+}
+
 struct SharedTripSnapshot: Codable, Sendable, Equatable {
     let id: Int
     var destination: String?
@@ -313,6 +359,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
     /// Hotel room type (e.g. "豪华大床房"). Nil for non-hotel cards or when
     /// the source never mentioned one.
     var roomType: String?
+    var hotelVisits: [HotelVisit] = []
     /// Hotel policy check-in time as "HH:mm"; nil when unknown. The stay
     /// dates themselves keep living in ``startAt``/``endAt``.
     var checkInTime: String?
@@ -338,7 +385,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         case description, fromAirport = "fromAirport", toAirport = "toAirport"
         case fromAirportLocation, toAirportLocation, passengers
         case ticketNumber, departureTerminal, arrivalTerminal, gate, seat, cabinClass, baggageAllowance, priceMinor
-        case actualPriceMinor, ticketPriceMinor, priceCurrency, stayDurationMinutes, roomType, checkInTime, checkOutTime, tips
+        case actualPriceMinor, ticketPriceMinor, priceCurrency, stayDurationMinutes, roomType, hotelVisits, checkInTime, checkOutTime, tips
         case images, legacyImageURL = "imageUrl", imageScore, showLargeImage, notes, position, updatedAt
     }
 
@@ -375,6 +422,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         priceCurrency: String? = nil,
         stayDurationMinutes: Int? = nil,
         roomType: String? = nil,
+        hotelVisits: [HotelVisit] = [],
         checkInTime: String? = nil,
         checkOutTime: String? = nil,
         tips: [String]? = nil,
@@ -418,6 +466,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.priceCurrency = priceCurrency
         self.stayDurationMinutes = stayDurationMinutes
         self.roomType = roomType
+        self.hotelVisits = hotelVisits
         self.checkInTime = checkInTime
         self.checkOutTime = checkOutTime
         self.tips = tips
@@ -464,6 +513,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         priceCurrency = try container.decodeIfPresent(String.self, forKey: .priceCurrency)
         stayDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .stayDurationMinutes)
         roomType = try container.decodeIfPresent(String.self, forKey: .roomType)
+        hotelVisits = try container.decodeIfPresent([HotelVisit].self, forKey: .hotelVisits) ?? []
         checkInTime = try container.decodeIfPresent(String.self, forKey: .checkInTime)
         checkOutTime = try container.decodeIfPresent(String.self, forKey: .checkOutTime)
         let decodedTips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
@@ -516,6 +566,7 @@ struct TravelCardSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(priceCurrency, forKey: .priceCurrency)
         try container.encodeIfPresent(stayDurationMinutes, forKey: .stayDurationMinutes)
         try container.encodeIfPresent(roomType, forKey: .roomType)
+        try container.encode(hotelVisits, forKey: .hotelVisits)
         try container.encodeIfPresent(checkInTime, forKey: .checkInTime)
         try container.encodeIfPresent(checkOutTime, forKey: .checkOutTime)
         try container.encodeIfPresent(tips, forKey: .tips)

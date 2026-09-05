@@ -25,6 +25,7 @@ struct CardEditorView: View {
     @State private var priceCurrency: String
     @State private var stayDurationText: String
     @State private var roomType: String
+    @State private var hotelVisits: [HotelVisit]
     @State private var tips: [String]
     @State private var notes: String
     @State private var placeMode: PlaceMode
@@ -61,6 +62,7 @@ struct CardEditorView: View {
         _ticketPriceText = State(initialValue: Self.priceText(from: existingCard?.ticketPriceMinor, currency: priceCurrency))
         _stayDurationText = State(initialValue: existingCard?.stayDurationMinutes.map(String.init) ?? "")
         _roomType = State(initialValue: existingCard?.roomType ?? "")
+        _hotelVisits = State(initialValue: existingCard?.hotelVisits ?? [])
         _tips = State(initialValue: existingCard?.tips ?? [])
         _notes = State(initialValue: existingCard?.notes ?? "")
         _placeMode = State(initialValue: (existingCard?.place?.id ?? 0) > 0 ? .existing : existingCard?.place == nil ? .none : .new)
@@ -127,6 +129,21 @@ struct CardEditorView: View {
                     if kind != .flight {
                         TextField("cardeditor.introPlaceholder", text: $description, axis: .vertical)
                             .lineLimit(2...5)
+                    }
+                }
+                if kind == .hotel && !hotelVisits.isEmpty {
+                    Section("hotelcard.visits") {
+                        ForEach(hotelVisits.indices, id: \.self) { index in
+                            VStack(alignment: .leading) {
+                                Text(hotelVisits[index].purpose == "checkIn" ? String(localized: "hotelcard.checkIn") : String(localized: "hotelcard.return"))
+                                TextField("YYYY-MM-DD", text: $hotelVisits[index].date)
+                                TextField("HH:mm", text: $hotelVisits[index].arrivalTime)
+                                TextField("hotelcard.departureTime", text: Binding(
+                                    get: { hotelVisits[index].departureTime ?? "" },
+                                    set: { hotelVisits[index].departureTime = $0.isEmpty ? nil : $0 }
+                                ))
+                            }
+                        }
                     }
                 }
                 Section("cardeditor.visitSection") {
@@ -233,6 +250,10 @@ struct CardEditorView: View {
     }
 
     private func save() {
+        guard kind != .hotel || HotelVisit.areValid(hotelVisits) else {
+            validationMessage = String(localized: "hotelcard.invalidVisits")
+            return
+        }
         let cleanedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedURL = link.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedTitle.isEmpty else {
@@ -312,6 +333,7 @@ struct CardEditorView: View {
             priceCurrency: priceCurrency,
             stayDurationMinutes: stayDuration,
             roomType: kind == .hotel ? emptyToNil(roomType) : nil,
+            hotelVisits: kind == .hotel ? hotelVisits : [],
             tips: cleanedTips.isEmpty ? nil : cleanedTips,
             images: imagesValue,
             notes: emptyToNil(notes),

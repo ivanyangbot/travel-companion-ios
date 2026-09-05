@@ -824,7 +824,8 @@ struct ItineraryView: View {
         let listItems = ItineraryListPresentation.mergedDayListItems(
             ownCards: cards,
             projectedOccurrences: projectedOccurrences,
-            day: day
+            day: day,
+            timeZoneByCardID: timeZoneByCardID
         )
         let dayStartHotelLeg = ItineraryListPresentation.dayStartHotelLeg(
             for: day,
@@ -876,20 +877,30 @@ struct ItineraryView: View {
                                 kind: item.card.kind,
                                 isPreviousDayContinuation: item.isHotelNight,
                                 showsConnector: itemIndex < listItems.count - 1,
-                                startTime: ItineraryLocalTime.railStartTime(
+                                startTime: item.hotelVisit.map {
+                                    ItineraryLocalTime.RailTime(text: $0.arrivalTime, showsLocalBadge: false,
+                                        caption: String(localized: $0.purpose == "checkIn" ? "hotelcard.checkIn" : "hotelcard.return"))
+                                } ?? ItineraryLocalTime.railStartTime(
                                     for: item.card,
                                     timeZone: timeZoneByCardID[item.card.id],
                                     displayedDay: day.date
                                 ),
-                                endTime: ItineraryLocalTime.railEndTime(
+                                endTime: item.hotelVisit == nil ? ItineraryLocalTime.railEndTime(
                                     for: item.card,
                                     timeZone: timeZoneByCardID[item.card.id],
                                     displayedDay: day.date
-                                )
+                                ) : nil
                             )
                         }
 
-                        if let ownIndex = item.ownIndex {
+                        if let visit = item.hotelVisit {
+                            itineraryHotelCardContent(
+                                item.card, isActive: false,
+                                progressLabel: String(localized: visit.purpose == "checkIn" ? "hotelcard.checkIn" : "hotelcard.return"),
+                                timeZone: timeZoneByCardID[item.card.id] ?? ItineraryLocalTime.deviceTimeZone,
+                                isPreviousDayContinuation: visit.purpose == "return"
+                            )
+                        } else if let ownIndex = item.ownIndex {
                             VStack(alignment: .leading, spacing: 6) {
                                 itineraryCompactCard(
                                     item.card,
@@ -901,26 +912,6 @@ struct ItineraryView: View {
                                     timeZone: timeZoneByCardID[item.card.id] ?? ItineraryLocalTime.deviceTimeZone
                                 )
 
-                                // Route legs connect adjacent cards using the point
-                                // where the previous card ends and the next begins.
-                                // A flight therefore contributes its arrival airport
-                                // as an origin, or its departure airport as a destination.
-                                if itemIndex + 1 < listItems.count,
-                                   let nextIndex = listItems[itemIndex + 1].ownIndex,
-                                   nextIndex == ownIndex + 1,
-                                   let originPoint = ItineraryListPresentation.legOriginPoint(for: item.card),
-                                   let destinationPoint = ItineraryListPresentation.legDestinationPoint(for: listItems[itemIndex + 1].card) {
-                                    CardLegEstimateView(
-                                        originCard: item.card,
-                                        destinationCard: listItems[itemIndex + 1].card,
-                                        originPoint: originPoint,
-                                        destinationPoint: destinationPoint,
-                                        presentation: .itineraryList,
-                                        destinationTimeZone: timeZoneByCardID[listItems[itemIndex + 1].card.id]
-                                    )
-                                    .id("\(CardLegStore.legKey(origin: item.card, destination: listItems[itemIndex + 1].card))-\(routeRefreshRevision)")
-                                    .padding(.horizontal, 2)
-                                }
                             }
                             .offset(y: placeholderOffset(for: item.card, in: day, cards: cards))
                             .animation(.snappy(duration: 0.2), value: draggedListCardDestinationIndex)
@@ -949,6 +940,22 @@ struct ItineraryView: View {
                                     : Text("itinerary.projectedMultiDayHint")
                             )
                         }
+                    }
+                    if itemIndex + 1 < listItems.count,
+                       let originPoint = ItineraryListPresentation.legOriginPoint(for: item.card),
+                       let destinationPoint = ItineraryListPresentation.legDestinationPoint(for: listItems[itemIndex + 1].card),
+                       item.card.id != listItems[itemIndex + 1].card.id {
+                        HStack(spacing: ItineraryCardRailLayout.spacing) {
+                            if showsCardRail { Color.clear.frame(width: ItineraryCardRailLayout.width) }
+                            CardLegEstimateView(
+                                originCard: item.routeCard(timeZone: timeZoneByCardID[item.card.id] ?? .autoupdatingCurrent),
+                                destinationCard: listItems[itemIndex + 1].routeCard(timeZone: timeZoneByCardID[listItems[itemIndex + 1].card.id] ?? .autoupdatingCurrent),
+                                originPoint: originPoint, destinationPoint: destinationPoint,
+                                presentation: .itineraryList,
+                                destinationTimeZone: timeZoneByCardID[listItems[itemIndex + 1].card.id]
+                            )
+                        }
+                        .id("leg-\(item.id)-\(listItems[itemIndex + 1].id)-\(routeRefreshRevision)")
                     }
                 }
             }
@@ -1468,7 +1475,7 @@ struct ItineraryView: View {
         timeZone: TimeZone,
         isPreviousDayContinuation: Bool
     ) -> some View {
-        let price = compactCardPrice(for: card)
+        let price = isPreviousDayContinuation ? nil : compactCardPrice(for: card)
         let nights = itineraryHotelNights(for: card)
 
         return Button {
@@ -4677,6 +4684,15 @@ enum ItineraryListPresentation {
         let progress: CardProgress?
         let ownIndex: Int?
         let effectiveStart: Date?
+        var hotelVisit: HotelVisit? = nil
+
+        func routeCard(timeZone: TimeZone) -> TravelCardSnapshot {
+            guard let visit = hotelVisit, let arrival = visit.arrival(in: timeZone) else { return card }
+            var occurrence = card
+            occurrence.startAt = arrival
+            occurrence.endAt = visit.departure(in: timeZone) ?? arrival
+            return occurrence
+        }
 
         var isHotelNight: Bool {
             guard let progress else { return false }
@@ -4743,6 +4759,7 @@ enum ItineraryListPresentation {
         ownCards: [TravelCardSnapshot],
         projectedOccurrences: [ProjectedCardOccurrence],
         day: TripDaySnapshot,
+        timeZoneByCardID: [UUID: TimeZone] = [:],
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> [DayListItem] {
         let dayStart = localDayStart(day.date, timeZone: timeZone)
@@ -4754,6 +4771,24 @@ enum ItineraryListPresentation {
                 ownIndex: index,
                 effectiveStart: card.startAt
             )
+        }
+        // Booking cards with explicit visits are displayed at each arrival.
+        // Each occurrence retains the source card identity for edit/detail and
+        // never creates a second priced booking in the trip.
+        let visitCards = ownCards + projectedOccurrences.map(\.card)
+        var visitItems: [DayListItem] = []
+        var visitedBookings = Set<UUID>()
+        for card in visitCards where card.kind == .hotel && !card.hotelVisits.isEmpty {
+            guard visitedBookings.insert(card.id).inserted else { continue }
+            let zone = timeZoneByCardID[card.id] ?? timeZone
+            for visit in card.hotelVisits where visit.date == day.date {
+                guard let arrival = visit.arrival(in: zone) else { continue }
+                visitItems.append(DayListItem(
+                    id: "\(card.id.uuidString)-visit-\(visit.date)-\(visit.arrivalTime)",
+                    card: card, progress: nil, ownIndex: nil,
+                    effectiveStart: arrival, hotelVisit: visit
+                ))
+            }
         }
         var timedProjections = projectedOccurrences.filter { !$0.isHotelNight }.map { occurrence in
             DayListItem(
@@ -4770,7 +4805,8 @@ enum ItineraryListPresentation {
 
         var merged: [DayListItem] = []
         merged.reserveCapacity(ownItems.count + timedProjections.count)
-        for ownItem in ownItems {
+        let bookingsWithVisitsToday = Set(visitItems.map { $0.card.id })
+        for ownItem in ownItems where !bookingsWithVisitsToday.contains(ownItem.card.id) {
             guard let ownStart = ownItem.effectiveStart else { continue }
             while let first = timedProjections.first,
                   let firstStart = first.effectiveStart,
@@ -4782,7 +4818,7 @@ enum ItineraryListPresentation {
         }
         merged.append(contentsOf: timedProjections)
         merged.append(
-            contentsOf: projectedOccurrences.filter(\.isHotelNight).map { occurrence in
+            contentsOf: projectedOccurrences.filter { $0.isHotelNight && !bookingsWithVisitsToday.contains($0.card.id) }.map { occurrence in
                 DayListItem(
                     id: occurrence.id,
                     card: occurrence.card,
@@ -4792,6 +4828,10 @@ enum ItineraryListPresentation {
                 )
             }
         )
+        if !visitItems.isEmpty {
+            merged.append(contentsOf: visitItems)
+            merged.sort { ($0.effectiveStart ?? .distantFuture) < ($1.effectiveStart ?? .distantFuture) }
+        }
         return merged
     }
 

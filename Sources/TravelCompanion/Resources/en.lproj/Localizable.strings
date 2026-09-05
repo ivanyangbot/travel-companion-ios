@@ -1116,6 +1116,9 @@
 
 /* ===== Hotel Card ===== */
 "hotelcard.roomType" = "Room Type";
+"hotelcard.return" = "Return to hotel";
+"hotelcard.visits" = "Hotel visits";
+"hotelcard.departureTime" = "Departure time (HH:mm, optional)";
 "hotelcard.checkIn" = "Check-in";
 "hotelcard.checkOut" = "Check-out";
 "hotelcard.nights" = "%lld nights";
@@ -1138,3 +1141,4 @@
 "leg.restoreDuration" = "Use map estimate";
 "leg.durationSaveFailed" = "Could not save. Please try again.";
 "leg.fromPreviousHotel" = "From last night’s hotel";
+"hotelcard.invalidVisits" = "Check the visit dates and times. Check-in must come first and visits must not overlap.";

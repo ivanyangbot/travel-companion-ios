@@ -47,6 +47,11 @@ struct AgentV2TurnRequest: Codable, Sendable {
         let endAt: String?
         let place: String?
         let notes: String?
+        var hotelVisits: [HotelVisit] = []
+        var roomType: String? = nil
+        var priceMinor: Int64? = nil
+        var priceCurrency: String? = nil
+        var timeZone: String? = nil
     }
     struct Preferences: Codable, Sendable, Equatable {
         var pace: String?
@@ -170,6 +175,8 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var ticketPriceMinor: Int64?
     var stayDurationMinutes: Int?
     var roomType: String? = nil
+    var hotelVisits: [HotelVisit] = []
+    var validationIssues: [String] = []
     var tips: [String]
     var bookingCode: String?
     var fromAirport: String?
@@ -223,6 +230,7 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     }
 
     var isCommitReady: Bool {
+        guard validationIssues.isEmpty else { return false }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !date.isEmpty, !startAt.isEmpty,
               dateStatus != .outOfRange, dateStatus != .invalid else { return false }
@@ -241,7 +249,7 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
 enum AgentV2CommitRepairRequest {
     static func message(for candidates: [AgentV2Candidate]) -> String {
         let items = candidates.map { candidate in
-            let reportedIssues = candidate.missingFields
+            let reportedIssues = (candidate.missingFields + candidate.validationIssues)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
             let issueText = reportedIssues.isEmpty ? "commit validation failed" : reportedIssues.joined(separator: "; ")
@@ -291,6 +299,8 @@ extension AgentV2Candidate {
         ticketPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .ticketPriceMinor)
         stayDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .stayDurationMinutes)
         roomType = try container.decodeIfPresent(String.self, forKey: .roomType)
+        hotelVisits = try container.decodeIfPresent([HotelVisit].self, forKey: .hotelVisits) ?? []
+        validationIssues = try container.decodeIfPresent([String].self, forKey: .validationIssues) ?? []
         tips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
         bookingCode = try container.decodeIfPresent(String.self, forKey: .bookingCode)
         fromAirport = try container.decodeIfPresent(String.self, forKey: .fromAirport)

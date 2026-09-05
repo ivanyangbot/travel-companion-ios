@@ -1116,6 +1116,9 @@
 
 /* ===== 酒店卡片 ===== */
 "hotelcard.roomType" = "房型";
+"hotelcard.return" = "返回酒店";
+"hotelcard.visits" = "到店安排";
+"hotelcard.departureTime" = "离店时间（HH:mm，可选）";
 "hotelcard.checkIn" = "入住";
 "hotelcard.checkOut" = "退房";
 "hotelcard.nights" = "%lld 晚";
@@ -1138,3 +1141,4 @@
 "leg.restoreDuration" = "恢复地图估算";
 "leg.durationSaveFailed" = "保存失败，请重试。";
 "leg.fromPreviousHotel" = "从昨晚住宿出发";
+"hotelcard.invalidVisits" = "请检查到店日期和时间：入住须在返回之前，各次到店不能重叠。";

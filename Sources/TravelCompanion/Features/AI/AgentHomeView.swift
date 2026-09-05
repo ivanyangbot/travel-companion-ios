@@ -1436,6 +1436,7 @@ struct AgentHomeView: View {
                 AgentV2CandidateCard(
                     candidate: candidate,
                     isSelectable: candidate.isCommitReady
+                        && !runState.isGenerating
                         && !repairingCandidateIDs.contains(candidate.id)
                         && (actionableIDs.contains(candidate.id) || !(store.session.draft?.changes.contains { $0.candidateId == candidate.id && $0.targetCardId != nil } ?? false))
                 ) { value in
@@ -2442,7 +2443,7 @@ struct AgentHomeView: View {
         }
         let days = trip.days.map { day in
             AgentV2TurnRequest.Day(date: day.date, cards: day.cards.map { card in
-                AgentV2TurnRequest.Card(id: card.serverID, kind: card.kind.rawValue, title: card.title, startAt: ISO8601DateFormatter().string(from: card.startAt), endAt: card.endAt.map { ISO8601DateFormatter().string(from: $0) }, place: card.place?.name, notes: card.notes)
+                AgentV2TurnRequest.Card(id: card.serverID, kind: card.kind.rawValue, title: card.title, startAt: ISO8601DateFormatter().string(from: card.startAt), endAt: card.endAt.map { ISO8601DateFormatter().string(from: $0) }, place: card.place?.name, notes: card.notes, hotelVisits: card.hotelVisits, roomType: card.roomType, priceMinor: card.priceMinor, priceCurrency: card.priceCurrency ?? trip.currency, timeZone: card.place?.timeZone)
             })
         }
         return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: requestMessage, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: requestAttachments)
@@ -2544,6 +2545,7 @@ struct AgentHomeView: View {
     }
 
     private func selectAllCandidates(_ candidates: [AgentV2Candidate], selected: Bool) {
+        guard !runState.isGenerating else { return }
         let readyIDs = Set(candidates.filter(\.isCommitReady).map(\.id))
         store.setSelected(selected, ids: readyIDs)
     }

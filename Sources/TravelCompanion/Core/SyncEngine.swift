@@ -1038,6 +1038,7 @@ final class SyncEngine: ObservableObject {
                 priceCurrency: request.priceCurrency,
                 stayDurationMinutes: request.stayDurationMinutes,
                 roomType: request.roomType,
+                hotelVisits: request.hotelVisits ?? [],
                 tips: request.tips,
                 images: request.images,
                 notes: request.notes,
@@ -1508,6 +1509,7 @@ final class SyncEngine: ObservableObject {
         updated.priceCurrency = request.priceCurrency ?? (request.fieldsToClear.contains("priceCurrency") ? nil : updated.priceCurrency)
         updated.stayDurationMinutes = request.stayDurationMinutes ?? (request.fieldsToClear.contains("stayDurationMinutes") ? nil : updated.stayDurationMinutes)
         updated.roomType = request.roomType ?? (request.fieldsToClear.contains("roomType") ? nil : updated.roomType)
+        updated.hotelVisits = request.hotelVisits ?? updated.hotelVisits
         updated.tips = request.tips ?? (request.fieldsToClear.contains("tips") ? nil : updated.tips)
         if let images = request.images {
             updated.images = images
@@ -1650,6 +1652,7 @@ final class SyncEngine: ObservableObject {
             priceCurrency: card.priceCurrency,
             stayDurationMinutes: card.stayDurationMinutes,
             roomType: card.roomType,
+            hotelVisits: card.hotelVisits,
             tips: card.tips,
             images: card.images,
             notes: card.notes,
@@ -1843,6 +1846,7 @@ private enum LocalTripMigrationError: LocalizedError {
 }
 
 private struct MigrationCardFingerprint: Hashable {
+    let hotelVisits: [HotelVisit]
     let day: String
     let kind: String
     let title: String
@@ -1869,6 +1873,7 @@ private struct MigrationCardFingerprint: Hashable {
     let position: Int
 
     init(day: String, card: TravelCardSnapshot) {
+        hotelVisits = card.hotelVisits
         self.day = day
         kind = card.kind.rawValue
         title = card.title

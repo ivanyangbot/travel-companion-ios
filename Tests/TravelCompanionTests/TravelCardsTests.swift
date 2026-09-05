@@ -1140,6 +1140,32 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(object["baggageAllowance"] as? String, "23 kg")
     }
 
+    func testHotelVisitsPreserveOneBookingAndInterleaveWithActivities() throws {
+        let formatter = ISO8601DateFormatter()
+        let zone = try XCTUnwrap(TimeZone(identifier: "Asia/Makassar"))
+        let hotel = TravelCardSnapshot(
+            dayID: 1, kind: .hotel, title: "Aloft",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-25T15:00:00+08:00")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-09-26T09:00:00+08:00")),
+            priceMinor: 1470150, priceCurrency: "IDR",
+            hotelVisits: [
+                HotelVisit(date: "2026-09-25", arrivalTime: "17:30", departureTime: "18:15", purpose: "checkIn"),
+                HotelVisit(date: "2026-09-25", arrivalTime: "23:30", departureTime: nil, purpose: "return")
+            ], position: 0
+        )
+        let bay = TravelCardSnapshot(dayID: 1, kind: .activity, title: "Crystal Bay", startAt: try XCTUnwrap(formatter.date(from: "2026-09-25T15:00:00+08:00")), position: 1)
+        let finns = TravelCardSnapshot(dayID: 1, kind: .activity, title: "FINNS", startAt: try XCTUnwrap(formatter.date(from: "2026-09-25T19:00:00+08:00")), position: 2)
+        let day = TripDaySnapshot(date: "2026-09-25", position: 0, cards: [hotel, bay, finns])
+        let items = ItineraryListPresentation.mergedDayListItems(ownCards: day.cards, projectedOccurrences: [], day: day, timeZoneByCardID: [hotel.id: zone], timeZone: zone)
+        XCTAssertEqual(items.map(\.card.title), ["Crystal Bay", "Aloft", "FINNS", "Aloft"])
+        XCTAssertEqual(Set(items.map(\.id)).count, 4)
+        XCTAssertEqual(items[1].card.id, items[3].card.id)
+        XCTAssertEqual(items[1].routeCard(timeZone: zone).endAt, formatter.date(from: "2026-09-25T18:15:00+08:00"))
+        XCTAssertEqual(day.cards.filter { $0.kind == .hotel }.count, 1)
+        let decoded = try JSONDecoder().decode(TravelCardSnapshot.self, from: JSONEncoder().encode(hotel))
+        XCTAssertEqual(decoded.hotelVisits, hotel.hotelVisits)
+    }
+
     func testCardRequestEncodesAndClearsHotelRoomType() throws {
         let request = CardRequest(roomType: "海景大床房")
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
