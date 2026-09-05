@@ -442,6 +442,37 @@ final class ItineraryLocalTimeTests: XCTestCase {
         XCTAssertEqual(leg?.destination.id, departure.id)
     }
 
+    func testDayStartLegConnectsPreviousNightHotelToNextHotel() {
+        let previousHotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "Previous Hotel",
+            startAt: utcDate(15, 0),
+            endAt: utcDate(11, 0).addingTimeInterval(24 * 3600),
+            place: PlaceSnapshot(
+                id: 1, name: "Previous Hotel", address: nil, latitude: -8.69, longitude: 115.17,
+                placeId: nil, cityCode: nil, businessHours: nil, updatedAt: .now
+            )
+        )
+        let nextHotel = TravelCardSnapshot(
+            dayID: 2,
+            kind: .hotel,
+            title: "Next Hotel",
+            startAt: utcDate(15, 0).addingTimeInterval(24 * 3600),
+            endAt: utcDate(11, 0).addingTimeInterval(2 * 24 * 3600),
+            place: PlaceSnapshot(
+                id: 2, name: "Next Hotel", address: nil, latitude: -8.65, longitude: 115.13,
+                placeId: nil, cityCode: nil, businessHours: nil, updatedAt: .now
+            )
+        )
+        let previous = TripDaySnapshot(date: "2026-09-04", position: 0, cards: [previousHotel])
+        let target = TripDaySnapshot(date: "2026-09-05", position: 1, cards: [nextHotel])
+
+        let leg = ItineraryListPresentation.dayStartHotelLeg(for: target, in: [previous, target], timeZone: utc)
+        XCTAssertEqual(leg?.hotel.id, previousHotel.id)
+        XCTAssertEqual(leg?.destination.id, nextHotel.id)
+    }
+
     func testDayStartLegSupportsMultiNightHotelAndRejectsMissingPreviousDay() {
         let hotel = TravelCardSnapshot(
             dayID: 1,

@@ -4724,7 +4724,7 @@ enum ItineraryListPresentation {
                 localDayStart($0.date, timeZone: timeZone) == previousStart
               }),
               let destination = orderedCards(targetDay.cards).first(where: {
-                $0.kind != .hotel && legDestinationPoint(for: $0) != nil
+                legDestinationPoint(for: $0) != nil
               }) else { return nil }
 
         let hotel = days.flatMap { sourceDay in
