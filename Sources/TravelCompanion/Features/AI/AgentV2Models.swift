@@ -51,7 +51,18 @@ struct AgentV2TurnRequest: Codable, Sendable {
         var roomType: String? = nil
         var priceMinor: Int64? = nil
         var priceCurrency: String? = nil
+        /// 账本 agent 需要：卡片实际价（预估价之外的已付价）。
+        var actualPriceMinor: Int64? = nil
         var timeZone: String? = nil
+    }
+
+    /// 账本 agent 的轻量引用项（备忘物品/卡包条目）：id 仅为轮内引用的
+    /// 顺序编号，不对应任何服务端实体；秘密字段永不进入本结构。
+    struct ReferenceItem: Codable, Sendable, Equatable {
+        let id: Int
+        let title: String?
+        var note: String? = nil
+        var kind: String? = nil
     }
     struct Preferences: Codable, Sendable, Equatable {
         var pace: String?
@@ -84,7 +95,37 @@ struct AgentV2TurnRequest: Codable, Sendable {
         }
     }
 
+    /// 账本 agent 的只读费用快照项（服务端上限 60 条，note 截 200）。
+    struct ExpenseSnapshotItem: Codable, Sendable, Equatable {
+        let id: Int
+        let amountMinor: Int64
+        let currency: String
+        let category: String
+        let occurredOn: String
+        var note: String? = nil
+        var cardId: Int? = nil
+        var settlementAmountMinor: Int64? = nil
+    }
+
+    /// 手书 agent 的只读手书快照（groups ≤ 20 / entries ≤ 40，content 截 2000）。
+    struct JournalContext: Codable, Sendable, Equatable {
+        struct Group: Codable, Sendable, Equatable {
+            let id: Int
+            let name: String
+        }
+        struct Entry: Codable, Sendable, Equatable {
+            let id: Int
+            var groupId: Int? = nil
+            let title: String
+            var content: String? = nil
+        }
+        var groups: [Group] = []
+        var entries: [Entry] = []
+    }
+
     var schemaVersion: Int = 2
+    /// 分 tab agent 判别；缺省 itinerary 兼容旧服务端与既有调用点。
+    var agent: String = AgentKind.itinerary.wireValue
     let sessionId: UUID
     let turnId: UUID
     let intent: String
@@ -96,6 +137,12 @@ struct AgentV2TurnRequest: Codable, Sendable {
     let history: [Message]
     let activeDraft: AgentV2Draft?
     let attachments: [Attachment]
+    /// 仅 ledger / journal agent 携带；Optional + encodeIfPresent 使行程
+    /// 轮次的线上格式与旧版本完全一致。
+    var expenses: [ExpenseSnapshotItem]? = nil
+    var journal: JournalContext? = nil
+    var memos: [ReferenceItem]? = nil
+    var walletCards: [ReferenceItem]? = nil
 }
 
 struct AgentV2Draft: Codable, Sendable, Equatable {
@@ -141,11 +188,32 @@ struct AgentV2Source: Codable, Sendable, Equatable, Identifiable {
     let sourceProof: String?
 }
 
+/// 候选卡 kind：三个行程卡 kind 之外，账本/手书 agent 会产出 `expense`
+/// 与 `journal_entry` 候选。服务端契约里只有这五个值；未知值在 decode 时
+/// fail-fast（与服务端白名单一致），避免静默渲染错误卡片。
+enum AgentV2CandidateKind: String, Codable, Sendable, CaseIterable, Hashable {
+    case flight
+    case hotel
+    case activity
+    case expense
+    case journalEntry = "journal_entry"
+
+    /// 行程卡专属字段归位：非行程 kind 对应 nil，调用点据此走既有行程渲染。
+    var cardKind: TravelCardSnapshot.Kind? {
+        switch self {
+        case .flight: .flight
+        case .hotel: .hotel
+        case .activity: .activity
+        case .expense, .journalEntry: nil
+        }
+    }
+}
+
 struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     enum PlaceStatus: String, Codable, Sendable { case verified, pending, failed, notRequired }
     enum DateStatus: String, Codable, Sendable { case inRange, outOfRange, unscheduled, invalid }
     let id: UUID
-    var kind: TravelCardSnapshot.Kind
+    var kind: AgentV2CandidateKind
     var title: String
     var images: [String] = []
     /// Server-owned presentation decision derived from verified image-tool
@@ -196,6 +264,17 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var risks: [String]
     var missingFields: [String]
     var selected: Bool
+    // ----- 账本/手书候选的专属字段（decodeIfPresent，旧会话解码不受影响） -----
+    /// expense：账本分类 transport|lodging|food|tickets|shopping|other。
+    var category: String? = nil
+    /// expense：关联的行程卡 ID（该项目的一笔实际花费）。
+    var cardId: Int? = nil
+    /// expense：修改行程卡实际价时的新实际价（最小单位）。
+    var actualPriceMinor: Int64? = nil
+    /// journal_entry：正文。
+    var content: String? = nil
+    /// journal_entry：目标分组名（提交时服务端按名找组，无则建组）。
+    var groupName: String? = nil
 
     /// Activity and hotel drafts are only useful after the server has
     /// resolved a concrete Apple Maps result. Requiring the normalized name,
@@ -231,18 +310,36 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
 
     var isCommitReady: Bool {
         guard validationIssues.isEmpty else { return false }
-        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !date.isEmpty, !startAt.isEmpty,
-              dateStatus != .outOfRange, dateStatus != .invalid else { return false }
-        if priceMinor != nil || ticketPriceMinor != nil {
-            guard let priceCurrency,
-                  priceCurrency.range(of: #"^[A-Z]{3}$"#, options: .regularExpression) != nil
+        switch kind {
+        case .expense:
+            // 金额/币种/分类/日期任一缺失都阻断提交（服务端同规则）。
+            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !date.isEmpty,
+                  priceMinor != nil,
+                  let priceCurrency,
+                  priceCurrency.range(of: #"^[A-Z]{3}$"#, options: .regularExpression) != nil,
+                  let category, !category.isEmpty
             else { return false }
+            return true
+        case .journalEntry:
+            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let content, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return false }
+            return true
+        case .flight, .hotel, .activity:
+            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !date.isEmpty, !startAt.isEmpty,
+                  dateStatus != .outOfRange, dateStatus != .invalid else { return false }
+            if priceMinor != nil || ticketPriceMinor != nil {
+                guard let priceCurrency,
+                      priceCurrency.range(of: #"^[A-Z]{3}$"#, options: .regularExpression) != nil
+                else { return false }
+            }
+            if kind == .activity || kind == .hotel {
+                return hasConcreteVerifiedPlace || hasExplicitUnverifiedPlace || hasAllowedUnverifiedPlace
+            }
+            return kind != .flight || (bookingCode?.isEmpty == false && fromAirport?.isEmpty == false && toAirport?.isEmpty == false)
         }
-        if kind == .activity || kind == .hotel {
-            return hasConcreteVerifiedPlace || hasExplicitUnverifiedPlace || hasAllowedUnverifiedPlace
-        }
-        return kind != .flight || (bookingCode?.isEmpty == false && fromAirport?.isEmpty == false && toAirport?.isEmpty == false)
     }
 }
 
@@ -273,7 +370,7 @@ extension AgentV2Candidate {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
-        kind = try container.decode(TravelCardSnapshot.Kind.self, forKey: .kind)
+        kind = try container.decode(AgentV2CandidateKind.self, forKey: .kind)
         title = try container.decode(String.self, forKey: .title)
         images = try container.decodeIfPresent([String].self, forKey: .images) ?? []
         imageScore = max(0, min(100, try container.decodeIfPresent(Int.self, forKey: .imageScore) ?? 0))
@@ -287,7 +384,9 @@ extension AgentV2Candidate {
         endAt = try container.decodeIfPresent(String.self, forKey: .endAt)
         endDate = try container.decodeIfPresent(String.self, forKey: .endDate)
         place = try container.decodeIfPresent(AIChatPlace.self, forKey: .place)
-        placeStatus = try container.decode(PlaceStatus.self, forKey: .placeStatus)
+        // 账本/手书候选没有地点语义，服务端可省略 placeStatus；缺省视为
+        // notRequired，与行程卡的未排期信息卡同一兜底策略。
+        placeStatus = try container.decodeIfPresent(PlaceStatus.self, forKey: .placeStatus) ?? .notRequired
         description = try container.decodeIfPresent(String.self, forKey: .description)
         notes = try container.decodeIfPresent(String.self, forKey: .notes)
         url = try container.decodeIfPresent(String.self, forKey: .url)
@@ -320,6 +419,11 @@ extension AgentV2Candidate {
         risks = try container.decodeIfPresent([String].self, forKey: .risks) ?? []
         missingFields = try container.decodeIfPresent([String].self, forKey: .missingFields) ?? []
         selected = try container.decodeIfPresent(Bool.self, forKey: .selected) ?? false
+        category = try container.decodeIfPresent(String.self, forKey: .category)
+        cardId = try container.decodeIfPresent(Int.self, forKey: .cardId)
+        actualPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .actualPriceMinor)
+        content = try container.decodeIfPresent(String.self, forKey: .content)
+        groupName = try container.decodeIfPresent(String.self, forKey: .groupName)
     }
 }
 
@@ -448,6 +552,9 @@ struct AgentV2Change: Codable, Sendable, Equatable, Identifiable {
     var operation: Operation
     var candidateId: UUID?
     var targetCardId: Int?
+    /// 账本 agent：replace/remove 作用的既有支出 ID（与 targetCardId 互斥；
+    /// targetCardId 仅用于“改行程卡预估/实际价”的 replace）。
+    var targetExpenseId: Int? = nil
     /// Unconfirmed draft candidate targeted by a replace/remove. Paired with
     /// `candidateId` for replace (the new candidate supersedes the draft) or
     /// nil for remove (discard the draft). Mutually exclusive with
@@ -455,6 +562,17 @@ struct AgentV2Change: Codable, Sendable, Equatable, Identifiable {
     var targetDraftId: UUID? = nil
     var summary: String
     var impact: String?
+
+    init(id: UUID = UUID(), operation: Operation, candidateId: UUID?, targetCardId: Int? = nil, targetExpenseId: Int? = nil, targetDraftId: UUID? = nil, summary: String, impact: String? = nil) {
+        self.id = id
+        self.operation = operation
+        self.candidateId = candidateId
+        self.targetCardId = targetCardId
+        self.targetExpenseId = targetExpenseId
+        self.targetDraftId = targetDraftId
+        self.summary = summary
+        self.impact = impact
+    }
 }
 
 struct AgentV2Summary: Codable, Sendable, Equatable {
@@ -558,10 +676,20 @@ struct AgentV2LiveCard: Identifiable, Equatable {
     var fields: [String: String] = [:]
 
     var kind: TravelCardSnapshot.Kind? {
+        candidateKind?.cardKind
+    }
+    /// 原始 kind 字符串：账本/手书的流式占位卡据此分派渲染。
+    var kindRaw: String? {
+        guard let rawValue = fields["kind"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !rawValue.isEmpty else {
+            return nil
+        }
+        return rawValue
+    }
+    var candidateKind: AgentV2CandidateKind? {
         guard let rawValue = fields["kind"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return nil
         }
-        return TravelCardSnapshot.Kind(rawValue: rawValue)
+        return AgentV2CandidateKind(rawValue: rawValue)
     }
     var title: String { fields["title"] ?? String(localized: "agentv2.organizing") }
     var timing: String {
@@ -573,6 +701,8 @@ struct AgentV2LiveCard: Identifiable, Equatable {
 
 struct AgentV2CommitRequest: Codable, Sendable {
     var schemaVersion: Int = 2
+    /// 分 tab agent 判别；itinerary 时不发送以保持旧线上格式。
+    var agent: String? = nil
     let sessionId: UUID
     let expectedTripVersion: Int
     let timeZone: String

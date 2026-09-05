@@ -21,6 +21,9 @@ struct ContentView: View {
     /// 右侧的 Agent 按钮——页面本身就是 Agent，入口重复；回到地图后恢复。
     @State private var agentHomeActive = false
     @State private var agentInitialMessage: String?
+    /// 当前 sheet 将打开的分 tab agent：悬浮按钮打开时随当前 tab；小红书
+    /// 深链固定 itinerary。与 `selectedSection` 分开存，深链不被当前 tab 污染。
+    @State private var agentSheetKind: AgentKind = .itinerary
     @State private var selectedSection: MainSection = .journey
     @State private var navigationDragTranslation: CGFloat = 0
     @State private var navigationDragHasStarted = false
@@ -44,6 +47,15 @@ struct ContentView: View {
             case .journey: "icon-trip-outline"
             case .expenses: "icon-money-outline"
             case .notes: "icon-note-outline"
+            }
+        }
+
+        /// 右下角悬浮按钮随 tab 切换到的 agent 身份。
+        var agentKind: AgentKind {
+            switch self {
+            case .journey: .itinerary
+            case .expenses: .ledger
+            case .notes: .journal
             }
         }
     }
@@ -103,7 +115,8 @@ struct ContentView: View {
                         onInitialMessageSubmitted: {
                             sharedLinkStore.markDelivered()
                             agentInitialMessage = nil
-                        }
+                        },
+                        agent: agentSheetKind
                     )
                 } else {
                     ProgressView("root.agentIncoming")
@@ -171,22 +184,25 @@ struct ContentView: View {
     private var agentButton: some View {
         Button {
             agentInitialMessage = nil
+            agentSheetKind = selectedSection.agentKind
             showsAgent = true
         } label: {
             AnimatedAgentIcon()
                 .frame(width: 40, height: 40)
                 .frame(width: 60, height: 60)
-                .background(Color(red: 1, green: 110 / 255, blue: 0), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .background(AgentTheme.buttonBackground(for: selectedSection.agentKind), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("root.summonAgentA11y"))
+        .accessibilityLabel(Text(NSLocalizedString(AgentTheme.summonA11yKey(for: selectedSection.agentKind), comment: "")))
     }
 
     private func presentSharedLinkInAgentIfPossible() {
         guard let url = sharedLinkStore.pendingURL,
               syncEngine?.trip?.isConfigured == true else { return }
         agentInitialMessage = String(format: String(localized: "root.agentXhsPrompt"), url.absoluteString)
+        // 小红书深链固定使用行程 agent，不受当前所在 tab 影响。
+        agentSheetKind = .itinerary
         showsAgent = true
     }
 

@@ -348,6 +348,11 @@ struct NotesView: View {
                 Task { await reload() }
             }
             .onChange(of: journalSync.revision) { _, _ in Task { await reload() } }
+            // 手书 agent 在工作台保存了新条目：手书数据不在 SyncEngine，
+            // 收到广播后重拉，避免返回手书 tab 时短暂显示旧列表。
+            .onReceive(NotificationCenter.default.publisher(for: .agentJournalEntriesDidChange)) { _ in
+                Task { await reload() }
+            }
             .sheet(item: $editor) { entry in
                 JournalEditor(
                     entry: entry.id == 0 ? nil : entry,

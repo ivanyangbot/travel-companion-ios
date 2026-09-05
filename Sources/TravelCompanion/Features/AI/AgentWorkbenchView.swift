@@ -25,16 +25,20 @@ struct AgentWorkbenchView: View {
     @State private var suggestedIcons: [String] = []
     @State private var suggestionsTripID: Int?
 
+    let agent: AgentKind
+
     init(
         syncEngine: SyncEngine,
         appleSignIn: AppleSignInStore,
         initialMessage: String? = nil,
-        onInitialMessageSubmitted: (() -> Void)? = nil
+        onInitialMessageSubmitted: (() -> Void)? = nil,
+        agent: AgentKind = .itinerary
     ) {
         self.syncEngine = syncEngine
         self.appleSignIn = appleSignIn
         self.initialMessage = initialMessage
         self.onInitialMessageSubmitted = onInitialMessageSubmitted
+        self.agent = agent
     }
 
     var body: some View {
@@ -43,7 +47,8 @@ struct AgentWorkbenchView: View {
             appleSignIn: appleSignIn,
             initialMessage: initialMessage,
             onInitialMessageSubmitted: onInitialMessageSubmitted,
-            presentation: .workbench
+            presentation: .workbench,
+            agent: agent
         )
     }
 
@@ -1324,12 +1329,14 @@ private extension AgentV2Change.Operation {
     }
 }
 
-private extension TravelCardSnapshot.Kind {
+private extension AgentV2CandidateKind {
     var agentTitle: String {
         switch self {
         case .activity: String(localized: "agent.kind.activity")
         case .hotel: String(localized: "agent.kind.hotel")
         case .flight: String(localized: "agent.kind.flight")
+        case .expense: String(localized: "agent.kind.expense")
+        case .journalEntry: String(localized: "agent.kind.journalEntry")
         }
     }
 
@@ -1338,6 +1345,8 @@ private extension TravelCardSnapshot.Kind {
         case .activity: "figure.walk"
         case .hotel: "bed.double.fill"
         case .flight: "airplane"
+        case .expense: "banknote"
+        case .journalEntry: "book.fill"
         }
     }
 }

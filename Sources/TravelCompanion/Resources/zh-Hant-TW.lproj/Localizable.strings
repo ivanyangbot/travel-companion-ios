@@ -1144,3 +1144,26 @@
 "leg.durationSaveFailed" = "儲存失敗，請重試。";
 "leg.fromPreviousHotel" = "從昨晚住宿出發";
 "hotelcard.invalidVisits" = "請檢查到店日期和時間：入住須在返回之前，各次到店不能重疊。";
+
+/* ===== 分 tab agent（行程/帳本/手書）===== */
+"agent.name.itinerary" = "豆奶";
+"agent.name.ledger" = "算盤";
+"agent.name.journal" = "墨墨";
+"agent.role.itinerary" = "旅行規劃助手";
+"agent.role.ledger" = "旅行記帳助手";
+"agent.role.journal" = "旅行手書助手";
+"agent.ledgerWelcomeTitle" = "告訴算盤你想記什麼。";
+"agent.journalWelcomeTitle" = "告訴墨墨你想寫什麼。";
+"agent.kind.expense" = "支出";
+"agent.kind.journalEntry" = "手書";
+"agent.recordExpense" = "記一筆";
+"agent.saveEntry" = "儲存手書";
+"agent.linkedCardBadge" = "關聯行程項目";
+"agent.organizingExpense" = "正在整理這筆支出…";
+"agent.organizingEntry" = "正在寫這篇手書…";
+"agent.commitLedgerTitle" = "已記帳";
+"agent.commitLedgerDetail" = "成功記錄 %1$d 筆，移除 %2$d 筆";
+"agent.commitJournalTitle" = "已儲存手書";
+"agent.commitJournalDetail" = "成功儲存 %d 篇手書";
+"root.summonLedgerAgentA11y" = "喚起算盤";
+"root.summonJournalAgentA11y" = "喚起墨墨";

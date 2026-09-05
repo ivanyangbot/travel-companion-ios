@@ -1,5 +1,6 @@
 import AuthenticationServices
 import PhotosUI
+import SwiftData
 import SwiftUI
 import UIKit
 
@@ -44,6 +45,9 @@ struct AgentHomeView: View {
     let onCancelNewTripPlanning: (() -> Void)?
     let onNewTripCreated: (() -> Void)?
     let presentation: AgentHomePresentation
+    /// 分 tab agent 身份：决定请求工厂、会话槽位、推荐 mode 与主题色。
+    /// 默认 itinerary，既有入口（行程卡片左滑、小红书深链、首页内嵌）不传。
+    var agent: AgentKind = .itinerary
     @EnvironmentObject private var store: AgentV2SessionStore
     @EnvironmentObject private var runState: AgentV2RunState
     /// 工作台模式下指向承载本视图的 sheet：清除行程选择后用它关掉整个工作台。
@@ -88,6 +92,12 @@ struct AgentHomeView: View {
     @State private var suggestedPrompts: [String] = []
     @State private var suggestedIcons: [String] = []
     @State private var suggestionsTripID: Int?
+    /// 推荐缓存的复合键（agent:tripID），与 agent 分会话存储配套。
+    @State private var suggestionsCacheKey: String?
+    /// 手书 agent 的只读手书快照：手书数据不在 SyncEngine，打开时现拉并
+    /// 随行程切换重拉（与账本的 trip.expenses 快照来源不同）。
+    @State private var journalContext: AgentV2TurnRequest.JournalContext?
+    @Environment(\.modelContext) private var modelContext
     /// 推荐问题逐条揭示；每次只插入一条，保证从左向右移入的阶梯节奏。
     @State private var revealedSuggestionCount = 0
     /// 底部输入区是否已展开：折叠态为左右两个等宽正方形入口，
@@ -221,7 +231,8 @@ struct AgentHomeView: View {
         plansNewTrip: Bool = false,
         onCancelNewTripPlanning: (() -> Void)? = nil,
         onNewTripCreated: (() -> Void)? = nil,
-        presentation: AgentHomePresentation = .home
+        presentation: AgentHomePresentation = .home,
+        agent: AgentKind = .itinerary
     ) {
         self.syncEngine = syncEngine
         self.appleSignIn = appleSignIn
@@ -231,6 +242,7 @@ struct AgentHomeView: View {
         self.onCancelNewTripPlanning = onCancelNewTripPlanning
         self.onNewTripCreated = onNewTripCreated
         self.presentation = presentation
+        self.agent = agent
     }
 
     var body: some View {
@@ -494,8 +506,10 @@ struct AgentHomeView: View {
                 Button("agent.gotIt", role: .cancel) {}
             } message: { Text(runState.error ?? "") }
             .onAppear {
+                store.activateAgent(agent)
                 store.activateTripPreferences(forTripID: syncEngine.selectedTripID)
                 consumeInitialMessageIfNeeded()
+                loadTabAgentContextIfNeeded()
                 loadSuggestionsIfNeeded()
                 Task { @MainActor in repairIncompleteActionableCandidatesIfNeeded() }
             }
@@ -504,7 +518,10 @@ struct AgentHomeView: View {
             .onChange(of: syncEngine.selectedTripID) { _, newTripID in
                 store.activateTripPreferences(forTripID: newTripID)
             }
-            .onChange(of: syncEngine.trip?.id) { _, _ in loadSuggestionsIfNeeded() }
+            .onChange(of: syncEngine.trip?.id) { _, _ in
+                loadTabAgentContextIfNeeded()
+                loadSuggestionsIfNeeded()
+            }
             .onChange(of: syncEngine.trip?.isConfigured) { _, _ in
                 loadSuggestionsIfNeeded()
                 repairIncompleteActionableCandidatesIfNeeded()
@@ -613,7 +630,7 @@ struct AgentHomeView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "location.fill")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(PrimaryTabPalette.accent)
+                            .foregroundStyle(AgentTheme.accent(for: agent))
                         Text(tripTitle)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white)
@@ -628,6 +645,22 @@ struct AgentHomeView: View {
                 .buttonStyle(.glass)
                 .frame(maxWidth: proxy.size.width * 0.5, alignment: .leading)
                 .accessibilityLabel(Text("agent.switchTripA11y"))
+
+                // 账本/手书 agent 的身份 chip：名称 + 定位，让用户明确当前
+                // 对话的对象；行程 agent 是默认形态，保持头部不变。
+                if agent != .itinerary {
+                    HStack(spacing: 4) {
+                        Image(systemName: agent == .ledger ? "banknote" : "book.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(LocalizedStringKey(stringLiteral: AgentTheme.nameKey(for: agent)))
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(AgentTheme.accent(for: agent))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(AgentTheme.accent(for: agent).opacity(0.14), in: Capsule())
+                    .accessibilityLabel(Text(LocalizedStringKey(stringLiteral: AgentTheme.roleKey(for: agent))))
+                }
 
                 Spacer(minLength: 0)
 
@@ -745,9 +778,10 @@ struct AgentHomeView: View {
         isComposerExpanded || !isWelcomeState
     }
 
-    /// 欢迎页主标题：抽签流程中显示当前问题，否则显示默认引导文案。
+    /// 欢迎页主标题：抽签流程中显示当前问题，否则按 agent 显示对应引导
+    /// 文案（抽签是行程 agent 的首页流程，分 tab agent 不会进入）。
     private var welcomeTitle: String {
-        lotteryStepIndex.map { lotterySteps[$0].question } ?? String(localized: "agent.welcomeTitle")
+        lotteryStepIndex.map { lotterySteps[$0].question } ?? NSLocalizedString(AgentTheme.welcomeTitleKey(for: agent), comment: "")
     }
 
     /// Sheet 为 80% 高度时让欢迎页保持紧凑；扩展到全屏时逐步放大地球。
@@ -949,18 +983,30 @@ struct AgentHomeView: View {
 
     /// 拉取当前行程的三条动态建议。返回后以独立插入的方式逐条播放，确保
     /// 每条问题都完整走完“左侧进入 + 渐显”，而不是整组一起淡入。
+    /// 分 tab agent：缓存键与请求 mode 均按 agent 区分，无行程时所有
+    /// agent 统一回退 journey 模式。
     private func loadSuggestionsIfNeeded() {
         guard presentation == .workbench, isWelcomeState else { return }
         let trip = syncEngine.trip
         let hasActiveTrip = trip?.isConfigured == true
-        let suggestionKey = hasActiveTrip ? (trip?.id ?? -1) : -1
-        guard suggestionsTripID != suggestionKey else { return }
+        let suggestionKey = (hasActiveTrip ? (trip?.id ?? -1) : -1)
+        // 用 agent + tripKey 复合键，切 tab 后必重新拉取。
+        let cacheKey = "\(agent.rawValue):\(suggestionKey)"
+        guard suggestionsCacheKey != cacheKey else { return }
+        suggestionsCacheKey = cacheKey
+        // 沿用旧字段名存储，避免迁移；值不再等于 trip id。
         suggestionsTripID = suggestionKey
         resetSuggestions()
 
         let preferences = store.session.preferences
+        let mode: String?
+        if !hasActiveTrip {
+            mode = "journey"
+        } else {
+            mode = agent.suggestionsMode
+        }
         let request = AITripSuggestionsRequest(
-            mode: hasActiveTrip ? nil : "journey",
+            mode: mode,
             destination: trip?.destination,
             startDate: trip?.startDate,
             endDate: trip?.endDate,
@@ -971,7 +1017,9 @@ struct AgentHomeView: View {
                 budget: preferences.budget,
                 interests: preferences.interests.isEmpty ? nil : AgentInterest.displayNames(for: preferences.interests)
             ),
-            existingItinerary: hasActiveTrip ? syncEngine.existingItinerarySnapshot() : nil
+            existingItinerary: hasActiveTrip && agent == .itinerary ? syncEngine.existingItinerarySnapshot() : nil,
+            expenses: hasActiveTrip && agent == .ledger ? AgentV2TurnRequestFactory.expenseSnapshot(from: trip!) : nil,
+            journal: hasActiveTrip && agent == .journal ? journalContext : nil
         )
 
         Task { @MainActor in
@@ -979,19 +1027,39 @@ struct AgentHomeView: View {
                 request,
                 tripID: hasActiveTrip ? trip?.id : nil
             ), !result.suggestions.isEmpty,
-               suggestionsTripID == suggestionKey,
+               suggestionsCacheKey == cacheKey,
                isWelcomeState else { return }
 
             suggestedPrompts = result.suggestions
             suggestedIcons = result.icons ?? []
             revealedSuggestionCount = 0
             for count in 1...result.suggestions.count {
-                guard suggestionsTripID == suggestionKey, isWelcomeState else { return }
+                guard suggestionsCacheKey == cacheKey, isWelcomeState else { return }
                 withAnimation(.easeOut(duration: 0.34)) {
                     revealedSuggestionCount = count
                 }
                 try? await Task.sleep(for: .milliseconds(110))
             }
+        }
+    }
+
+    /// 手书 agent 的只读快照现拉（手书不在 SyncEngine 里）；失败保持
+    /// nil，请求工厂会省略 journal 字段，服务端照常出通用建议。
+    private func loadTabAgentContextIfNeeded() {
+        guard agent == .journal,
+              let trip = syncEngine.trip, trip.isConfigured else { return }
+        let tripID = trip.id
+        Task { @MainActor in
+            guard let snapshot = try? await APIClient().fetchJournal(tripID: tripID) else { return }
+            let context = AgentV2TurnRequest.JournalContext(
+                groups: snapshot.groups.prefix(20).map { .init(id: $0.id, name: $0.name) },
+                entries: snapshot.entries
+                    .sorted { $0.createdAt > $1.createdAt }
+                    .prefix(40)
+                    .map { .init(id: $0.id, groupId: $0.groupId, title: $0.title, content: $0.content.map { String($0.prefix(2_000)) }) }
+            )
+            journalContext = context
+            loadSuggestionsIfNeeded()
         }
     }
 
@@ -2432,21 +2500,37 @@ struct AgentHomeView: View {
         message requestMessage: String,
         includePendingAttachments: Bool = true
     ) -> AgentV2TurnRequest? {
-        let requestAttachments = includePendingAttachments ? store.session.attachments : []
-        if plansNewTrip {
-            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: requestMessage, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: requestAttachments)
+        var memoItems: [AgentV2TurnRequest.ReferenceItem] = []
+        var walletItems: [AgentV2TurnRequest.ReferenceItem] = []
+        if agent == .ledger, syncEngine.trip?.isConfigured == true {
+            // 备忘/卡包是本机 SwiftData：仅名称与备注作为记账上下文，
+            // 卡包加密字段永不离开本机。
+            let memoDescriptor = FetchDescriptor<LocalMemoList>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+            if let lists = try? modelContext.fetch(memoDescriptor) {
+                memoItems = AgentV2TurnRequestFactory.memoSnapshot(
+                    items: lists.flatMap { list in
+                        list.items.sorted { $0.position < $1.position }.map { ($0.name, $0.notes) }
+                    }
+                )
+            }
+            let walletDescriptor = FetchDescriptor<LocalWalletItem>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+            if let wallet = try? modelContext.fetch(walletDescriptor) {
+                // 只送标签；号码/备注保持 AES-GCM 密文，本路径不做任何解密。
+                walletItems = AgentV2TurnRequestFactory.walletSnapshot(
+                    items: wallet.map { ($0.label, nil) }
+                )
+            }
         }
-        guard let trip = syncEngine.trip, trip.isConfigured else {
-            // 无生效旅程：从零规划模式（plan_new）。服务端会产出待用户确认的
-            // 旅程提案（trip_proposal），确认前不落库创建旅程。
-            return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "plan_new", message: requestMessage, trip: nil, preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: requestAttachments)
-        }
-        let days = trip.days.map { day in
-            AgentV2TurnRequest.Day(date: day.date, cards: day.cards.map { card in
-                AgentV2TurnRequest.Card(id: card.serverID, kind: card.kind.rawValue, title: card.title, startAt: ISO8601DateFormatter().string(from: card.startAt), endAt: card.endAt.map { ISO8601DateFormatter().string(from: $0) }, place: card.place?.name, notes: card.notes, hotelVisits: card.hotelVisits, roomType: card.roomType, priceMinor: card.priceMinor, priceCurrency: card.priceCurrency ?? trip.currency, timeZone: card.place?.timeZone)
-            })
-        }
-        return AgentV2TurnRequest(sessionId: store.session.id, turnId: UUID(), intent: "itinerary", message: requestMessage, trip: .init(destination: trip.destination, startDate: trip.startDate, endDate: trip.endDate, currency: trip.currency, timeZone: TimeZone.current.identifier, version: trip.version, days: days), preferences: store.session.preferences, history: AgentV2TurnRequest.trimmedHistory(store.session.messages), activeDraft: store.session.draft, attachments: requestAttachments)
+        let factory = AgentV2TurnRequestFactory(
+            agent: agent,
+            session: store.session,
+            trip: syncEngine.trip,
+            journalContext: journalContext,
+            memoItems: memoItems,
+            walletItems: walletItems,
+            plansNewTrip: plansNewTrip
+        )
+        return factory.makeRequest(message: requestMessage, includePendingAttachments: includePendingAttachments)
     }
 
     /// 用户确认旅程提案：复用既有建旅程链路创建旅程，随后清除提案。
@@ -2496,10 +2580,12 @@ struct AgentHomeView: View {
         }
         runState.isCommitting = true
         let client = APIClient()
+        let agent = agent
         Task {
             do {
                 let result = try await client.commitAgentV2(
                     .init(
+                        agent: agent == .itinerary ? nil : agent.wireValue,
                         sessionId: store.session.id,
                         expectedTripVersion: trip.version,
                         timeZone: TimeZone.current.identifier,
@@ -2509,12 +2595,14 @@ struct AgentHomeView: View {
                     tripID: trip.id,
                     idempotencyKey: UUID()
                 )
-                let removalCount = snapshot.draft.changes.filter {
-                    $0.operation == .remove && $0.targetCardId != nil
-                }.count
+                let removalField: (AgentV2Change) -> Bool = agent == .ledger
+                    ? { $0.operation == .remove && $0.targetExpenseId != nil }
+                    : { $0.operation == .remove && $0.targetCardId != nil }
+                let removalCount = snapshot.draft.changes.filter(removalField).count
                 let success = AgentCommitSuccess(
                     addedCount: result.committedCandidateIds.count,
-                    removedCount: removalCount
+                    removedCount: removalCount,
+                    agent: agent
                 )
                 if success.addedCount > 0 || success.removedCount > 0 {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -2530,7 +2618,15 @@ struct AgentHomeView: View {
                 if !(result.retryCandidateIds ?? []).isEmpty {
                     runState.status = String(localized: "agent.commitRetryRetained")
                 }
+                if agent == .journal {
+                    // 手书不参与行程版本：广播给 NotesView 在下一次出现时重拉。
+                    NotificationCenter.default.post(name: .agentJournalEntriesDidChange, object: trip.id)
+                }
                 await syncEngine.refresh()
+                if agent == .journal {
+                    // 手书写入后本机快照也更新，供下一轮请求与推荐使用。
+                    loadTabAgentContextIfNeeded()
+                }
                 if commitSuccess != nil {
                     try? await Task.sleep(for: .milliseconds(900))
                     withAnimation(.easeOut(duration: 0.24)) {
@@ -2551,7 +2647,8 @@ struct AgentHomeView: View {
     }
 
     private func repairIncompleteActionableCandidatesIfNeeded() {
-        guard syncEngine.trip?.isConfigured == true,
+        guard agent == .itinerary,
+              syncEngine.trip?.isConfigured == true,
               !runState.isGenerating,
               repairingCandidateIDs.isEmpty,
               let draft = store.session.draft else { return }
@@ -2600,16 +2697,31 @@ struct AgentHomeView: View {
 private struct AgentCommitSuccess: Equatable {
     let addedCount: Int
     let removedCount: Int
+    var agent: AgentKind = .itinerary
 
     var title: String {
-        addedCount > 0 ? String(localized: "agent.commitAdded") : String(localized: "agent.commitUpdated")
+        switch agent {
+        case .itinerary:
+            return addedCount > 0 ? String(localized: "agent.commitAdded") : String(localized: "agent.commitUpdated")
+        case .ledger:
+            return String(localized: "agent.commitLedgerTitle")
+        case .journal:
+            return String(localized: "agent.commitJournalTitle")
+        }
     }
 
     var detail: String {
-        if addedCount > 0 {
-            return String(format: String(localized: "agent.commitSuccessCount"), addedCount)
+        switch agent {
+        case .itinerary:
+            if addedCount > 0 {
+                return String(format: String(localized: "agent.commitSuccessCount"), addedCount)
+            }
+            return String(localized: "agent.commitRemovalSuccess")
+        case .ledger:
+            return String(format: String(localized: "agent.commitLedgerDetail"), addedCount, removedCount)
+        case .journal:
+            return String(format: String(localized: "agent.commitJournalDetail"), addedCount)
         }
-        return String(localized: "agent.commitRemovalSuccess")
     }
 
     var accessibilityText: String { "\(title)，\(detail)" }
@@ -3092,11 +3204,229 @@ struct AgentV2LiveCandidateCard: View {
 
     @ViewBuilder
     var body: some View {
-        if card.kind == .flight {
-            AgentLiveFlightCandidateCard(card: card)
-        } else {
-            AgentLivePlaceCandidateCard(card: card)
+        switch card.kindRaw {
+        case "expense":
+            AgentLiveExpenseCandidateCard(card: card)
+        case "journal_entry":
+            AgentLiveJournalCandidateCard(card: card)
+        default:
+            if card.kind == .flight {
+                AgentLiveFlightCandidateCard(card: card)
+            } else {
+                AgentLivePlaceCandidateCard(card: card)
+            }
         }
+    }
+}
+
+/// 账本候选卡：金额/分类/日期一目了然，确认后写入一笔支出（或卡片改价）。
+struct AgentExpenseCandidateCard: View {
+    let candidate: AgentV2Candidate
+    var isSelectable = true
+    let selection: (Bool) -> Void
+
+    private var amountText: String? {
+        guard let minor = candidate.priceMinor else { return nil }
+        if let currency = candidate.priceCurrency, !currency.isEmpty {
+            return CardPrice.format(minor: minor, currency: currency)
+        }
+        return String(minor)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .firstTextBaseline) {
+                Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255))
+                Spacer()
+                if !candidate.date.isEmpty {
+                    Label(candidate.date, systemImage: "calendar")
+                        .font(.caption.monospacedDigit().weight(.medium))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+            }
+
+            Text(candidate.title)
+                .font(.system(.headline, design: .rounded, weight: .semibold))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                if let amountText {
+                    Label(amountText, systemImage: "banknote")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255))
+                }
+                if let category = candidate.category, !category.isEmpty {
+                    Text(category)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.10), in: Capsule())
+                }
+                if candidate.cardId != nil {
+                    Label("agent.linkedCardBadge", systemImage: "link")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+            }
+
+            if let notes = candidate.notes, !notes.isEmpty {
+                Text(notes)
+                    .font(.footnote)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(3)
+            }
+
+            if let reason = candidate.reason, !reason.isEmpty {
+                Text(reason)
+                    .font(.footnote)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(2)
+            }
+
+            if !candidate.missingFields.isEmpty {
+                Label(candidate.missingFields.joined(separator: " · "), systemImage: "questionmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(3)
+            }
+
+            Divider().overlay(Color.white.opacity(0.08))
+
+            if isSelectable {
+                Button {
+                    selection(!candidate.selected)
+                } label: {
+                    Label(candidate.selected ? String(localized: "agent.selectedButton") : candidate.kind.commitButtonTitle, systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(candidate.selected ? .black : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            candidate.selected ? Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255) : Color.white.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 18)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// 手书候选卡：标题 + 分组 + 正文预览，确认后保存为一条手书。
+struct AgentJournalCandidateCard: View {
+    let candidate: AgentV2Candidate
+    var isSelectable = true
+    let selection: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack {
+                Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color(red: 191 / 255, green: 90 / 255, blue: 242 / 255))
+                Spacer()
+                if let groupName = candidate.groupName, !groupName.isEmpty {
+                    Label(groupName, systemImage: "folder")
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+            }
+
+            Text(candidate.title)
+                .font(.system(.headline, design: .rounded, weight: .semibold))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let content = candidate.content, !content.isEmpty {
+                Text(content)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let reason = candidate.reason, !reason.isEmpty {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(2)
+            }
+
+            if !candidate.missingFields.isEmpty {
+                Label(candidate.missingFields.joined(separator: " · "), systemImage: "questionmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(3)
+            }
+
+            Divider().overlay(Color.white.opacity(0.08))
+
+            if isSelectable {
+                Button {
+                    selection(!candidate.selected)
+                } label: {
+                    Label(candidate.selected ? String(localized: "agent.selectedButton") : candidate.kind.commitButtonTitle, systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(candidate.selected ? .white : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            candidate.selected ? Color(red: 191 / 255, green: 90 / 255, blue: 242 / 255) : Color.white.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 18)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct AgentLiveExpenseCandidateCard: View {
+    let card: AgentV2LiveCard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(card.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Spacer()
+                ProgressView().controlSize(.mini).tint(PrimaryTabPalette.secondaryText)
+            }
+            if !card.timing.isEmpty { Label(card.timing, systemImage: "calendar").font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText) }
+            Text("agent.organizingExpense")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255))
+        }
+        .padding(12)
+        .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
+    }
+}
+
+private struct AgentLiveJournalCandidateCard: View {
+    let card: AgentV2LiveCard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(card.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Spacer()
+                ProgressView().controlSize(.mini).tint(PrimaryTabPalette.secondaryText)
+            }
+            Text("agent.organizingEntry")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color(red: 191 / 255, green: 90 / 255, blue: 242 / 255))
+        }
+        .padding(12)
+        .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
     }
 }
 
@@ -3270,9 +3600,14 @@ struct AgentV2CandidateCard: View {
 
     @ViewBuilder
     var body: some View {
-        if candidate.kind == .flight {
+        switch candidate.kind {
+        case .flight:
             AgentFlightCandidateCard(candidate: candidate, isSelectable: isSelectable, selection: selection)
-        } else {
+        case .expense:
+            AgentExpenseCandidateCard(candidate: candidate, isSelectable: isSelectable, selection: selection)
+        case .journalEntry:
+            AgentJournalCandidateCard(candidate: candidate, isSelectable: isSelectable, selection: selection)
+        case .hotel, .activity:
             standardCard
         }
     }
@@ -3364,7 +3699,7 @@ struct AgentV2CandidateCard: View {
                         Button {
                             selection(!candidate.selected)
                         } label: {
-                            Label(candidate.selected ? String(localized: "agent.selectedButton") : String(localized: "agent.joinTrip"), systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
+                            Label(candidate.selected ? String(localized: "agent.selectedButton") : candidate.kind.commitButtonTitle, systemImage: candidate.selected ? "checkmark.circle.fill" : "plus.circle.fill")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(candidate.selected ? .black : .white)
                                 .frame(maxWidth: .infinity)
@@ -4691,12 +5026,14 @@ private extension AgentV2Change.Operation {
     }
 }
 
-private extension TravelCardSnapshot.Kind {
+private extension AgentV2CandidateKind {
     var agentTitle: String {
         switch self {
         case .activity: String(localized: "agent.kind.activity")
         case .hotel: String(localized: "agent.kind.hotel")
         case .flight: String(localized: "agent.kind.flight")
+        case .expense: String(localized: "agent.kind.expense")
+        case .journalEntry: String(localized: "agent.kind.journalEntry")
         }
     }
 
@@ -4705,6 +5042,17 @@ private extension TravelCardSnapshot.Kind {
         case .activity: "figure.walk"
         case .hotel: "bed.double.fill"
         case .flight: "airplane"
+        case .expense: "banknote"
+        case .journalEntry: "book.fill"
+        }
+    }
+
+    /// 确认按钮文案随候选类型变化：行程卡沿用“加入行程”。
+    var commitButtonTitle: String {
+        switch self {
+        case .activity, .hotel, .flight: String(localized: "agent.joinTrip")
+        case .expense: String(localized: "agent.recordExpense")
+        case .journalEntry: String(localized: "agent.saveEntry")
         }
     }
 }

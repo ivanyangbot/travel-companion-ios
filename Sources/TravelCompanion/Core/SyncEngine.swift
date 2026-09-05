@@ -29,6 +29,9 @@ final class SyncEngine: ObservableObject {
     private let localMigrationStore: LocalTripMigrationStore
     private var foregroundPollingTask: Task<Void, Never>?
     private var authObserver: NSObjectProtocol?
+    /// 卡片预估价补齐的已尝试版本：每个 (trip, version) 最多尝试一次，
+    /// 成功后版本前进会自然放行下一批，失败则等下个版本再试。
+    private var cardPriceEstimateAttempt: (tripID: Int, version: Int)?
 
     init(
         repository: SharedTripRepository,
@@ -101,6 +104,54 @@ final class SyncEngine: ObservableObject {
         }
         await refresh()
         await replayPendingOperations()
+    }
+
+    /// 卡片预估价自动补齐：refresh 稳定后发现既无预估价也无实际价的行程
+    /// 卡时，调用轻量估价接口（关 thinking、小 token 预算）拿建议价并经
+    /// 常规卡片 PATCH 回填。每个 (trip, version) 只尝试一次；失败静默，
+    /// 等待下一版本。卡片新增/删除最终都会经 refresh 收敛，因此同时覆盖
+    /// 手动加卡、Agent commit 与协作方改动三条路径。
+    private func backfillMissingCardPricesIfNeeded() {
+        guard !localOnly,
+              let current = trip, current.isConfigured else { return }
+        if let attempt = cardPriceEstimateAttempt,
+           attempt.tripID == current.id, attempt.version >= current.version {
+            return
+        }
+        let unpriced = current.days.flatMap(\.cards).filter {
+            $0.serverID != nil && $0.priceMinor == nil && $0.actualPriceMinor == nil
+        }
+        guard !unpriced.isEmpty else { return }
+        cardPriceEstimateAttempt = (current.id, current.version)
+        let tripSnapshot = current
+        let requestCards = unpriced.prefix(20).compactMap { card -> AICardPriceEstimatesRequest.Card? in
+            guard let id = card.serverID else { return nil }
+            return AICardPriceEstimatesRequest.Card(id: id, kind: card.kind.rawValue, title: card.title, place: card.place?.name)
+        }
+        guard !requestCards.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            do {
+                let result = try await self?.apiClient.fetchCardPriceEstimates(
+                    AICardPriceEstimatesRequest(
+                        destination: tripSnapshot.destination,
+                        startDate: tripSnapshot.startDate,
+                        endDate: tripSnapshot.endDate,
+                        currency: tripSnapshot.currency,
+                        cards: Array(requestCards)
+                    ),
+                    tripID: tripSnapshot.id
+                )
+                guard let estimates = result?.estimates, let self else { return }
+                for estimate in estimates {
+                    // 逐张回读当前快照：上一张 PATCH 后本地版本已前进。
+                    guard let fresh = self.trip?.days.flatMap(\.cards).first(where: { $0.serverID == estimate.cardId }),
+                          fresh.priceMinor == nil, fresh.actualPriceMinor == nil else { continue }
+                    await self.updateCard(fresh, request: CardRequest(priceMinor: estimate.amountMinor, priceCurrency: estimate.currency, fieldsToClear: []))
+                }
+            } catch {
+                // 估价接口失败不打扰用户：保持无价卡片原样，等下个版本再试。
+            }
+        }
     }
 
     func refresh() async {
@@ -179,6 +230,7 @@ final class SyncEngine: ObservableObject {
                 try await queueConfirmedAIDraftCardsIfReady()
             }
             status = .synced
+            backfillMissingCardPricesIfNeeded()
         } catch {
             if localMigrationStore.hasPendingMigration {
                 status = trip == nil

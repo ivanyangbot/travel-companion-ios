@@ -458,7 +458,8 @@ let budget: String?
 let interests: [String]?
 }
 /// 建议模式：`nil`（即服务端默认 itinerary）表示围绕已有行程出建议；
-/// `journey` 表示客户端没有生效行程，请服务端返回整段旅程规划类建议。
+/// `journey` 表示客户端没有生效行程，请服务端返回整段旅程规划类建议；
+/// `ledger` / `journal` 分别面向账本/手书 tab agent 的欢迎页。
 let mode: String?
 let destination: String?
 let startDate: String?
@@ -466,6 +467,20 @@ let endDate: String?
 let currency: String?
 let preferences: Preferences?
 let existingItinerary: [AIExistingItineraryDay]?
+/// 账本/手书 mode 的只读快照；与 Agent v2 轮次信封同构，仅相应 mode 携带。
+let expenses: [AgentV2TurnRequest.ExpenseSnapshotItem]?
+let journal: AgentV2TurnRequest.JournalContext?
+init(mode: String?, destination: String?, startDate: String?, endDate: String?, currency: String?, preferences: Preferences?, existingItinerary: [AIExistingItineraryDay]?, expenses: [AgentV2TurnRequest.ExpenseSnapshotItem]? = nil, journal: AgentV2TurnRequest.JournalContext? = nil) {
+self.mode = mode
+self.destination = destination
+self.startDate = startDate
+self.endDate = endDate
+self.currency = currency
+self.preferences = preferences
+self.existingItinerary = existingItinerary
+self.expenses = expenses
+self.journal = journal
+}
 }
 
 struct AITripSuggestionsResult: Decodable, Sendable, Equatable {
@@ -473,6 +488,32 @@ let suggestions: [String]
 /// 服务端为每条建议选择的 SF Symbol 图标（与 suggestions 一一对应）；
 /// 旧版本后端可能不返回，客户端回退本地关键词图标。
 let icons: [String]?
+}
+
+/// 卡片预估价批量补齐请求：客户端只送既无预估价也无实际价的行程卡，
+/// 服务端一次性返回建议价；结果由客户端经普通卡片 PATCH 回填，本接口
+/// 本身不写任何数据。
+struct AICardPriceEstimatesRequest: Encodable, Sendable {
+struct Card: Encodable, Sendable, Equatable {
+let id: Int
+let kind: String
+let title: String
+let place: String?
+}
+let destination: String?
+let startDate: String?
+let endDate: String?
+let currency: String?
+let cards: [Card]
+}
+
+struct AICardPriceEstimatesResult: Decodable, Sendable, Equatable {
+struct Estimate: Decodable, Sendable, Equatable {
+let cardId: Int
+let amountMinor: Int64
+let currency: String
+}
+let estimates: [Estimate]
 }
 
 /// Stateless multi-turn itinerary chat: the client replays the full message

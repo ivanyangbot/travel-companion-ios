@@ -258,6 +258,10 @@ final class AgentV2RunState: ObservableObject {
 /// Drafts are deliberately kept outside the shared trip store.  This gives a
 /// user reliable retry/resume behavior without exposing unconfirmed plans to a
 /// collaborator or the backend.
+///
+/// Storage is namespaced per agent kind（行程/账本/手书各自拥有独立的会话、
+/// 归档与偏好），so switching tabs never mixes one agent's conversation with
+/// another persona's context.
 @MainActor
 final class AgentV2SessionStore: ObservableObject {
     @Published private(set) var session: AgentV2LocalSession
@@ -267,13 +271,19 @@ final class AgentV2SessionStore: ObservableObject {
     @Published private(set) var archives: [AgentV2LocalSession] = []
 
     private let defaults: UserDefaults
-    private let key = "agent.v2.local.session"
-    private let archivesKey = "agent.v2.local.archives"
+    private(set) var activeAgent: AgentKind = .itinerary
+    private var key: String { "agent.v2.local.session.\(activeAgent.rawValue)" }
+    private var archivesKey: String { "agent.v2.local.archives.\(activeAgent.rawValue)" }
     /// 每个旅程一套「旅行与偏好」规划条件：切换行程时把当前偏好存回旧旅程
     /// 的槽位，再载入新旅程的槽位。无生效行程（plan_new / 暂不选择行程）
     /// 使用独立槽位，同样不与其他旅程互通。
-    private let tripPreferencesKey = "agent.v2.trip.preferences"
-    private let activeTripKeyStorageKey = "agent.v2.trip.preferences.active"
+    private var tripPreferencesKey: String { "agent.v2.trip.preferences.\(activeAgent.rawValue)" }
+    private var activeTripKeyStorageKey: String { "agent.v2.trip.preferences.active.\(activeAgent.rawValue)" }
+    /// 升级到分 agent 命名空间前的旧存储键；仅 itinerary 首次加载时继承。
+    private static let legacySessionKey = "agent.v2.local.session"
+    private static let legacyArchivesKey = "agent.v2.local.archives"
+    private static let legacyTripPreferencesKey = "agent.v2.trip.preferences"
+    private static let legacyActiveTripKeyStorageKey = "agent.v2.trip.preferences.active"
     private var tripPreferences: [String: AgentV2TurnRequest.Preferences] = [:]
     private var activeTripKey: String?
     /// “暂不选择行程”对应的偏好槽位。
@@ -290,18 +300,45 @@ final class AgentV2SessionStore: ObservableObject {
     ///   有内容的对话自动归档进「历史对话」，主界面（首页 Agent 与工作台）
     ///   不再直接展示上一次的聊天记录；偏好随新会话延续。应用内切换页面、
     ///   收起再展开工作台不受影响。
-    init(defaults: UserDefaults = .standard, startsFreshOnLaunch: Bool = false) {
+    init(defaults: UserDefaults = .standard, startsFreshOnLaunch: Bool = false, agent: AgentKind = .itinerary) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: archivesKey),
+        self.activeAgent = agent
+        loadState()
+        if startsFreshOnLaunch, currentSessionHasContent {
+            startNewSession()
+        }
+    }
+
+    /// 切换分 tab agent 时整体换装该 agent 的会话/归档/偏好槽位。当前
+    /// agent 的数据已随每次操作即时落盘，这里无需回写。相同 agent 重复
+    /// 调用是幂等的。
+    func activateAgent(_ agent: AgentKind) {
+        guard agent != activeAgent else { return }
+        activeAgent = agent
+        loadState()
+        resetStaging()
+    }
+
+    /// 读取当前 agent 的全部持久化状态；itinerary 首次遇到命名空间键缺失
+    /// 时从旧裸键继承（老用户的会话/归档/偏好不丢），并写回命名空间键。
+    private func loadState() {
+        let useLegacy = activeAgent == .itinerary
+            && defaults.data(forKey: key) == nil
+            && defaults.data(forKey: Self.legacySessionKey) != nil
+        if let data = defaults.data(forKey: useLegacy ? Self.legacyArchivesKey : archivesKey),
            let decodedArchives = try? JSONDecoder.agentV2.decode([AgentV2LocalSession].self, from: data) {
             archives = decodedArchives
+        } else {
+            archives = []
         }
-        if let data = defaults.data(forKey: tripPreferencesKey),
+        if let data = defaults.data(forKey: useLegacy ? Self.legacyTripPreferencesKey : tripPreferencesKey),
            let decodedMap = try? JSONDecoder.agentV2.decode([String: AgentV2TurnRequest.Preferences].self, from: data) {
             tripPreferences = decodedMap
+        } else {
+            tripPreferences = [:]
         }
-        activeTripKey = defaults.string(forKey: activeTripKeyStorageKey)
-        if let data = defaults.data(forKey: key), var decoded = try? JSONDecoder.agentV2.decode(AgentV2LocalSession.self, from: data) {
+        activeTripKey = defaults.string(forKey: useLegacy ? Self.legacyActiveTripKeyStorageKey : activeTripKeyStorageKey)
+        if let data = defaults.data(forKey: useLegacy ? Self.legacySessionKey : key), var decoded = try? JSONDecoder.agentV2.decode(AgentV2LocalSession.self, from: data) {
             decoded.preferences.allowUnverifiedRecommendations = true
             let originalDraft = decoded.draft
             decoded.draft = originalDraft.map { $0.sanitizedForPersistence() }
@@ -316,8 +353,11 @@ final class AgentV2SessionStore: ObservableObject {
         } else {
             session = .empty
         }
-        if startsFreshOnLaunch, currentSessionHasContent {
-            startNewSession()
+        if useLegacy {
+            // 继承一次后落到命名空间键；旧键保留原值，用户降级也不丢数据。
+            persistArchives()
+            persistTripPreferences()
+            persist(touchUpdatedAt: false)
         }
     }
 
@@ -620,8 +660,10 @@ final class AgentV2SessionStore: ObservableObject {
         let actionableIDs = draft.actionableCandidateIDs
         let selected = draft.candidates.filter { $0.selected && actionableIDs.contains($0.id) }
         // A pure-removal commit (no selected candidates but at least one
-        // pending remove targeting a committed trip card) is valid too.
-        let hasPendingRemoval = draft.changes.contains { $0.operation == .remove && $0.targetCardId != nil }
+        // pending remove targeting a committed trip card or expense) is valid too.
+        let hasPendingRemoval = draft.changes.contains {
+            $0.operation == .remove && ($0.targetCardId != nil || $0.targetExpenseId != nil)
+        }
         guard !selected.isEmpty || hasPendingRemoval else { return nil }
         return (draft, selected)
     }
@@ -642,7 +684,7 @@ final class AgentV2SessionStore: ObservableObject {
         guard var draft = session.draft else { return }
         draft.candidates.removeAll { committedCandidateIDs.contains($0.id) }
         draft.changes.removeAll { change in
-            if change.operation == .remove, change.targetCardId != nil { return true }
+            if change.operation == .remove, change.targetCardId != nil || change.targetExpenseId != nil { return true }
             if let candidateID = change.candidateId, committedCandidateIDs.contains(candidateID) { return true }
             return false
         }

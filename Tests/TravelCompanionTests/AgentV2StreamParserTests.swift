@@ -151,6 +151,54 @@ final class AgentV2StreamParserTests: XCTestCase {
         XCTAssertFalse(decoded.isCommitReady)
     }
 
+    func testTabAgentCandidatesDecodeWithoutPlaceStatusAndCommitWhenComplete() throws {
+        // 账本/手书候选没有 placeStatus/place 等行程字段；缺省 placeStatus
+        // 不得让整条流在 candidate_upsert 处中断。
+        let expenseID = UUID().uuidString.lowercased()
+        let entryID = UUID().uuidString.lowercased()
+        let incompleteExpenseID = UUID().uuidString.lowercased()
+        let fixture = """
+        event: candidate_upsert
+        data: {"id":"\(expenseID)","kind":"expense","title":"晚餐-猪排饭","date":"2026-10-01","priceMinor":6050,"priceCurrency":"JPY","category":"food","cardId":11,"notes":"浅草附近","tips":[],"risks":[],"missingFields":[],"selected":false}
+
+        event: candidate_upsert
+        data: {"id":"\(incompleteExpenseID)","kind":"expense","title":"机票","priceMinor":null,"category":null,"date":"","tips":[],"risks":[],"missingFields":["金额待确认"],"selected":false}
+
+        event: candidate_upsert
+        data: {"id":"\(entryID)","kind":"journal_entry","title":"浅草的傍晚","groupName":"东京篇","content":"傍晚的浅草寺很安静。","tips":[],"risks":[],"missingFields":[],"selected":false}
+
+        event: change_set
+        data: [{"id":"\(UUID().uuidString.lowercased())","operation":"replace","candidateId":"\(expenseID)","targetCardId":null,"targetExpenseId":88,"targetDraftId":null,"summary":"修改支出","impact":null}]
+
+        event: done
+        data: {}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var candidates: [AgentV2Candidate] = []
+        var changes: [AgentV2Change] = []
+        for byte in fixture.utf8 {
+            guard let event = try parser.consume(byte) else { continue }
+            if case .candidateUpsert(let value) = event { candidates.append(value) }
+            if case .changeSet(let value) = event { changes = value }
+        }
+
+        XCTAssertEqual(candidates.map(\.kind), [.expense, .expense, .journalEntry])
+        let expense = try XCTUnwrap(candidates[0])
+        XCTAssertEqual(expense.placeStatus, .notRequired)
+        XCTAssertEqual(expense.category, "food")
+        XCTAssertEqual(expense.cardId, 11)
+        XCTAssertTrue(expense.isCommitReady)
+        XCTAssertFalse(candidates[1].isCommitReady, "缺金额/分类/日期的支出候选不可提交")
+        let entry = try XCTUnwrap(candidates[2])
+        XCTAssertEqual(entry.groupName, "东京篇")
+        XCTAssertEqual(entry.content, "傍晚的浅草寺很安静。")
+        XCTAssertTrue(entry.isCommitReady)
+        XCTAssertEqual(changes.first?.targetExpenseId, 88)
+        XCTAssertNil(changes.first?.targetCardId)
+    }
+
     func testFlightScheduleAndMultipleSourcesSurviveCandidateStreamDecoding() throws {
         let candidateID = UUID().uuidString.lowercased()
         let fixture = """

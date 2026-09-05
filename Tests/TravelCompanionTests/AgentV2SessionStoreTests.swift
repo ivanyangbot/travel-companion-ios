@@ -980,8 +980,63 @@ final class AgentV2SessionStoreTests: XCTestCase {
         XCTAssertEqual(restored.session.preferences.budget, "luxury")
     }
 
+    @MainActor
+    func testActivateAgentSwapsSessionsAndIsIdempotent() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let store = AgentV2SessionStore(defaults: defaults, agent: .itinerary)
+        store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "行程问题", createdAt: .now))
+
+        // 切到账本：会话独立，互不可见。
+        store.activateAgent(.ledger)
+        XCTAssertTrue(store.session.messages.isEmpty)
+        store.append(AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "账本问题", createdAt: .now))
+
+        // 切回行程：原会话完整保留。
+        store.activateAgent(.itinerary)
+        XCTAssertEqual(store.session.messages.map(\.content), ["行程问题"])
+
+        // 重复激活同一 agent 是幂等的，不重置当前会话。
+        store.activateAgent(.ledger)
+        XCTAssertEqual(store.session.messages.map(\.content), ["账本问题"])
+        store.activateAgent(.ledger)
+        XCTAssertEqual(store.session.messages.map(\.content), ["账本问题"])
+    }
+
+    @MainActor
+    func testLegacyItinerarySessionMigratesToNamespacedKey() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        var legacy = AgentV2LocalSession.empty
+        legacy.messages = [AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "升级前的会话", createdAt: .now)]
+        defaults.set(try encoder.encode(legacy), forKey: legacySessionKey)
+
+        let store = AgentV2SessionStore(defaults: defaults)
+        XCTAssertEqual(store.session.messages.map(\.content), ["升级前的会话"])
+        // 继承后已写回命名空间键；旧裸键保留原值（降级安全）。
+        let persisted = try XCTUnwrap(defaults.data(forKey: sessionKey))
+        let decoded = try decoder.decode(AgentV2LocalSession.self, from: persisted)
+        XCTAssertEqual(decoded.messages.map(\.content), ["升级前的会话"])
+        XCTAssertNotNil(defaults.data(forKey: legacySessionKey))
+    }
+
+    @MainActor
+    func testLedgerStoreDoesNotInheritLegacyItinerarySession() throws {
+        let defaults = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        var legacy = AgentV2LocalSession.empty
+        legacy.messages = [AgentV2TurnRequest.Message(id: UUID(), role: "user", content: "行程会话", createdAt: .now)]
+        defaults.set(try encoder.encode(legacy), forKey: legacySessionKey)
+
+        let store = AgentV2SessionStore(defaults: defaults, agent: .ledger)
+        XCTAssertTrue(store.session.messages.isEmpty)
+        XCTAssertNil(defaults.data(forKey: "agent.v2.local.session.ledger"))
+    }
+
     private let defaultsSuite = "AgentV2SessionStoreTests"
-    private let sessionKey = "agent.v2.local.session"
+    /// 分 agent 命名空间后的行程 agent 会话键；旧裸键仅由迁移测试使用。
+    private let sessionKey = "agent.v2.local.session.itinerary"
+    private let legacySessionKey = "agent.v2.local.session"
 
     private var encoder: JSONEncoder {
         let encoder = JSONEncoder()
@@ -1011,7 +1066,7 @@ final class AgentV2SessionStoreTests: XCTestCase {
 
     private func candidate(
         id: UUID = UUID(),
-        kind: TravelCardSnapshot.Kind,
+        kind: AgentV2CandidateKind,
         status: AgentV2Candidate.PlaceStatus,
         place: AIChatPlace?
     ) -> AgentV2Candidate {

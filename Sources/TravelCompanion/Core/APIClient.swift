@@ -274,6 +274,21 @@ actor APIClient {
         return try decoder.decode(APIEnvelope<AITripSuggestionsResult>.self, from: data).data
     }
 
+    /// 缺价行程卡的预估价批量补齐（``/v1/ai/card-price-estimates``）。
+    /// 与建议生成同级的轻量一次性调用；结果仅供客户端参考回填。
+    func fetchCardPriceEstimates(_ request: AICardPriceEstimatesRequest, tripID: Int?) async throws -> AICardPriceEstimatesResult {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var urlRequest = URLRequest(url: baseURL.appending(path: "/v1/ai/card-price-estimates"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&urlRequest, tripID: tripID)
+        urlRequest.httpBody = try encoder.encode(request)
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<AICardPriceEstimatesResult>.self, from: data).data
+    }
+
     /// Streaming variant of ``itineraryChat``. Returns an async stream of SSE
     /// events (``reply`` deltas then a final ``result``) from
     /// ``/v1/ai/itinerary-chat/stream``. SSE bytes are read at the byte level
