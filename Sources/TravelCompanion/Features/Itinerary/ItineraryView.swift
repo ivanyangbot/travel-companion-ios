@@ -3790,9 +3790,9 @@ private struct ItineraryCardRail: View {
     private var tint: Color {
         if isPreviousDayContinuation { return Color.white.opacity(0.58) }
         switch kind {
-        case .flight: JourneyPalette.tripBlue
-        case .hotel: PrimaryTabPalette.accent
-        case .activity: Color(red: 0.32, green: 0.76, blue: 0.47)
+        case .flight: return JourneyPalette.tripBlue
+        case .hotel: return PrimaryTabPalette.accent
+        case .activity: return Color(red: 0.32, green: 0.76, blue: 0.47)
         }
     }
 
