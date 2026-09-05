@@ -1133,3 +1133,4 @@
 "leg.durationHelp" = "Saved on this device for these locations and travel mode. Used for arrival estimates and connection warnings.";
 "leg.restoreDuration" = "Use map estimate";
 "leg.durationSaveFailed" = "Could not save. Please try again.";
+"leg.fromPreviousHotel" = "From last night’s hotel";

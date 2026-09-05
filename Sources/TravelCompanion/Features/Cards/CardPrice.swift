@@ -45,6 +45,29 @@ enum CardPrice {
         return currency.map { "\(value) \($0)" } ?? value
     }
 
+    /// Compact cards display a stable whole-number amount. Keep storage and
+    /// detail views at the currency's original precision; round only here.
+    static func formatRoundedMajor(minor: Int64?, currency: String?) -> String? {
+        guard let minor else { return nil }
+        let exponent = minorExponent(for: currency)
+        let major = Decimal(minor) / pow(10, exponent)
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency ?? ""
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.roundingMode = .halfUp
+        if let text = formatter.string(from: major as NSDecimalNumber) {
+            return text
+        }
+        let plain = NumberFormatter()
+        plain.minimumFractionDigits = 0
+        plain.maximumFractionDigits = 0
+        plain.roundingMode = .halfUp
+        let value = plain.string(from: major as NSDecimalNumber) ?? "\(major)"
+        return currency.map { "\(value) \($0)" } ?? value
+    }
+
     /// Parses a user-typed decimal amount into minor units for the currency.
     /// Returns nil for empty or non-numeric input.
     static func minorUnits(from text: String, currency: String?) -> Int64? {

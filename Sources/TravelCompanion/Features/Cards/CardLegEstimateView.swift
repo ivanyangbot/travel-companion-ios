@@ -4,6 +4,7 @@ import SwiftData
 enum CardLegEstimatePresentation {
     case standard
     case itineraryList
+    case itineraryDayStart
 }
 
 /// Compare absolute instants; local clock offsets and DST must not affect slack.
@@ -67,6 +68,8 @@ struct CardLegEstimateView: View {
                 standardContent
             case .itineraryList:
                 itineraryListContent
+            case .itineraryDayStart:
+                itineraryDayStartContent
             }
         }
         .task(id: legKey) {
@@ -137,82 +140,117 @@ struct CardLegEstimateView: View {
 
     @ViewBuilder
     private var itineraryListContent: some View {
-        Button(action: openRoute) {
-            HStack(spacing: 8) {
-                itineraryListModeIcon
+        itineraryRouteRow(dayStart: false)
+            .contextMenu { modeMenu }
+            .accessibilityElement(children: .contain)
+    }
 
-                Group {
-                    if let manualDuration {
-                        Text(Self.itineraryListDurationText(manualDuration))
-                        Text("leg.manualDuration").font(.caption).foregroundStyle(.orange)
-                    } else if isFetching {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("leg.estimateRunning")
-                    } else if let estimate {
-                        Text(
-                            "\(Self.itineraryListDistanceText(estimate.estimate.distanceMeters)) • "
-                                + Self.itineraryListDurationText(estimate.estimate.durationSeconds)
-                        )
-                    } else {
-                        Text(fetchFailed ? String(localized: "leg.estimateFailed") : String(localized: "leg.estimatePending"))
+    private var itineraryDayStartContent: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label("leg.fromPreviousHotel", systemImage: "bed.double.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PrimaryTabPalette.accent)
+                .lineLimit(1)
+            itineraryRouteRow(dayStart: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(PrimaryTabPalette.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(PrimaryTabPalette.accent.opacity(0.22), lineWidth: 1)
+        }
+        .contextMenu { modeMenu }
+    }
+
+    private func itineraryRouteRow(dayStart: Bool) -> some View {
+        HStack(spacing: 5) {
+            Button(action: openRoute) {
+                HStack(spacing: 6) {
+                    itineraryListModeIcon
+
+                    if isFetching, manualDuration == nil {
+                        ProgressView().controlSize(.mini)
                     }
+                    Text(itineraryListSummary)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+
+                    if let shortage = connectionShortageMinutes {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.orange)
+                            .fixedSize()
+                            .accessibilityLabel(
+                                Text(String(format: String(localized: "rail.connectionShortage"), shortage))
+                            )
+                    }
+                    Spacer(minLength: 0)
                 }
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.white.opacity(0.82))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(itineraryListAccessibilityLabel)
+            .accessibilityHint(Text("leg.hint"))
 
-                // 衔接不足时只挂一枚三角感叹号；具体分钟数仍由下方的到达
-                // 预估与橙色文字提示。
-                if let shortage = connectionShortageMinutes {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.orange)
-                        .accessibilityLabel(
-                            Text(String(format: String(localized: "rail.connectionShortage"), shortage))
-                        )
-                }
-
-                Spacer(minLength: 8)
-
-                // 手动改时长：铅笔 icon 行内入口（右箭头左侧），不再单独成行。
+            HStack(spacing: 1) {
                 Button(action: editDuration) {
                     Image(systemName: "pencil")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.82))
-                        .frame(width: 30, height: 30)
+                        .frame(width: 26, height: 28)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("leg.editDuration"))
 
-                Image("icon-right-outline")
-                    .resizable()
-                    .renderingMode(.template)
-                    .scaledToFit()
-                    .frame(width: 20, height: 20)
-                    .foregroundStyle(.white.opacity(0.82))
+                Button(action: openRoute) {
+                    Image("icon-right-outline")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .frame(width: 17, height: 17)
+                        .foregroundStyle(.white.opacity(0.82))
+                        .frame(width: 25, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("leg.navigateA11y"))
             }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .padding(.horizontal, 18)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Section("leg.modeSection") {
-                ForEach(RouteMode.allCases) { option in
-                    Button {
-                        changeMode(option)
-                    } label: {
-                        Label(option.title, systemImage: option.systemImage)
-                    }
+        .frame(maxWidth: .infinity, minHeight: dayStart ? 30 : 34, alignment: .leading)
+        .padding(.horizontal, dayStart ? 0 : 12)
+        .contentShape(Rectangle())
+    }
+
+    private var itineraryListSummary: String {
+        if let manualDuration {
+            return "\(Self.itineraryListDurationText(manualDuration)) · \(String(localized: "leg.manualDuration"))"
+        }
+        if isFetching {
+            return String(localized: "leg.estimateRunning")
+        }
+        if let estimate {
+            return "\(Self.itineraryListDistanceText(estimate.estimate.distanceMeters)) · "
+                + Self.itineraryListDurationText(estimate.estimate.durationSeconds)
+        }
+        return fetchFailed ? String(localized: "leg.estimateFailed") : String(localized: "leg.estimatePending")
+    }
+
+    @ViewBuilder
+    private var modeMenu: some View {
+        Section("leg.modeSection") {
+            ForEach(RouteMode.allCases) { option in
+                Button {
+                    changeMode(option)
+                } label: {
+                    Label(option.title, systemImage: option.systemImage)
                 }
             }
-
-        }
-        .accessibilityLabel(itineraryListAccessibilityLabel)
-        .accessibilityHint(Text("leg.hint"))
-        if let duration = effectiveDuration, manualDuration != nil || !isFetching {
-            connectionTiming(duration: duration)
         }
     }
 
@@ -227,31 +265,35 @@ struct CardLegEstimateView: View {
     private var durationEditor: some View {
         NavigationStack {
             ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("\(originCard.title) → \(destinationCard.title)")
-                    .font(.headline).lineLimit(3)
-                Label(mode.title, systemImage: mode.systemImage).foregroundStyle(.secondary)
-                HStack {
-                    Picker("leg.hours", selection: $durationHours) {
-                        ForEach(0..<48) { Text("\($0)").tag($0) }
-                    }.pickerStyle(.wheel)
-                    Text("leg.hours")
-                    Picker("leg.minutes", selection: $durationMinutes) {
-                        ForEach(0..<60) { Text("\($0)").tag($0) }
-                    }.pickerStyle(.wheel)
-                    Text("leg.minutes")
-                }.frame(height: 150)
-                Text("leg.durationHelp").font(.caption).foregroundStyle(.secondary)
-                if manualDuration != nil {
-                    Button("leg.restoreDuration") { saveDuration(nil) }
-                        .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("\(originCard.title) → \(destinationCard.title)")
+                        .font(.headline).lineLimit(3)
+                    Label(mode.title, systemImage: mode.systemImage).foregroundStyle(.secondary)
+                    HStack {
+                        Picker("leg.hours", selection: $durationHours) {
+                            ForEach(0..<48) { Text("\($0)").tag($0) }
+                        }.pickerStyle(.wheel)
+                        Text("leg.hours")
+                        Picker("leg.minutes", selection: $durationMinutes) {
+                            ForEach(0..<60) { Text("\($0)").tag($0) }
+                        }.pickerStyle(.wheel)
+                        Text("leg.minutes")
+                    }.frame(height: 150)
+                    if durationHours > 0 || durationMinutes > 0 {
+                        connectionTiming(duration: (durationHours * 60 + durationMinutes) * 60)
+                            .padding(.horizontal, -18)
+                    }
+                    Text("leg.durationHelp").font(.caption).foregroundStyle(.secondary)
+                    if manualDuration != nil {
+                        Button("leg.restoreDuration") { saveDuration(nil) }
+                            .foregroundStyle(.orange)
+                    }
+                    if durationSaveFailed {
+                        Text("leg.durationSaveFailed").font(.caption).foregroundStyle(.red)
+                    }
+                    Spacer(minLength: 0)
                 }
-                if durationSaveFailed {
-                    Text("leg.durationSaveFailed").font(.caption).foregroundStyle(.red)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(24)
+                .padding(24)
             }
             .navigationTitle("leg.editDuration")
             .navigationBarTitleDisplayMode(.inline)

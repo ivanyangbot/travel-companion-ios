@@ -1124,7 +1124,7 @@
 "rail.start" = "開始";
 "rail.arrival" = "抵達";
 "rail.end" = "結束";
-"rail.estimatedArrival" = "結束後出發 · 預計 %@ %@ 抵達";
+"rail.estimatedArrival" = "結束後出發・預計%@%@抵達";
 "rail.connectionShortage" = "銜接不足 %d 分鐘，請調整安排";
 "rail.flightBuffer" = "另需預留報到、安檢和登機時間";
 "rail.connectionUnknown" = "離開時間未定，暫無法判斷銜接";
@@ -1135,3 +1135,4 @@
 "leg.durationHelp" = "僅儲存在此裝置，按兩地和交通方式分別記憶。優先用於預計抵達和銜接提醒。";
 "leg.restoreDuration" = "恢復地圖估算";
 "leg.durationSaveFailed" = "儲存失敗，請重試。";
+"leg.fromPreviousHotel" = "從昨晚住宿出發";

@@ -801,6 +801,10 @@ struct ItineraryView: View {
             projectedOccurrences: projectedOccurrences,
             day: day
         )
+        let dayStartHotelLeg = ItineraryListPresentation.dayStartHotelLeg(
+            for: day,
+            in: days
+        )
         VStack(alignment: .leading, spacing: ItineraryCardRailLayout.spacing) {
             if cards.isEmpty, projectedOccurrences.isEmpty {
                 Button {
@@ -819,6 +823,25 @@ struct ItineraryView: View {
                 .buttonStyle(.plain)
             } else {
                 ForEach(Array(listItems.enumerated()), id: \.element.id) { itemIndex, item in
+                    if item.card.id == dayStartHotelLeg?.destination.id,
+                       let startLeg = dayStartHotelLeg,
+                       let originPoint = ItineraryListPresentation.legOriginPoint(for: startLeg.hotel),
+                       let destinationPoint = ItineraryListPresentation.legDestinationPoint(for: startLeg.destination) {
+                        HStack(alignment: .top, spacing: ItineraryCardRailLayout.spacing) {
+                            if showsCardRail {
+                                Color.clear.frame(width: ItineraryCardRailLayout.width)
+                            }
+                            CardLegEstimateView(
+                                originCard: startLeg.hotel,
+                                destinationCard: startLeg.destination,
+                                originPoint: originPoint,
+                                destinationPoint: destinationPoint,
+                                presentation: .itineraryDayStart,
+                                destinationTimeZone: timeZoneByCardID[startLeg.destination.id]
+                            )
+                            .id("day-start-\(CardLegStore.legKey(origin: startLeg.hotel, destination: startLeg.destination))-\(routeRefreshRevision)")
+                        }
+                    }
                     // 左侧类别轨道（机票/酒店/景点 icon + 起止当地时间 + 连接
                     // 虚线）随每行卡片绘制：卡片列整体右移缩窄、左侧留白，类别
                     // 提示由轨道承担。设置中关闭后回到满宽卡片 + 卡内类别标记。
@@ -829,17 +852,19 @@ struct ItineraryView: View {
                                 showsConnector: itemIndex < listItems.count - 1,
                                 startTime: ItineraryLocalTime.railStartTime(
                                     for: item.card,
-                                    timeZone: timeZoneByCardID[item.card.id]
+                                    timeZone: timeZoneByCardID[item.card.id],
+                                    displayedDay: day.date
                                 ),
                                 endTime: ItineraryLocalTime.railEndTime(
                                     for: item.card,
-                                    timeZone: timeZoneByCardID[item.card.id]
+                                    timeZone: timeZoneByCardID[item.card.id],
+                                    displayedDay: day.date
                                 )
                             )
                         }
 
                         if let ownIndex = item.ownIndex {
-                            VStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 6) {
                                 itineraryCompactCard(
                                     item.card,
                                     index: ownIndex,
@@ -1255,10 +1280,8 @@ struct ItineraryView: View {
                             width: 68,
                             cornerRadius: 10
                         )
-                        VStack(alignment: .leading, spacing: 5) {
-                            // 航司名 + 航班号：航班号永远完整显示（fixedSize +
-                            // layoutPriority），空间不足时航司名尾部省略。
-                            HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            if card.ticketNumber?.nilIfEmpty == nil {
                                 if let airlineName = card.airlineName?.nilIfEmpty {
                                     Text(airlineName)
                                         .font(.subheadline.weight(.semibold))
@@ -1269,22 +1292,39 @@ struct ItineraryView: View {
                                 Text(itineraryFlightNumber(for: card))
                                     .font(.subheadline.monospaced().weight(.semibold))
                                     .foregroundStyle(.white)
-                                    .fixedSize(horizontal: true, vertical: false)
-                                    .layoutPriority(1)
-                            }
-                            if let ticketNumber = card.ticketNumber?.nilIfEmpty {
+                                    .lineLimit(1)
+                            } else if let ticketNumber = card.ticketNumber?.nilIfEmpty {
+                                HStack(spacing: 4) {
+                                    if let airlineName = card.airlineName?.nilIfEmpty {
+                                        Text(airlineName)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.white.opacity(0.86))
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .layoutPriority(2)
+                                    }
+                                    Text(itineraryFlightNumber(for: card))
+                                        .font(.subheadline.monospaced().weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .layoutPriority(3)
+                                }
                                 HStack(spacing: 4) {
                                     Text("flightticket.ticketNumber")
                                         .font(.caption2)
                                         .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
                                     Text(ticketNumber)
                                         .font(.caption.monospaced().weight(.semibold))
                                         .foregroundStyle(PrimaryTabPalette.accent)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
+                                        .minimumScaleFactor(0.8)
                                 }
                             }
                         }
+                        .layoutPriority(1)
                         Spacer(minLength: 8)
                         if let price {
                             VStack(alignment: .trailing, spacing: 2) {
@@ -1294,6 +1334,8 @@ struct ItineraryView: View {
                                 Text(price)
                                     .font(.subheadline.monospacedDigit().weight(.semibold))
                                     .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
                             }
                         }
                     }
@@ -1431,6 +1473,8 @@ struct ItineraryView: View {
                                 Text(price)
                                     .font(.subheadline.monospacedDigit().weight(.semibold))
                                     .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
                             }
                         }
                     }
@@ -1749,7 +1793,7 @@ struct ItineraryView: View {
                     }
 
                     Text(String(format: String(localized: "itinerary.cardTitle"), index + 1, card.title))
-                        .font(.system(size: 19, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -1768,7 +1812,7 @@ struct ItineraryView: View {
 
                     if let summary {
                         Text(summary)
-                            .font(.system(size: 15, weight: .regular))
+                            .font(.footnote)
                             .foregroundStyle(.white.opacity(0.82))
                             .lineSpacing(2)
                             .lineLimit(3)
@@ -1833,7 +1877,7 @@ struct ItineraryView: View {
                             }
 
                             Text(String(format: String(localized: "itinerary.cardTitle"), index + 1, card.title))
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -1858,7 +1902,7 @@ struct ItineraryView: View {
 
                 if let summary {
                     Text(summary)
-                        .font(.system(size: 15, weight: .regular))
+                        .font(.footnote)
                         .foregroundStyle(.white.opacity(0.82))
                         .lineSpacing(2)
                         .lineLimit(3)
@@ -1900,15 +1944,15 @@ struct ItineraryView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .font(.system(size: 15, weight: .medium))
+        .font(.system(size: 13, weight: .medium))
         .foregroundStyle(.white.opacity(0.76))
     }
 
     private func compactCardPrice(for card: TravelCardSnapshot) -> String? {
         let currency = syncEngine.trip?.currency
-        return CardPrice.format(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency)
-            ?? CardPrice.format(minor: card.priceMinor, currency: card.priceCurrency ?? currency)
-            ?? CardPrice.format(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency)
+        return CardPrice.formatRoundedMajor(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency)
+            ?? CardPrice.formatRoundedMajor(minor: card.priceMinor, currency: card.priceCurrency ?? currency)
+            ?? CardPrice.formatRoundedMajor(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency)
     }
 
     private func handleListCardSwipeChanged(_ card: TravelCardSnapshot, translation: CGFloat) {
@@ -3770,20 +3814,30 @@ enum ItineraryLocalTime {
     /// 轨道顶部：起始当地时间。酒店用入住政策时间（本来就是当地时间字符串）。
     static func railStartTime(
         for card: TravelCardSnapshot,
-        timeZone: TimeZone? = nil
+        timeZone: TimeZone? = nil,
+        displayedDay: String? = nil
     ) -> RailTime? {
         switch card.kind {
         case .hotel:
             guard let text = card.checkInTime?.nilIfEmpty else { return nil }
-            return RailTime(text: text, showsLocalBadge: timeZone.map(isDistinctFromDevice) ?? false,
-                            caption: String(localized: "rail.checkInPolicy"))
+            let zone = timeZone ?? placeTimeZone(for: card) ?? deviceTimeZone
+            return RailTime(
+                text: text,
+                showsLocalBadge: isDistinctFromDevice(zone),
+                caption: String(localized: "rail.checkInPolicy"),
+                dateText: dateTextIfOutsideDisplayedDay(card.startAt, displayedDay: displayedDay, in: zone)
+            )
         case .flight, .activity:
             let effective = card.kind == .flight
                 ? startTimeZone(for: card)
                 : (timeZone ?? placeTimeZone(for: card) ?? deviceTimeZone)
             var result = railTime(card.startAt, in: effective)
             result.caption = String(localized: card.kind == .flight ? "rail.departure" : "rail.start")
-            result.dateText = monthDay(card.startAt, in: effective)
+            result.dateText = dateTextIfOutsideDisplayedDay(
+                card.startAt,
+                displayedDay: displayedDay,
+                in: effective
+            )
             return result
         }
     }
@@ -3793,27 +3847,61 @@ enum ItineraryLocalTime {
         for card: TravelCardSnapshot,
         nextCard: TravelCardSnapshot? = nil,
         transitSeconds: Int? = nil,
-        timeZone: TimeZone? = nil
+        timeZone: TimeZone? = nil,
+        displayedDay: String? = nil
     ) -> RailTime? {
         switch card.kind {
         case .hotel:
             guard let text = card.checkOutTime?.nilIfEmpty else { return nil }
-            return RailTime(text: text, showsLocalBadge: timeZone.map(isDistinctFromDevice) ?? false,
-                            caption: String(localized: "rail.checkOutPolicy"))
+            let zone = timeZone ?? placeTimeZone(for: card) ?? deviceTimeZone
+            return RailTime(
+                text: text,
+                showsLocalBadge: isDistinctFromDevice(zone),
+                caption: String(localized: "rail.checkOutPolicy"),
+                dateText: card.endAt.flatMap {
+                    dateTextIfOutsideDisplayedDay($0, displayedDay: displayedDay, in: zone)
+                }
+            )
         case .flight:
             guard let endAt = card.endAt, endAt > card.startAt else { return nil }
             var result = railTime(endAt, in: endTimeZone(for: card))
             result.caption = String(localized: "rail.arrival")
-            result.dateText = monthDay(endAt, in: endTimeZone(for: card))
+            result.dateText = dateTextIfOutsideDisplayedDay(
+                endAt,
+                displayedDay: displayedDay,
+                in: endTimeZone(for: card)
+            )
             return result
         case .activity:
             guard let endAt = card.endAt, endAt > card.startAt else { return nil }
             let zone = timeZone ?? placeTimeZone(for: card) ?? deviceTimeZone
             var result = railTime(endAt, in: zone)
             result.caption = String(localized: "rail.end")
-            result.dateText = monthDay(endAt, in: zone)
+            result.dateText = dateTextIfOutsideDisplayedDay(
+                endAt,
+                displayedDay: displayedDay,
+                in: zone
+            )
             return result
         }
+    }
+
+    static func dateTextIfOutsideDisplayedDay(
+        _ date: Date,
+        displayedDay: String?,
+        in timeZone: TimeZone
+    ) -> String? {
+        guard let displayedDay else { return monthDay(date, in: timeZone) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year,
+              let month = components.month,
+              let day = components.day else {
+            return monthDay(date, in: timeZone)
+        }
+        let localDay = String(format: "%04d-%02d-%02d", year, month, day)
+        return localDay == displayedDay ? nil : monthDay(date, in: timeZone)
     }
 
     private static func railTime(_ date: Date, in timeZone: TimeZone) -> RailTime {
@@ -4439,6 +4527,52 @@ enum ItineraryListPresentation {
             if case .hotelNight = progress { return true }
             return false
         }
+    }
+
+    struct DayStartHotelLeg {
+        let hotel: TravelCardSnapshot
+        let destination: TravelCardSnapshot
+    }
+
+    /// The first located activity can start from the hotel occupied during the
+    /// previous night. This also handles multi-night stays whose source card
+    /// lives several days earlier.
+    static func dayStartHotelLeg(
+        for targetDay: TripDaySnapshot,
+        in days: [TripDaySnapshot],
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> DayStartHotelLeg? {
+        guard let targetStart = localDayStart(targetDay.date, timeZone: timeZone),
+              let previousStart = localDayCalendar(for: timeZone).date(
+                byAdding: .day,
+                value: -1,
+                to: targetStart
+              ),
+              days.contains(where: {
+                localDayStart($0.date, timeZone: timeZone) == previousStart
+              }),
+              let destination = orderedCards(targetDay.cards).first(where: {
+                $0.kind == .activity && legDestinationPoint(for: $0) != nil
+              }) else { return nil }
+
+        let hotel = days.flatMap { sourceDay in
+            orderedCards(sourceDay.cards).compactMap { card -> TravelCardSnapshot? in
+                guard card.kind == .hotel,
+                      legOriginPoint(for: card) != nil,
+                      let sourceStart = localDayStart(sourceDay.date, timeZone: timeZone),
+                      sourceStart <= previousStart else { return nil }
+                if let checkout = card.endAt {
+                    return checkout > targetStart ? card : nil
+                }
+                return sourceStart == previousStart ? card : nil
+            }
+        }
+        .max { left, right in
+            if left.startAt != right.startAt { return left.startAt < right.startAt }
+            return left.position < right.position
+        }
+
+        return hotel.map { DayStartHotelLeg(hotel: $0, destination: destination) }
     }
 
     /// Merges a day's own cards with the multi-day occurrences projected from

@@ -1240,6 +1240,15 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertNil(CardPrice.minorUnits(from: "", currency: "CNY"))
     }
 
+    func testCompactCardPriceRoundsToWholeMajorUnit() {
+        let roundedUp = CardPrice.formatRoundedMajor(minor: 6050, currency: "CNY")
+        let roundedDown = CardPrice.formatRoundedMajor(minor: 6049, currency: "CNY")
+        XCTAssertEqual(roundedUp?.contains("61"), true)
+        XCTAssertEqual(roundedDown?.contains("60"), true)
+        XCTAssertFalse(roundedUp?.contains(".5") ?? true)
+        XCTAssertEqual(CardPrice.formatRoundedMajor(minor: 500_000, currency: "IDR")?.contains("500"), true)
+    }
+
     @MainActor
     func testSignedOutUserCanCreateAndFullyEditLocalTrips() async throws {
         let container = try ModelContainer(

@@ -1122,7 +1122,7 @@
 "rail.start" = "开始";
 "rail.arrival" = "到达";
 "rail.end" = "结束";
-"rail.estimatedArrival" = "结束后出发 · 预计 %@ %@ 到达";
+"rail.estimatedArrival" = "结束后出发・预计%@%@到达";
 "rail.connectionShortage" = "衔接不足 %d 分钟，请调整安排";
 "rail.flightBuffer" = "另需预留值机、安检和登机时间";
 "rail.connectionUnknown" = "离开时间未定，暂无法判断衔接";
@@ -1133,3 +1133,4 @@
 "leg.durationHelp" = "仅保存在此设备，按两地和交通方式分别记忆。优先用于预计到达和衔接提醒。";
 "leg.restoreDuration" = "恢复地图估算";
 "leg.durationSaveFailed" = "保存失败，请重试。";
+"leg.fromPreviousHotel" = "从昨晚住宿出发";

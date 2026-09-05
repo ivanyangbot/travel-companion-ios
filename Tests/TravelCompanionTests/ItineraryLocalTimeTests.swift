@@ -309,6 +309,46 @@ final class ItineraryLocalTimeTests: XCTestCase {
         XCTAssertNil(ItineraryConnectionTiming.arrival(origin: invalid, duration: 600))
     }
 
+    func testRailDateAppearsOnlyOutsideDisplayedItineraryDay() {
+        let sameDay = utcDate(9, 30)
+        XCTAssertNil(
+            ItineraryLocalTime.dateTextIfOutsideDisplayedDay(
+                sameDay,
+                displayedDay: "2026-09-04",
+                in: utc
+            )
+        )
+        XCTAssertNotNil(
+            ItineraryLocalTime.dateTextIfOutsideDisplayedDay(
+                sameDay.addingTimeInterval(24 * 3600),
+                displayedDay: "2026-09-04",
+                in: utc
+            )
+        )
+
+        let card = TravelCardSnapshot(
+            dayID: 1,
+            kind: .activity,
+            title: "Activity",
+            startAt: sameDay,
+            endAt: sameDay.addingTimeInterval(3600)
+        )
+        XCTAssertNil(
+            ItineraryLocalTime.railStartTime(
+                for: card,
+                timeZone: utc,
+                displayedDay: "2026-09-04"
+            )?.dateText
+        )
+        XCTAssertNil(
+            ItineraryLocalTime.railEndTime(
+                for: card,
+                timeZone: utc,
+                displayedDay: "2026-09-04"
+            )?.dateText
+        )
+    }
+
     func testConnectionUsesAbsoluteInstantsAcrossDSTAndAirportTimeZones() {
         let parser = ISO8601DateFormatter()
         let start = parser.date(from: "2026-11-01T00:30:00-07:00")!
@@ -323,6 +363,66 @@ final class ItineraryLocalTimeTests: XCTestCase {
         let hotel = TravelCardSnapshot(dayID: 1, kind: .hotel, title: "Hotel", startAt: start, endAt: end)
         XCTAssertNil(ItineraryConnectionTiming.arrival(origin: hotel, duration: 600))
         XCTAssertNil(ItineraryConnectionTiming.shortageMinutes(arrival: arrival, destination: hotel))
+    }
+
+    func testDayStartLegConnectsPreviousNightHotelToFirstLocatedActivity() {
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "Hotel",
+            startAt: utcDate(15, 0),
+            endAt: utcDate(11, 0).addingTimeInterval(24 * 3600),
+            place: PlaceSnapshot(
+                id: 1, name: "Hotel", address: nil, latitude: -6.1, longitude: 106.8,
+                placeId: nil, cityCode: nil, businessHours: nil, updatedAt: .now
+            )
+        )
+        let activity = TravelCardSnapshot(
+            dayID: 2,
+            kind: .activity,
+            title: "Museum",
+            startAt: utcDate(9, 0).addingTimeInterval(24 * 3600),
+            place: PlaceSnapshot(
+                id: 2, name: "Museum", address: nil, latitude: -6.2, longitude: 106.8,
+                placeId: nil, cityCode: nil, businessHours: nil, updatedAt: .now
+            )
+        )
+        let previous = TripDaySnapshot(date: "2026-09-04", position: 0, cards: [hotel])
+        let target = TripDaySnapshot(date: "2026-09-05", position: 1, cards: [activity])
+
+        let leg = ItineraryListPresentation.dayStartHotelLeg(for: target, in: [previous, target], timeZone: utc)
+        XCTAssertEqual(leg?.hotel.id, hotel.id)
+        XCTAssertEqual(leg?.destination.id, activity.id)
+    }
+
+    func testDayStartLegSupportsMultiNightHotelAndRejectsMissingPreviousDay() {
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "Hotel",
+            startAt: utcDate(15, 0),
+            endAt: utcDate(11, 0).addingTimeInterval(2 * 24 * 3600),
+            place: PlaceSnapshot(
+                id: 1, name: "Hotel", address: nil, latitude: 35.6, longitude: 139.7,
+                placeId: nil, cityCode: nil, businessHours: nil, updatedAt: .now
+            )
+        )
+        let activity = activityAt(latitude: 35.7, longitude: 139.8)
+        let first = TripDaySnapshot(date: "2026-09-04", position: 0, cards: [hotel])
+        let middle = TripDaySnapshot(date: "2026-09-05", position: 1, cards: [])
+        let target = TripDaySnapshot(date: "2026-09-06", position: 2, cards: [activity])
+
+        XCTAssertEqual(
+            ItineraryListPresentation.dayStartHotelLeg(
+                for: target, in: [first, middle, target], timeZone: utc
+            )?.hotel.id,
+            hotel.id
+        )
+        XCTAssertNil(
+            ItineraryListPresentation.dayStartHotelLeg(
+                for: target, in: [first, target], timeZone: utc
+            )
+        )
     }
 
     func testLocalBadgeMarksTimesOutsideDeviceTimeZone() {
