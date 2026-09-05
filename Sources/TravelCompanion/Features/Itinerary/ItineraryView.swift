@@ -23,7 +23,8 @@ struct ItineraryView: View {
     @State private var cardPendingDeletion: TravelCardSnapshot?
     @State private var expenseEditorDate: Date?
     @State private var showsSharingSheet = false
-    @State private var isHeaderMenuExpanded = true
+    @State private var isHeaderMenuExpanded = false
+    @State private var headerMenuFrame: CGRect = .zero
     @State private var headerQuickAction: TodayQuickAction?
     @State private var isReloading = false
     @State private var showsTripPicker = false
@@ -113,7 +114,7 @@ struct ItineraryView: View {
             if !isPresented {
                 clearHeaderQuickAction(.tripSelection)
                 withAnimation(.snappy(duration: 0.28)) {
-                    isHeaderMenuExpanded = true
+                    isHeaderMenuExpanded = false
                 }
             }
         }
@@ -409,6 +410,25 @@ struct ItineraryView: View {
                 draggedItineraryCardOverlay(days: days)
             }
             .coordinateSpace(name: "itinerary-list-root")
+            .onPreferenceChange(ItineraryHeaderMenuFramePreferenceKey.self) { frame in
+                headerMenuFrame = frame
+            }
+            // 列表模式的快捷菜单像普通弹出菜单一样工作：菜单范围外的
+            // 点击，以及任何上下/横向滑动，都会立即将它收回。
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { event in
+                    guard isHeaderMenuExpanded,
+                          !headerMenuFrame.contains(event.location) else { return }
+                    collapseHeaderMenu()
+                }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 2, coordinateSpace: .named("itinerary-list-root"))
+                    .onChanged { _ in
+                        guard isHeaderMenuExpanded else { return }
+                        collapseHeaderMenu()
+                    }
+            )
             .gesture(
                 ItineraryLongPressDragGesture(
                     isEnabled: listCardSwipeGestureCardID == nil && revealedListCardID == nil,
@@ -536,13 +556,12 @@ struct ItineraryView: View {
                     .frame(height: 48)
 
                 HStack(alignment: .top, spacing: 0) {
-                    TodayHomeDropdownMenu(
-                        isPOIOverlayExpanded: $isHeaderMenuExpanded,
+                    ItineraryHeaderDropdownMenu(
+                        isExpanded: $isHeaderMenuExpanded,
                         activeAction: headerQuickAction,
                         isReloading: isReloading,
                         actions: TodayQuickAction.visibleActions(isAuthenticated: appleSignIn.isAuthenticated),
-                        onAction: { action in handleHeaderQuickAction(action) },
-                        onOverlayExpansionChanged: { _ in }
+                        onAction: { action in handleHeaderQuickAction(action) }
                     )
 
                     Spacer(minLength: 0)
@@ -609,6 +628,12 @@ struct ItineraryView: View {
             Rectangle().fill(.white.opacity(0.055)).frame(height: 1)
         }
         .zIndex(20)
+    }
+
+    private func collapseHeaderMenu() {
+        withAnimation(.snappy(duration: 0.28)) {
+            isHeaderMenuExpanded = false
+        }
     }
 
     private func itineraryDayScroller(
@@ -849,6 +874,7 @@ struct ItineraryView: View {
                         if showsCardRail {
                             ItineraryCardRail(
                                 kind: item.card.kind,
+                                isPreviousDayContinuation: item.isHotelNight,
                                 showsConnector: itemIndex < listItems.count - 1,
                                 startTime: ItineraryLocalTime.railStartTime(
                                     for: item.card,
@@ -914,7 +940,8 @@ struct ItineraryView: View {
                                 // 机票投影低调标注「来自前一天」；其他卡沿用进度标签。
                                 progressLabel: item.card.kind == .flight
                                     ? String(localized: "itinerary.flightFromPreviousDay")
-                                    : itineraryCardProgressLabel(item.progress)
+                                    : itineraryCardProgressLabel(item.progress),
+                                isPreviousDayContinuation: item.isHotelNight
                             )
                             .accessibilityHint(
                                 item.isHotelNight
@@ -1004,7 +1031,8 @@ struct ItineraryView: View {
         days: [TripDaySnapshot],
         currentOrNextCardID: UUID?,
         timeZone: TimeZone,
-        progressLabel: String? = nil
+        progressLabel: String? = nil,
+        isPreviousDayContinuation: Bool = false
     ) -> some View {
         let swipeOffset = listCardSwipeOffset(for: card.id)
         let revealedWidth = -swipeOffset
@@ -1152,7 +1180,8 @@ struct ItineraryView: View {
                 index: index,
                 showsTimeAccent: currentOrNextCardID == card.id,
                 progressLabel: progressLabel ?? ownDayProgressLabel(for: card, day: day),
-                timeZone: timeZone
+                timeZone: timeZone,
+                isPreviousDayContinuation: isPreviousDayContinuation
             )
                 .clipShape(
                     RoundedRectangle(
@@ -1204,7 +1233,8 @@ struct ItineraryView: View {
         index: Int,
         showsTimeAccent: Bool,
         progressLabel: String? = nil,
-        timeZone: TimeZone = ItineraryLocalTime.deviceTimeZone
+        timeZone: TimeZone = ItineraryLocalTime.deviceTimeZone,
+        isPreviousDayContinuation: Bool = false
     ) -> some View {
         if card.kind == .flight {
             itineraryFlightCardContent(card, isActive: showsTimeAccent, progressLabel: progressLabel)
@@ -1213,7 +1243,8 @@ struct ItineraryView: View {
                 card,
                 isActive: showsTimeAccent,
                 progressLabel: progressLabel,
-                timeZone: timeZone
+                timeZone: timeZone,
+                isPreviousDayContinuation: isPreviousDayContinuation
             )
         } else {
             ZStack(alignment: .leading) {
@@ -1315,12 +1346,12 @@ struct ItineraryView: View {
                                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                                         .lineLimit(1)
                                         .fixedSize(horizontal: true, vertical: false)
-                                    Text(ticketNumber)
+                                    Text(ItineraryFlightCardPresentation.ticketNumberText(ticketNumber))
                                         .font(.caption.monospaced().weight(.semibold))
                                         .foregroundStyle(PrimaryTabPalette.accent)
                                         .lineLimit(1)
-                                        .truncationMode(.middle)
                                         .minimumScaleFactor(0.8)
+                                        .fixedSize(horizontal: true, vertical: false)
                                 }
                             }
                         }
@@ -1337,6 +1368,8 @@ struct ItineraryView: View {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.75)
                             }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(2)
                         }
                     }
 
@@ -1347,10 +1380,14 @@ struct ItineraryView: View {
                             alignment: .leading
                         )
                         .frame(width: 86)
+                        .zIndex(1)
                         VStack(spacing: 5) {
                             itineraryFlightArcConnector(
                                 durationText: itineraryFlightDuration(for: card)
                             )
+                            // 让弧线端点延伸到机场码下方，而不是只占两块机场
+                            // 信息之间的狭窄余量。
+                            .padding(.horizontal, -40)
                             Text(ItineraryLocalTime.monthDay(card.startAt, in: originTimeZone))
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -1366,6 +1403,7 @@ struct ItineraryView: View {
                             alignment: .trailing
                         )
                         .frame(width: 86)
+                        .zIndex(1)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 12)
@@ -1431,7 +1469,8 @@ struct ItineraryView: View {
         _ card: TravelCardSnapshot,
         isActive: Bool,
         progressLabel: String?,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        isPreviousDayContinuation: Bool
     ) -> some View {
         let price = compactCardPrice(for: card)
         let summary = ItineraryListPresentation.cardSummary(for: card)
@@ -1483,11 +1522,11 @@ struct ItineraryView: View {
                     if let roomType = card.roomType?.nilIfEmpty {
                         Text(roomType)
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(PrimaryTabPalette.accent)
+                            .foregroundStyle(isPreviousDayContinuation ? Color.white.opacity(0.78) : PrimaryTabPalette.accent)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
                             .background(
-                                PrimaryTabPalette.accent.opacity(0.14),
+                                (isPreviousDayContinuation ? Color.white : PrimaryTabPalette.accent).opacity(0.14),
                                 in: Capsule(style: .continuous)
                             )
                     }
@@ -1509,7 +1548,7 @@ struct ItineraryView: View {
                                     .foregroundStyle(.black)
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 5)
-                                    .background(PrimaryTabPalette.accent, in: Capsule())
+                                    .background(Color.white, in: Capsule())
                             }
                             HStack(spacing: 4) {
                                 Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
@@ -1541,7 +1580,12 @@ struct ItineraryView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                itineraryHotelCardBackground(card)
+                if isPreviousDayContinuation {
+                    // 从上一晚延续而来的住宿提示保持低调，不使用住宿主题橙色。
+                    Color(red: 0.105, green: 0.105, blue: 0.11)
+                } else {
+                    itineraryHotelCardBackground(card)
+                }
             }
             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             .overlay {
@@ -3590,6 +3634,138 @@ enum ItineraryLargeImageCardLayout {
 
 }
 
+/// 列表模式专用的横向快捷菜单。主页/地图继续使用原来的纵向抽屉，避免
+/// 列表页的交互调整改变其他模式。
+private struct ItineraryHeaderDropdownMenu: View {
+    @Binding var isExpanded: Bool
+    let activeAction: TodayQuickAction?
+    let isReloading: Bool
+    let actions: [TodayQuickAction]
+    let onAction: (TodayQuickAction) -> Void
+
+    private var expandedWidth: CGFloat {
+        48 + 8 + CGFloat(actions.count * 40) + CGFloat(max(0, actions.count - 1) * 12) + 4
+    }
+
+    var body: some View {
+        HStack(spacing: isExpanded ? 8 : 0) {
+            expandButton
+
+            HStack(spacing: 12) {
+                ForEach(actions, id: \.self) { action in
+                    actionButton(action)
+                }
+            }
+            .padding(.trailing, 4)
+            .allowsHitTesting(isExpanded)
+            .accessibilityHidden(!isExpanded)
+        }
+        .frame(width: isExpanded ? expandedWidth : 48, height: 48, alignment: .leading)
+        .clipped()
+        .background {
+            TodayGlassBackdrop()
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+                }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ItineraryHeaderMenuFramePreferenceKey.self,
+                    value: proxy.frame(in: .named("itinerary-list-root"))
+                )
+            }
+        }
+        .animation(.snappy(duration: 0.3), value: isExpanded)
+        .shadow(
+            color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+            radius: 12,
+            y: 12
+        )
+    }
+
+    private var expandButton: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.3)) {
+                isExpanded.toggle()
+            }
+        } label: {
+            Image("icon-dropdown-outline")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                // 原图向下：收起时转向右，展开后反向指向左。
+                .rotationEffect(.degrees(isExpanded ? 90 : -90))
+                .frame(width: 40, height: 40)
+                .background(
+                    isExpanded ? Color.white.opacity(0.32) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .frame(width: 48, height: 48)
+        .zIndex(1)
+        .accessibilityLabel(Text(isExpanded ? "today.collapseA11y" : "today.expandA11y"))
+        .accessibilityValue(Text(isExpanded ? "today.expandedValue" : "today.collapsedValue"))
+    }
+
+    private func actionButton(_ action: TodayQuickAction) -> some View {
+        Button {
+            guard action != .reload || !isReloading else { return }
+            withAnimation(.snappy(duration: 0.28)) {
+                isExpanded = false
+            }
+            onAction(action)
+        } label: {
+            Group {
+                if action.usesSystemImage {
+                    Image(systemName: action.iconName)
+                        .font(.system(size: 18, weight: .medium))
+                        .symbolRenderingMode(.monochrome)
+                } else {
+                    Image(action.iconName)
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(width: 24, height: 24)
+            .rotationEffect(.degrees(action == .reload && isReloading ? 360 : 0))
+            .animation(
+                action == .reload && isReloading
+                    ? .linear(duration: 0.75).repeatForever(autoreverses: false)
+                    : .easeOut(duration: 0.2),
+                value: isReloading
+            )
+            .frame(width: 40, height: 40)
+            .background(
+                Circle()
+                    .fill(PrimaryTabPalette.accent)
+                    .opacity(activeAction == action ? 1 : 0)
+            )
+            .animation(.easeInOut(duration: 0.2), value: activeAction)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 40, height: 40)
+        .accessibilityLabel(action.accessibilityLabel)
+        .accessibilityAddTraits(activeAction == action ? .isSelected : [])
+    }
+}
+
+private struct ItineraryHeaderMenuFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect { .zero }
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
 /// 左侧行程时间线轨道的几何常量：轨道列以能放下一档 "09:30" 短时间为准；
 /// 卡片列从轨道右侧起排，因此每张卡整体缩窄（轨道宽 + 列间距），左侧留出
 /// 轨道空间。spacing 必须与 itineraryDayContent 外层 VStack 的行间距一致，
@@ -3606,11 +3782,13 @@ enum ItineraryCardRailLayout {
 /// 遮住穿过的虚线，保持轨道连贯又不叠字。
 private struct ItineraryCardRail: View {
     let kind: TravelCardSnapshot.Kind
+    let isPreviousDayContinuation: Bool
     let showsConnector: Bool
     let startTime: ItineraryLocalTime.RailTime?
     let endTime: ItineraryLocalTime.RailTime?
 
     private var tint: Color {
+        if isPreviousDayContinuation { return Color.white.opacity(0.58) }
         switch kind {
         case .flight: JourneyPalette.tripBlue
         case .hotel: PrimaryTabPalette.accent
@@ -3626,7 +3804,9 @@ private struct ItineraryCardRail: View {
 
             Spacer(minLength: 4)
 
-            Image(systemName: kind == .hotel ? "bed.double.fill" : kind.systemImage)
+            Image(systemName: isPreviousDayContinuation
+                  ? "arrow.turn.down.right"
+                  : (kind == .hotel ? "bed.double.fill" : kind.systemImage))
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
                 .padding(.horizontal, 4)
@@ -3665,11 +3845,6 @@ private struct ItineraryCardRail: View {
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.82))
                 .lineLimit(1)
-            if time.showsLocalBadge {
-                Text("itinerary.railLocalTimeBadge")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(PrimaryTabPalette.accent)
-            }
             if let dateText = time.dateText {
                 Text(dateText).font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -3716,6 +3891,14 @@ enum ItineraryFlightCardPresentation {
             return "\(minutes / 60)h"
         }
         return String(format: "%dh%02dm", minutes / 60, minutes % 60)
+    }
+
+    /// 票号保留可核对的前五位和末两位。只改变列表卡片的视觉文本，
+    /// 底层票号以及旁边的预估价/实际价数据完全不变。
+    static func ticketNumberText(_ ticketNumber: String) -> String {
+        let value = ticketNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.count > 7 else { return value }
+        return "\(value.prefix(5))...\(value.suffix(2))"
     }
 }
 

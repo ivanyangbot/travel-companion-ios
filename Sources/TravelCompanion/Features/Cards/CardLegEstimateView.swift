@@ -147,18 +147,18 @@ struct CardLegEstimateView: View {
 
     private var itineraryDayStartContent: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Label("leg.fromPreviousHotel", systemImage: "bed.double.fill")
+            Label("leg.fromPreviousHotel", systemImage: "arrow.turn.down.right")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(PrimaryTabPalette.accent)
+                .foregroundStyle(.white.opacity(0.68))
                 .lineLimit(1)
             itineraryRouteRow(dayStart: true)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(PrimaryTabPalette.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(PrimaryTabPalette.accent.opacity(0.22), lineWidth: 1)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
         }
         .contextMenu { modeMenu }
     }

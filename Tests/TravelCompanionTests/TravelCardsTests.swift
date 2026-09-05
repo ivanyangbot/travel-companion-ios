@@ -180,6 +180,15 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertNil(ItineraryFlightCardPresentation.durationText(startAt: start, endAt: nil))
     }
 
+    func testItineraryFlightTicketNumberKeepsFiveLeadingAndTwoTrailingCharacters() {
+        XCTAssertEqual(
+            ItineraryFlightCardPresentation.ticketNumberText("9999475665775"),
+            "99994...75"
+        )
+        XCTAssertEqual(ItineraryFlightCardPresentation.ticketNumberText("1234567"), "1234567")
+        XCTAssertEqual(ItineraryFlightCardPresentation.ticketNumberText(" 12345678 "), "12345...78")
+    }
+
     func testFlightLegEndpointsUseArrivalThenDepartureAirport() throws {
         let departure = FlightAirportLocationSnapshot(
             query: "LOP Lombok International Airport",
