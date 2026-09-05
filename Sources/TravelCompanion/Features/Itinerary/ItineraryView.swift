@@ -65,7 +65,7 @@ struct ItineraryView: View {
     @State private var routeRefreshRevision = 0
     @State private var itineraryResolvedCityByDate: [String: String] = [:]
     /// 左侧时间线轨道列（类别 icon + 起止当地时间），设置页可关；关闭后
-    /// 卡片恢复满宽、卡内恢复类别文案/icon。默认开启。
+    /// 卡片恢复满宽。类别提示只在轨道上，卡内不再有类别标记。默认开启。
     @AppStorage("itinerary.showsCardRail") private var showsCardRail = true
     /// 相邻卡的交通耗时（秒），由各段 CardLegEstimateView 异步上报；
     /// 轨道底部时间据此显示「最晚出发时刻」。
@@ -1256,17 +1256,22 @@ struct ItineraryView: View {
                             cornerRadius: 10
                         )
                         VStack(alignment: .leading, spacing: 5) {
-                            // 左侧轨道隐藏时，卡内恢复「机票」类别标记；
-                            // 轨道显示时由轨道 icon 承担，卡内不再重复。
-                            if !showsCardRail {
-                                Label(card.kind.title, systemImage: "airplane.departure")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(PrimaryTabPalette.accent)
+                            // 航司名 + 航班号：航班号永远完整显示（fixedSize +
+                            // layoutPriority），空间不足时航司名尾部省略。
+                            HStack(spacing: 6) {
+                                if let airlineName = card.airlineName?.nilIfEmpty {
+                                    Text(airlineName)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.white.opacity(0.86))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                                Text(itineraryFlightNumber(for: card))
+                                    .font(.subheadline.monospaced().weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .layoutPriority(1)
                             }
-                            Text(itineraryFlightNumber(for: card))
-                                .font(.subheadline.monospaced().weight(.semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
                             if let ticketNumber = card.ticketNumber?.nilIfEmpty {
                                 HStack(spacing: 4) {
                                     Text("flightticket.ticketNumber")
@@ -1404,17 +1409,6 @@ struct ItineraryView: View {
                         itineraryProgressBadge(progressLabel)
                     }
                     HStack(alignment: .top, spacing: 11) {
-                        // 轨道隐藏时恢复卡内床铺徽章（与机票卡同款处理）。
-                        if !showsCardRail {
-                            Image(systemName: "bed.double.fill")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(PrimaryTabPalette.accent)
-                                .frame(width: 38, height: 38)
-                                .background(
-                                    PrimaryTabPalette.accent.opacity(0.15),
-                                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                )
-                        }
                         VStack(alignment: .leading, spacing: 3) {
                             Text(card.title)
                                 .font(.system(size: 16, weight: .semibold))
@@ -1475,12 +1469,6 @@ struct ItineraryView: View {
                             }
                             HStack(spacing: 4) {
                                 Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
-                                Rectangle().fill(Color.white.opacity(0.17)).frame(height: 1)
-                                if !showsCardRail {
-                                    Image(systemName: "bed.double")
-                                        .font(.caption2.weight(.bold))
-                                        .foregroundStyle(PrimaryTabPalette.accent)
-                                }
                                 Rectangle().fill(Color.white.opacity(0.17)).frame(height: 1)
                                 Circle().fill(Color.white.opacity(0.24)).frame(width: 4, height: 4)
                             }
