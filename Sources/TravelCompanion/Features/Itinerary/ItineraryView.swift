@@ -1482,7 +1482,7 @@ struct ItineraryView: View {
         isPreviousDayContinuation: Bool
     ) -> some View {
         let price = isPreviousDayContinuation ? nil : compactCardPrice(for: card)
-        let nights = itineraryHotelNights(for: card)
+        let nights = itineraryHotelNights(for: card, timeZone: timeZone)
 
         return Button {
             guard suppressedListCardTapID != card.id else { return }
@@ -1641,17 +1641,13 @@ struct ItineraryView: View {
         .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
     }
 
-    /// 入住到退房的整晚数：优先用 endAt-startAt 的日期差；缺失时退回
-    /// stayDurationMinutes 换算（不足一天按一晚计）。都无法确定时返回 nil，
-    /// 时间线中段只保留床铺虚线。
-    private func itineraryHotelNights(for card: TravelCardSnapshot) -> Int? {
-        if let end = card.endAt, end > card.startAt,
-           let days = Calendar.current.dateComponents([.day], from: card.startAt, to: end).day,
-           days > 0 {
-            return days
-        }
-        guard let minutes = card.stayDurationMinutes, minutes > 0 else { return nil }
-        return max(1, Int((Double(minutes) / 1440).rounded()))
+    /// 晚数按住宿当地的入住/退房日历日期计算；只有缺少有效退房时间时，
+    /// 才退回到时长换算。
+    private func itineraryHotelNights(
+        for card: TravelCardSnapshot,
+        timeZone: TimeZone
+    ) -> Int? {
+        ItineraryListPresentation.hotelNightCount(for: card, timeZone: timeZone)
     }
 
     private func itinerarySharedPassengers(for card: TravelCardSnapshot) -> String? {
@@ -4446,6 +4442,28 @@ enum ItineraryListPresentation {
             .filter { !$0.isEmpty }
         guard !titles.isEmpty else { return String(localized: "itinerary.daySummaryEmpty") }
         return String(titles.joined(separator: String(localized: "lottery.contextSeparator")).prefix(8))
+    }
+
+    static func hotelNightCount(
+        for card: TravelCardSnapshot,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> Int? {
+        if let end = card.endAt, end > card.startAt {
+            var localCalendar = Calendar(identifier: .gregorian)
+            localCalendar.timeZone = timeZone
+            let checkInDay = localCalendar.startOfDay(for: card.startAt)
+            let checkOutDay = localCalendar.startOfDay(for: end)
+            if let nights = localCalendar.dateComponents(
+                [.day],
+                from: checkInDay,
+                to: checkOutDay
+            ).day, nights > 0 {
+                return nights
+            }
+        }
+
+        guard let minutes = card.stayDurationMinutes, minutes > 0 else { return nil }
+        return max(1, Int((Double(minutes) / 1440).rounded()))
     }
 
     static func hotelNightProgress(

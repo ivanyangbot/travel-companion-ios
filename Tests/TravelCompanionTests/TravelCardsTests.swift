@@ -436,6 +436,25 @@ final class TravelCardsTests: XCTestCase {
         )
     }
 
+    func testHotelNightCountUsesLocalCalendarDatesForPartialCheckoutDay() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Makassar"))
+        let hotel = TravelCardSnapshot(
+            dayID: 1,
+            kind: .hotel,
+            title: "CAESAR号船宿",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-26T17:00:00+08:00")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-09-30T12:00:00+08:00")),
+            stayDurationMinutes: 5_700,
+            position: 0
+        )
+
+        XCTAssertEqual(
+            ItineraryListPresentation.hotelNightCount(for: hotel, timeZone: timeZone),
+            4
+        )
+    }
+
     func testItineraryListDoesNotProjectCheckoutDayOrSingleNightStay() throws {
         let formatter = ISO8601DateFormatter()
         let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
