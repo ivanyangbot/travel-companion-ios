@@ -47,6 +47,17 @@ struct CardLegEstimateView: View {
 
     private var effectiveDuration: Int? { manualDuration ?? estimate?.estimate.durationSeconds }
 
+    /// 当前段的衔接缺口（分钟）：按有效时长推算到达，晚于下一卡开始才算
+    /// 不足；无法推算时为 nil。行内的三角感叹号以此为准。
+    private var connectionShortageMinutes: Int? {
+        guard let duration = effectiveDuration,
+              manualDuration != nil || !isFetching,
+              let arrival = ItineraryConnectionTiming.arrival(origin: originCard, duration: duration) else {
+            return nil
+        }
+        return ItineraryConnectionTiming.shortageMinutes(arrival: arrival, destination: destinationCard)
+    }
+
     private var legKey: String { CardLegStore.legKey(origin: originCard, destination: destinationCard) }
 
     var body: some View {
@@ -150,7 +161,29 @@ struct CardLegEstimateView: View {
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.white.opacity(0.82))
 
+                // 衔接不足时只挂一枚三角感叹号；具体分钟数仍由下方的到达
+                // 预估与橙色文字提示。
+                if let shortage = connectionShortageMinutes {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel(
+                            Text(String(format: String(localized: "rail.connectionShortage"), shortage))
+                        )
+                }
+
                 Spacer(minLength: 8)
+
+                // 手动改时长：铅笔 icon 行内入口（右箭头左侧），不再单独成行。
+                Button(action: editDuration) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("leg.editDuration"))
 
                 Image("icon-right-outline")
                     .resizable()
@@ -178,14 +211,6 @@ struct CardLegEstimateView: View {
         }
         .accessibilityLabel(itineraryListAccessibilityLabel)
         .accessibilityHint(Text("leg.hint"))
-        Button(action: editDuration) {
-            Label("leg.editDuration", systemImage: "pencil")
-                .font(.caption.weight(.medium))
-                .frame(minHeight: 36)
-                .padding(.horizontal, 18)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.orange)
         if let duration = effectiveDuration, manualDuration != nil || !isFetching {
             connectionTiming(duration: duration)
         }
@@ -268,10 +293,8 @@ struct CardLegEstimateView: View {
                 Text(String(format: String(localized: "rail.estimatedArrival"),
                             ItineraryLocalTime.monthDay(arrival, in: zone),
                             ItineraryLocalTime.railTimeText(arrival, in: zone)))
-                if let shortage {
-                    Label(String(format: String(localized: "rail.connectionShortage"), shortage),
-                          systemImage: "exclamationmark.triangle")
-                }
+                // 「衔接不足 X 分钟」的文字提示已上移为行内三角感叹号，
+                // 这里只保留橙色着色来呼应。
                 if destinationCard.kind == .flight {
                     Text("rail.flightBuffer")
                 }
