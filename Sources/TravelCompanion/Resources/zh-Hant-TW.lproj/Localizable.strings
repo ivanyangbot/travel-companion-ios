@@ -442,6 +442,7 @@
 "mapservice.noRoute" = "地圖未找到該出行方式的路線，請嘗試更換出行方式或終點。";
 "maplibre.placeFallback" = "地點";
 "maplibre.clusterA11y" = "行程地點 %@";
+"maplibre.clusterCountA11y" = "合併了 %ld 個行程地點";
 "maplibre.viewingA11y" = "正在查看，%@";
 "link.httpsOnly" = "只能打開有效的 HTTPS 網頁連結。";
 "link.noCoords" = "該地點沒有座標，暫時無法在 Apple 地圖中打開。";

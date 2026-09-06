@@ -829,6 +829,30 @@ final class MapsTests: XCTestCase {
         XCTAssertEqual(clusters[0].labelText, "1.2.3")
     }
 
+    func testMergedPinUsesCountBadgeAfterFiveMembers() throws {
+        let members = (0..<6).map { index in
+            regularMember(
+                index + 1,
+                order: index,
+                center: CGPoint(x: 100 + CGFloat(index * 4), y: 300)
+            )
+        }
+
+        let cluster = try XCTUnwrap(
+            MapLibreRegularPinGrouping.clusters(members: members).first
+        )
+
+        XCTAssertEqual(cluster.members.count, 6)
+        XCTAssertEqual(cluster.labelText, "×6")
+        XCTAssertEqual(
+            MapLibrePinLabelGeometry.fittingText(
+                displayOrders: Array(0..<5),
+                maximumWidth: .greatestFiniteMagnitude
+            ),
+            "1.2.3.4.5"
+        )
+    }
+
     func testWidenedRegularPillCreatesSecondaryCollisionClosure() {
         let first = regularMember(1, order: 9_999, center: CGPoint(x: 100, y: 300))
         let second = regularMember(2, order: 10_000, center: CGPoint(x: 131, y: 300))

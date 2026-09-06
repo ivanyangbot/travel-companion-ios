@@ -442,6 +442,7 @@
 "mapservice.noRoute" = "Maps found no route for this travel mode. Try another mode or destination.";
 "maplibre.placeFallback" = "Place";
 "maplibre.clusterA11y" = "Itinerary places %@";
+"maplibre.clusterCountA11y" = "%ld merged itinerary places";
 "maplibre.viewingA11y" = "Viewing, %@";
 "link.httpsOnly" = "Only valid HTTPS links can be opened.";
 "link.noCoords" = "This place has no coordinates, so it can't be opened in Apple Maps yet.";

@@ -497,6 +497,7 @@ enum MapLibreEdgePinGrouping {
 
 enum MapLibrePinLabelGeometry {
     static let bubbleSize: CGFloat = 32
+    static let maximumVisibleSequenceCount = 5
 
     static func size(for text: String) -> CGSize {
         let font = UIFont.systemFont(ofSize: 16, weight: .medium)
@@ -505,11 +506,14 @@ enum MapLibrePinLabelGeometry {
     }
 
     /// Preserve every represented member while keeping the visible edge pill
-    /// inside the available width. Large groups use a stable prefix plus a
-    /// `+N` remainder instead of producing an unprojectable, disappearing pin.
+    /// inside the available width. Up to five pins retain their itinerary
+    /// numbers; larger groups collapse into a compact `×count` badge.
     static func fittingText(displayOrders: [Int], maximumWidth: CGFloat) -> String {
         let labels = displayOrders.map { String($0 + 1) }
         guard !labels.isEmpty else { return "" }
+        if labels.count > maximumVisibleSequenceCount {
+            return "×\(labels.count)"
+        }
         let fullText = labels.joined(separator: ".")
         guard size(for: fullText).width > maximumWidth else { return fullText }
 
@@ -599,7 +603,10 @@ enum MapLibreRegularPinGrouping {
             y: (members.map(\.numberCenter.y).min()! + members.map(\.numberCenter.y).max()!) / 2
         )
         let labelText = members.count > 1
-            ? members.map { String($0.displayOrder + 1) }.joined(separator: ".")
+            ? MapLibrePinLabelGeometry.fittingText(
+                displayOrders: members.map(\.displayOrder),
+                maximumWidth: .greatestFiniteMagnitude
+            )
             : nil
         let labelSize = labelText.map(MapLibrePinLabelGeometry.size(for:))
             ?? CGSize(
@@ -3326,7 +3333,7 @@ private final class MapLibreFlightAnnotationView: MLNAnnotationView {
             systemName: "airplane",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 21, weight: .bold)
         )
-        planeImageView.tintColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
+        planeImageView.tintColor = .white
         planeImageView.contentMode = .center
 
         addSubview(planeImageView)
@@ -3455,8 +3462,15 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
         numberLabel.text = placement.labelText ?? String(annotation.index + 1)
 
         let accentColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
-        numberBackground.strokeColor = accentColor
-        numberBackground.strokeWidth = placement.isHighlighted ? 2 : 0
+        let isCountBadge = placement.labelText?.hasPrefix("×") == true
+        numberBackground.fillColor = isCountBadge ? accentColor : .white
+        numberLabel.textColor = isCountBadge ? .white : .black
+        numberLabel.font = .systemFont(
+            ofSize: isCountBadge ? 15 : 16,
+            weight: isCountBadge ? .bold : .medium
+        )
+        numberBackground.strokeColor = isCountBadge ? .white : accentColor
+        numberBackground.strokeWidth = isCountBadge ? 1.5 : (placement.isHighlighted ? 2 : 0)
         categoryBackground.strokeColor = accentColor
         categoryBackground.strokeWidth = placement.isHighlighted ? 2 : 0
 
@@ -3489,9 +3503,18 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
         let title = annotation.title ?? String(localized: "maplibre.placeFallback")
         if placement.representedMemberIDs.count > 1,
            let labelText = placement.labelText {
-            accessibilityLabel = String(format: String(localized: "maplibre.clusterA11y"), labelText)
+            if isCountBadge {
+                accessibilityLabel = String(
+                    format: String(localized: "maplibre.clusterCountA11y"),
+                    placement.representedMemberIDs.count
+                )
+            } else {
+                accessibilityLabel = String(format: String(localized: "maplibre.clusterA11y"), labelText)
+            }
         } else {
-        accessibilityLabel = placement.isHighlighted ? String(format: String(localized: "maplibre.viewingA11y"), title) : title
+            accessibilityLabel = placement.isHighlighted
+                ? String(format: String(localized: "maplibre.viewingA11y"), title)
+                : title
         }
         transform = .identity
     }
