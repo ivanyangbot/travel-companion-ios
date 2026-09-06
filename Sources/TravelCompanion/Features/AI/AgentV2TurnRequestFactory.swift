@@ -19,8 +19,6 @@ struct AgentV2TurnRequestFactory {
     /// 备忘/卡包各 50 条，与服务端 normalize_agent_reference_snapshot 上限一致。
     static let referenceSnapshotLimit = 50
 
-    private static let iso8601 = ISO8601DateFormatter()
-
     func makeRequest(message: String, includePendingAttachments: Bool = true) -> AgentV2TurnRequest {
         let attachments = includePendingAttachments ? session.attachments : []
         let history = AgentV2TurnRequest.trimmedHistory(session.messages)
@@ -48,6 +46,7 @@ struct AgentV2TurnRequestFactory {
             activeDraft: session.draft,
             attachments: attachments
         )
+        request.agent = agent.wireValue
         switch agent {
         case .itinerary:
             break
@@ -64,7 +63,9 @@ struct AgentV2TurnRequestFactory {
     /// 行程信封：与原 makeRequest 同构；账本 agent 额外携带卡片实际价，
     /// 行程 agent 的线上格式保持逐字节一致。
     static func tripEnvelope(for trip: SharedTripSnapshot, includeActualPrices: Bool) -> AgentV2TurnRequest.Trip {
-        let formatter = iso8601
+        // ISO8601DateFormatter is mutable and non-Sendable. Keep it scoped to
+        // this request instead of sharing one instance across actor contexts.
+        let formatter = ISO8601DateFormatter()
         let days = trip.days.map { day in
             AgentV2TurnRequest.Day(date: day.date, cards: day.cards.map { card in
                 AgentV2TurnRequest.Card(

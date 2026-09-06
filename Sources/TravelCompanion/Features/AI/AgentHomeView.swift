@@ -2595,10 +2595,16 @@ struct AgentHomeView: View {
                     tripID: trip.id,
                     idempotencyKey: UUID()
                 )
-                let removalField: (AgentV2Change) -> Bool = agent == .ledger
-                    ? { $0.operation == .remove && $0.targetExpenseId != nil }
-                    : { $0.operation == .remove && $0.targetCardId != nil }
-                let removalCount = snapshot.draft.changes.filter(removalField).count
+                let removalCount: Int
+                if agent == .ledger {
+                    removalCount = snapshot.draft.changes.filter {
+                        $0.operation == .remove && $0.targetExpenseId != nil
+                    }.count
+                } else {
+                    removalCount = snapshot.draft.changes.filter {
+                        $0.operation == .remove && $0.targetCardId != nil
+                    }.count
+                }
                 let success = AgentCommitSuccess(
                     addedCount: result.committedCandidateIds.count,
                     removedCount: removalCount,

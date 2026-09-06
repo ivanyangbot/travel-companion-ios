@@ -303,6 +303,7 @@ final class AgentV2SessionStore: ObservableObject {
     init(defaults: UserDefaults = .standard, startsFreshOnLaunch: Bool = false, agent: AgentKind = .itinerary) {
         self.defaults = defaults
         self.activeAgent = agent
+        self.session = .empty
         loadState()
         if startsFreshOnLaunch, currentSessionHasContent {
             startNewSession()

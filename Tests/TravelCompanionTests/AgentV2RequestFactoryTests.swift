@@ -39,7 +39,7 @@ final class AgentV2RequestFactoryTests: XCTestCase {
 
     func testLedgerRequestCarriesAgentFieldExpenseAndReferenceSnapshots() throws {
         var trip = makeTrip(expenses: [
-            ExpenseSnapshot(serverID: 101, amountMinor: 6_050, currency: "JPY", category: .food, occurredOn: "2026-10-01", note: String(repeating: "长", count: 300), cardID: 11),
+            ExpenseSnapshot(serverID: 101, amountMinor: 6_050, currency: "JPY", category: .food, occurredOn: "2026-10-04", note: String(repeating: "长", count: 300), cardID: 11),
             ExpenseSnapshot(amountMinor: 999, currency: "JPY", category: .other, occurredOn: "2026-10-01"),  // 离线记录：无 serverID，不下发
         ])
         trip.expenses.append(contentsOf: (1...70).map { index in
