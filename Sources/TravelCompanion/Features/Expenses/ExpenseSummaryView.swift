@@ -35,11 +35,10 @@ struct ExpenseSummaryView: View {
     }
 
     private var showsConsumerTotals: Bool {
-        members.count > 1 || expenses.contains { $0.consumerUserID != nil || $0.consumerName?.isEmpty == false }
+        !consumerTotals.isEmpty
     }
 
     private var consumerTotals: [ExpenseConsumerTotal] {
-        let knownIDs = Set(members.map(\.userId))
         var totals: [String: Int64] = [:]
         var names: [String: String] = [:]
 
@@ -72,7 +71,7 @@ struct ExpenseSummaryView: View {
         return totals.map { key, amount in
             ExpenseConsumerTotal(id: key, name: names[key] ?? key, amount: amount)
         }
-        .filter { $0.amount > 0 || ($0.id.hasPrefix("member:") && knownIDs.contains(Int(String($0.id.dropFirst(7))) ?? -1)) }
+        .filter { $0.amount > 0 }
         .sorted { lhs, rhs in
             if lhs.amount != rhs.amount { return lhs.amount > rhs.amount }
             return lhs.name.localizedCompare(rhs.name) == .orderedAscending
