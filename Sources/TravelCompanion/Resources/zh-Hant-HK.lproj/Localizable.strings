@@ -507,6 +507,8 @@
 "expenseeditor.editTitle" = "編輯實際價";
 "expenseeditor.errorInvalid" = "請輸入有效嘅正數金額，小數位唔可以超過該貨幣嘅精度。";
 "expensesummary.title" = "支出概覽";
+"expensesummary.convertingCurrency" = "正在換算為 %@";
+"expensesummary.convertingCurrencyNote" = "金額更新完成後顯示";
 "expensesummary.count" = "實際 %lld 筆";
 "expensesummary.primaryCurrency" = "主要貨幣";
 "expensesummary.changePrimaryCurrencyA11y" = "修改主要貨幣";
@@ -1267,3 +1269,4 @@
 "expenseeditor.paymentUnpaidHelp" = "到店付等尚未支付的賬目。跨過預計支付時間後自動視為已支出。";
 "expenseeditor.linkedCountFormat" = "已關聯 %lld 張卡片";
 "expenseeditor.unlinkCardA11y" = "移除與「%@」的關聯";
+"agent.commitLedgerWithPriceEdits" = "儲存 %1$d 筆支出，更新 %2$d 項行程價格，移除 %3$d 筆";

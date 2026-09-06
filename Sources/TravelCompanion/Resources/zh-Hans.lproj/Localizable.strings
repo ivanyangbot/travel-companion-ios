@@ -507,6 +507,8 @@
 "expenseeditor.editTitle" = "编辑实际价";
 "expenseeditor.errorInvalid" = "请输入有效的正数金额，且小数位不能超过该币种精度。";
 "expensesummary.title" = "支出概览";
+"expensesummary.convertingCurrency" = "正在换算为 %@";
+"expensesummary.convertingCurrencyNote" = "金额更新完成后显示";
 "expensesummary.count" = "实际 %lld 笔";
 "expensesummary.primaryCurrency" = "主货币";
 "expensesummary.changePrimaryCurrencyA11y" = "修改主货币";
@@ -1265,3 +1267,4 @@
 "expenseeditor.paymentUnpaidHelp" = "到店付等尚未支付的账目。跨过预计支付时间后自动视为已支出。";
 "expenseeditor.linkedCountFormat" = "已关联 %lld 张卡片";
 "expenseeditor.unlinkCardA11y" = "移除与「%@」的关联";
+"agent.commitLedgerWithPriceEdits" = "保存 %1$d 笔支出，更新 %2$d 项行程价格，移除 %3$d 笔";

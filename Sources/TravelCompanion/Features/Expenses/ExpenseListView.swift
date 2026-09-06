@@ -9,6 +9,7 @@ struct ExpenseListView: View {
     @State private var pendingDeletion: ExpenseSnapshot?
     @State private var section: ExpenseSection = .expenses
     @State private var members: [TripMemberSummary] = []
+    @State private var currencyBeingUpdated: String?
     @State private var listFilter = ExpenseListFilter()
 
     var body: some View {
@@ -145,7 +146,12 @@ struct ExpenseListView: View {
                     // 同步状态不再展示提示条：本地先落库，登录后由前台
                     // 轮询/场景回前台静默重试上传（SyncEngine.startForegroundSync）。
                     ExpenseSummaryView(trip: trip, currency: currency, members: members) { newCurrency in
-                        Task { await syncEngine.updatePrimaryCurrency(newCurrency) }
+                        guard currencyBeingUpdated == nil else { return }
+                        currencyBeingUpdated = newCurrency
+                        Task {
+                            await syncEngine.updatePrimaryCurrency(newCurrency)
+                            currencyBeingUpdated = nil
+                        }
                     }
 
                     HStack {
@@ -190,6 +196,23 @@ struct ExpenseListView: View {
                 .padding(.bottom, 128)
             }
             .scrollIndicators(.hidden)
+            .disabled(currencyBeingUpdated != nil)
+            .overlay {
+                if let target = currencyBeingUpdated {
+                    ZStack {
+                        PrimaryTabPalette.background.opacity(0.96)
+                        VStack(spacing: 14) {
+                            ProgressView().tint(PrimaryTabPalette.accent)
+                            Text(String(format: String(localized: "expensesummary.convertingCurrency"), target))
+                                .font(.headline)
+                            Text("expensesummary.convertingCurrencyNote")
+                                .font(.subheadline)
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
         } else {
             ContentUnavailableView(
                 "expense.needTripTitle",

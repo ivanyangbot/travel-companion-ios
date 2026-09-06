@@ -87,6 +87,7 @@ struct AgentHomeView: View {
     /// fields. They only become eligible for import after the repaired upsert
     /// passes the same validation used by commit.
     @State private var repairingCandidateIDs: Set<UUID> = []
+    @State private var ledgerRepairAttemptedIDs: Set<UUID> = []
     @State private var isReasoningExpanded = false
     /// 悬浮 Agent 欢迎态由服务端按当前行程生成的问题推荐。
     @State private var suggestedPrompts: [String] = []
@@ -2605,9 +2606,14 @@ struct AgentHomeView: View {
                         $0.operation == .remove && $0.targetCardId != nil
                     }.count
                 }
+                await syncEngine.refresh()
                 let success = AgentCommitSuccess(
                     addedCount: result.committedCandidateIds.count,
                     removedCount: removalCount,
+                    updatedCardCount: snapshot.draft.changes.filter {
+                        $0.operation == .replace && $0.targetCardId != nil
+                            && $0.candidateId.map(result.committedCandidateIds.contains) == true
+                    }.count,
                     agent: agent
                 )
                 if success.addedCount > 0 || success.removedCount > 0 {
@@ -2628,7 +2634,6 @@ struct AgentHomeView: View {
                     // 手书不参与行程版本：广播给 NotesView 在下一次出现时重拉。
                     NotificationCenter.default.post(name: .agentJournalEntriesDidChange, object: trip.id)
                 }
-                await syncEngine.refresh()
                 if agent == .journal {
                     // 手书写入后本机快照也更新，供下一轮请求与推荐使用。
                     loadTabAgentContextIfNeeded()
@@ -2653,7 +2658,7 @@ struct AgentHomeView: View {
     }
 
     private func repairIncompleteActionableCandidatesIfNeeded() {
-        guard agent == .itinerary,
+        guard agent == .itinerary || agent == .ledger,
               syncEngine.trip?.isConfigured == true,
               !runState.isGenerating,
               repairingCandidateIDs.isEmpty,
@@ -2661,9 +2666,11 @@ struct AgentHomeView: View {
         let actionableIDs = draft.actionableCandidateIDs
         let candidates = draft.candidates.filter {
             actionableIDs.contains($0.id) && !$0.isCommitReady
+                && (agent != .ledger || !ledgerRepairAttemptedIDs.contains($0.id))
         }
         guard !candidates.isEmpty else { return }
         let repairIDs = Set(candidates.map(\.id))
+        if agent == .ledger { ledgerRepairAttemptedIDs.formUnion(repairIDs) }
         repairingCandidateIDs = repairIDs
         send(
             messageOverride: AgentV2CommitRepairRequest.message(for: candidates),
@@ -2689,6 +2696,12 @@ struct AgentHomeView: View {
                 return candidatesByID[resultingID]?.isCommitReady == true ? resultingID : nil
             })
             guard repairedIDs.count == repairIDs.count else {
+                if agent == .ledger {
+                    // The repair turn asks for facts absent from the source.
+                    // Keep the draft available for the user's answer.
+                    runState.status = nil
+                    return
+                }
                 runState.error = String(localized: "agent.errorRepairFailed")
                 return
             }
@@ -2703,6 +2716,7 @@ struct AgentHomeView: View {
 private struct AgentCommitSuccess: Equatable {
     let addedCount: Int
     let removedCount: Int
+    var updatedCardCount: Int = 0
     var agent: AgentKind = .itinerary
 
     var title: String {
@@ -2710,7 +2724,7 @@ private struct AgentCommitSuccess: Equatable {
         case .itinerary:
             return addedCount > 0 ? String(localized: "agent.commitAdded") : String(localized: "agent.commitUpdated")
         case .ledger:
-            return String(localized: "agent.commitLedgerTitle")
+            return String(localized: updatedCardCount > 0 ? "agent.commitUpdated" : "agent.commitLedgerTitle")
         case .journal:
             return String(localized: "agent.commitJournalTitle")
         }
@@ -2724,6 +2738,10 @@ private struct AgentCommitSuccess: Equatable {
             }
             return String(localized: "agent.commitRemovalSuccess")
         case .ledger:
+            if updatedCardCount > 0 {
+                return String(format: String(localized: "agent.commitLedgerWithPriceEdits"),
+                              addedCount - updatedCardCount, updatedCardCount, removedCount)
+            }
             return String(format: String(localized: "agent.commitLedgerDetail"), addedCount, removedCount)
         case .journal:
             return String(format: String(localized: "agent.commitJournalDetail"), addedCount)
@@ -3232,7 +3250,7 @@ struct AgentExpenseCandidateCard: View {
     let selection: (Bool) -> Void
 
     private var amountText: String? {
-        guard let minor = candidate.priceMinor else { return nil }
+        guard let minor = candidate.actualPriceMinor ?? candidate.priceMinor else { return nil }
         if let currency = candidate.priceCurrency, !currency.isEmpty {
             return CardPrice.format(minor: minor, currency: currency)
         }

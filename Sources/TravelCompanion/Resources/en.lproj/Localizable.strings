@@ -507,6 +507,8 @@
 "expenseeditor.editTitle" = "Edit Actual Expense";
 "expenseeditor.errorInvalid" = "Enter a valid positive amount with no more decimals than the currency allows.";
 "expensesummary.title" = "Expense Overview";
+"expensesummary.convertingCurrency" = "Converting to %@";
+"expensesummary.convertingCurrencyNote" = "Please wait while amounts are updated";
 "expensesummary.count" = "%lld actual";
 "expensesummary.primaryCurrency" = "Primary currency";
 "expensesummary.changePrimaryCurrencyA11y" = "Change primary currency";
@@ -1265,3 +1267,4 @@
 "expenseeditor.paymentUnpaidHelp" = "Not paid yet (e.g. pay on arrival). Turns paid automatically once the expected date passes.";
 "expenseeditor.linkedCountFormat" = "%lld cards linked";
 "expenseeditor.unlinkCardA11y" = "Unlink \"%@\"";
+"agent.commitLedgerWithPriceEdits" = "Saved %1$d expense(s), updated %2$d itinerary price(s), removed %3$d";

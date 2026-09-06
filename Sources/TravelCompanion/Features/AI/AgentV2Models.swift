@@ -331,7 +331,7 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
             // 金额/币种/分类/日期任一缺失都阻断提交（服务端同规则）。
             guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   !date.isEmpty,
-                  priceMinor != nil,
+                  (priceMinor ?? actualPriceMinor).map({ $0 > 0 }) == true,
                   let priceCurrency,
                   priceCurrency.range(of: #"^[A-Z]{3}$"#, options: .regularExpression) != nil,
                   let category, !category.isEmpty
@@ -361,6 +361,11 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
 
 enum AgentV2CommitRepairRequest {
     static func message(for candidates: [AgentV2Candidate]) -> String {
+        if candidates.allSatisfy({ $0.kind == .expense }) {
+            return """
+            Repair these active ledger draft candidates before offering import: \(candidates.map { $0.id.uuidString + ": " + $0.title }.joined(separator: "; ")). Continue extracting the required amount, original currency, category and date from the messages, attachments and linked itinerary. For each correction emit replace with targetDraftId equal to the original UUID and candidateId pointing to the corrected candidate. Preserve its add/replace intent and existing expense/card targets. Never invent a purchase date, amount, payment method or traveler. If required facts cannot be recovered, ask one concise question listing exactly what the user must supply in result.question. Optional payment/channel/traveler details must not block an otherwise valid expense. For actual-price-only card edits keep actualPriceMinor; do not overwrite the estimate. These are unsaved proposals: never say added, recorded or updated before commit succeeds.
+            """
+        }
         let items = candidates.map { candidate in
             let reportedIssues = (candidate.missingFields + candidate.validationIssues)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

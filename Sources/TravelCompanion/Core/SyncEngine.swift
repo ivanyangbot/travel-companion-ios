@@ -1406,7 +1406,10 @@ final class SyncEngine: ObservableObject {
             if let startDate = request.startDate { current.startDate = startDate }
             if let endDate = request.endDate { current.endDate = endDate }
             if let currency = request.currency,
-               current.currency?.uppercased() != currency.uppercased() {
+               current.currency?.uppercased() != currency.uppercased(),
+               request.destination != nil || request.startDate != nil || request.endDate != nil {
+                // A ledger-only currency change is published by the server
+                // refresh together with its recalculated settlement amounts.
                 Self.applyPrimaryCurrency(currency.uppercased(), to: &current)
             }
             current.updatedAt = now
