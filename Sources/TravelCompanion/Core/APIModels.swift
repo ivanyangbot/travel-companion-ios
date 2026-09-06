@@ -362,23 +362,33 @@ struct ExpenseRequest: Encodable, Sendable {
     var paidBy: ExpensePaidBy?
     var splitMode: ExpenseSplitMode?
     var occurredOn: String?
+    var spentAt: Date?
+    var purchaseChannel: String?
+    var paymentMethod: String?
+    var consumerUserID: Int?
+    var consumerName: String?
     var note: String?
     var cardID: Int?
     var fieldsToClear: Set<String>
 
-    init(amountMinor: Int64? = nil, currency: String? = nil, category: ExpenseCategory? = nil, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String? = nil, note: String? = nil, cardID: Int? = nil, fieldsToClear: Set<String> = []) {
+    init(amountMinor: Int64? = nil, currency: String? = nil, category: ExpenseCategory? = nil, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String? = nil, spentAt: Date? = nil, purchaseChannel: String? = nil, paymentMethod: String? = nil, consumerUserID: Int? = nil, consumerName: String? = nil, note: String? = nil, cardID: Int? = nil, fieldsToClear: Set<String> = []) {
         self.amountMinor = amountMinor
         self.currency = currency
         self.category = category
         self.paidBy = paidBy
         self.splitMode = splitMode
         self.occurredOn = occurredOn
+        self.spentAt = spentAt
+        self.purchaseChannel = purchaseChannel
+        self.paymentMethod = paymentMethod
+        self.consumerUserID = consumerUserID
+        self.consumerName = consumerName
         self.note = note
         self.cardID = cardID
         self.fieldsToClear = fieldsToClear
     }
 
-    enum CodingKeys: String, CodingKey { case amountMinor, currency, category, paidBy, splitMode, occurredOn, note, cardID = "cardId" }
+    enum CodingKeys: String, CodingKey { case amountMinor, currency, category, paidBy, splitMode, occurredOn, spentAt, purchaseChannel, paymentMethod, consumerUserID = "consumerUserId", consumerName, note, cardID = "cardId" }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -388,6 +398,11 @@ struct ExpenseRequest: Encodable, Sendable {
         try container.encodeIfPresent(paidBy, forKey: .paidBy)
         try container.encodeIfPresent(splitMode, forKey: .splitMode)
         try container.encodeIfPresent(occurredOn, forKey: .occurredOn)
+        try container.encodeIfPresent(spentAt, forKey: .spentAt)
+        try encodeNullable(purchaseChannel, clearName: "purchaseChannel", key: .purchaseChannel, into: &container)
+        try encodeNullable(paymentMethod, clearName: "paymentMethod", key: .paymentMethod, into: &container)
+        try encodeNullable(consumerUserID, clearName: "consumerUserId", key: .consumerUserID, into: &container)
+        try encodeNullable(consumerName, clearName: "consumerName", key: .consumerName, into: &container)
         try encodeNullable(note, clearName: "note", key: .note, into: &container)
         try encodeNullable(cardID, clearName: "cardId", key: .cardID, into: &container)
     }

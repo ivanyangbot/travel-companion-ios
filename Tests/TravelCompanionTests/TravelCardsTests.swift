@@ -1351,6 +1351,20 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertNil(CardPrice.minorUnits(from: "", currency: "CNY"))
     }
 
+    func testCardPatchEncodesEditableEstimatedAndActualPrices() throws {
+        let request = CardRequest(
+            priceMinor: 12_000,
+            actualPriceMinor: 10_800,
+            priceCurrency: "CNY"
+        )
+        let data = try JSONEncoder().encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["priceMinor"] as? Int, 12_000)
+        XCTAssertEqual(object["actualPriceMinor"] as? Int, 10_800)
+        XCTAssertEqual(object["priceCurrency"] as? String, "CNY")
+    }
+
     func testCompactCardPriceRoundsToWholeMajorUnit() {
         let roundedUp = CardPrice.formatRoundedMajor(minor: 6050, currency: "CNY")
         let roundedDown = CardPrice.formatRoundedMajor(minor: 6049, currency: "CNY")

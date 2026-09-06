@@ -336,6 +336,51 @@ final class AITests: XCTestCase {
         XCTAssertEqual(image.uploadReference.primaryKey, image.key)
     }
 
+    func testJournalImageLocationMetadataRoundTrips() throws {
+        let json = Data(#"""
+        {
+            "key":"travel-companion/journal/42/photo.heic",
+            "url":"https://example.test/photo.heic",
+            "kind":"photo",
+            "contentType":"image/heic",
+            "fileName":"IMG_0001.HEIC",
+            "sizeBytes":3145728,
+            "latitude":31.2304,
+            "longitude":121.4737,
+            "capturedAt":"2026-09-06T02:00:00Z",
+            "description":"外滩夜景"
+        }
+        """#.utf8)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let image = try decoder.decode(JournalImage.self, from: json)
+
+        XCTAssertEqual(image.latitude, 31.2304)
+        XCTAssertEqual(image.longitude, 121.4737)
+        XCTAssertEqual(
+            image.capturedAt,
+            ISO8601DateFormatter().date(from: "2026-09-06T02:00:00Z")
+        )
+        XCTAssertEqual(image.description, "外滩夜景")
+
+        // uploadReference 必须携带位置/描述，否则编辑保存会把照片元数据抹掉。
+        guard case .item(let upload) = image.uploadReference else {
+            return XCTFail("expected structured upload reference")
+        }
+        XCTAssertEqual(upload.latitude, 31.2304)
+        XCTAssertEqual(upload.longitude, 121.4737)
+        XCTAssertEqual(upload.description, "外滩夜景")
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let encoded = try encoder.encode(upload)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(object["latitude"] as? Double, 31.2304)
+        XCTAssertEqual(object["capturedAt"] as? String, "2026-09-06T02:00:00Z")
+        XCTAssertEqual(object["description"] as? String, "外滩夜景")
+    }
+
     func testJournalRequestEncodesLegacyAndStructuredMediaReferences() throws {
         let request = JournalEntryRequest(
             groupId: nil,

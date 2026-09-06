@@ -119,17 +119,36 @@ struct CardEditorView: View {
                         TextField("cardeditor.toAirport", text: $toAirport)
                             .textInputAutocapitalization(.characters)
                     }
-                    Picker("expenseeditor.currencyLabel", selection: $priceCurrency) {
-                        ForEach(Self.supportedCurrencies, id: \.self) { Text($0).tag($0) }
-                    }
-                    TextField(String(format: String(localized: "cardeditor.estimatePlaceholder"), priceCurrency), text: $priceText)
-                        .keyboardType(.decimalPad)
-                    TextField("cardeditor.actualPlaceholder", text: $actualPriceText)
-                        .keyboardType(.decimalPad)
                     if kind != .flight {
                         TextField("cardeditor.introPlaceholder", text: $description, axis: .vertical)
                             .lineLimit(2...5)
                     }
+                }
+                Section {
+                    Picker("cardeditor.priceCurrency", selection: $priceCurrency) {
+                        ForEach(ExpenseCurrency.supported, id: \.self) { Text($0).tag($0) }
+                    }
+                    priceInput(
+                        "cardeditor.estimatedPrice",
+                        systemImage: "chart.line.uptrend.xyaxis",
+                        text: $priceText
+                    )
+                    priceInput(
+                        "cardeditor.actualPrice",
+                        systemImage: "checkmark.circle.fill",
+                        text: $actualPriceText
+                    )
+                    if kind != .hotel {
+                        priceInput(
+                            "cardeditor.ticketPrice",
+                            systemImage: "ticket.fill",
+                            text: $ticketPriceText
+                        )
+                    }
+                } header: {
+                    Text("cardeditor.priceSection")
+                } footer: {
+                    Text("cardeditor.priceHelp")
                 }
                 if kind == .hotel && !hotelVisits.isEmpty {
                     Section("hotelcard.visits") {
@@ -147,8 +166,6 @@ struct CardEditorView: View {
                     }
                 }
                 Section("cardeditor.visitSection") {
-                    TextField(String(format: String(localized: "cardeditor.ticketPlaceholder"), priceCurrency), text: $ticketPriceText)
-                        .keyboardType(.decimalPad)
                     TextField("cardeditor.stayPlaceholder", text: $stayDurationText)
                         .keyboardType(.numberPad)
                     if !tips.isEmpty {
@@ -279,6 +296,12 @@ struct CardEditorView: View {
             validationMessage = String(localized: "cardeditor.errorTip")
             return
         }
+        guard !Self.hasInvalidPrice(priceText, currency: priceCurrency),
+              !Self.hasInvalidPrice(actualPriceText, currency: priceCurrency),
+              !Self.hasInvalidPrice(ticketPriceText, currency: priceCurrency) else {
+            validationMessage = String(localized: "cardeditor.errorPrice")
+            return
+        }
         let isEditing = existingCard != nil
         var clearFields = Set<String>()
         if isEditing {
@@ -401,6 +424,27 @@ struct CardEditorView: View {
         return !trimmed.isEmpty && stayDurationMinutes(from: trimmed) == nil
     }
 
+    private static func hasInvalidPrice(_ text: String, currency: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && CardPrice.minorUnits(from: trimmed, currency: currency) == nil
+    }
+
+    private func priceInput(_ titleKey: LocalizedStringKey, systemImage: String, text: Binding<String>) -> some View {
+        LabeledContent {
+            HStack(spacing: 6) {
+                Text(priceCurrency)
+                    .font(.caption.monospaced().weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField("cardeditor.priceAmountPlaceholder", text: text)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .font(.body.monospacedDigit())
+            }
+        } label: {
+            Label(titleKey, systemImage: systemImage)
+        }
+    }
+
     private func emptyToNil(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -416,10 +460,6 @@ struct CardEditorView: View {
         formatter.maximumFractionDigits = exponent
         return formatter.string(from: NSNumber(value: value)) ?? ""
     }
-
-    private static let supportedCurrencies = [
-        "CNY", "HKD", "IDR", "USD", "EUR", "GBP", "JPY", "SGD", "MYR", "THB", "KRW", "AUD", "CAD", "TWD", "VND",
-    ]
 
     private static func defaultStart(for day: TripDaySnapshot) -> Date {
         let formatter = DateFormatter()

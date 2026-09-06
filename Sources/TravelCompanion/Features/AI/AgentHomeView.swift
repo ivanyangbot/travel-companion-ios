@@ -3244,7 +3244,7 @@ struct AgentExpenseCandidateCard: View {
             HStack(alignment: .firstTextBaseline) {
                 Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255))
+                    .foregroundStyle(AgentTheme.accent(for: .ledger))
                 Spacer()
                 if !candidate.date.isEmpty {
                     Label(candidate.date, systemImage: "calendar")
@@ -3262,7 +3262,7 @@ struct AgentExpenseCandidateCard: View {
                 if let amountText {
                     Label(amountText, systemImage: "banknote")
                         .font(.subheadline.weight(.bold))
-                        .foregroundStyle(Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255))
+                        .foregroundStyle(AgentTheme.accent(for: .ledger))
                 }
                 if let category = candidate.category, !category.isEmpty {
                     Text(category)
@@ -3279,11 +3279,18 @@ struct AgentExpenseCandidateCard: View {
                 }
             }
 
+            if !structuredDetails.isEmpty {
+                Text(structuredDetails.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(2)
+            }
+
             if let notes = candidate.notes, !notes.isEmpty {
                 Text(notes)
                     .font(.footnote)
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    .lineLimit(3)
+                    .lineLimit(2)
             }
 
             if let reason = candidate.reason, !reason.isEmpty {
@@ -3312,7 +3319,7 @@ struct AgentExpenseCandidateCard: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(
-                            candidate.selected ? Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255) : Color.white.opacity(0.10),
+                            candidate.selected ? AgentTheme.accent(for: .ledger) : Color.white.opacity(0.10),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                         )
                 }
@@ -3323,6 +3330,31 @@ struct AgentExpenseCandidateCard: View {
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 18)
         .accessibilityElement(children: .combine)
     }
+
+    private var structuredDetails: [String] {
+        let payment = candidate.paymentMethod.map {
+            ExpensePaymentMethod(rawValue: $0)?.title ?? $0
+        }
+        return [formattedSpentAt, candidate.purchaseChannel, payment, candidate.consumerName]
+            .compactMap { value in
+                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+    }
+
+    private var formattedSpentAt: String? {
+        guard let value = candidate.spentAt,
+              let date = Self.iso8601.date(from: value) ?? Self.fractionalISO8601.date(from: value) else { return nil }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private static let iso8601 = ISO8601DateFormatter()
+
+    private static let fractionalISO8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }
 
 /// 手书候选卡：标题 + 分组 + 正文预览，确认后保存为一条手书。
@@ -3336,7 +3368,7 @@ struct AgentJournalCandidateCard: View {
             HStack {
                 Label(candidate.kind.agentTitle, systemImage: candidate.kind.agentSymbol)
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(Color(red: 191 / 255, green: 90 / 255, blue: 242 / 255))
+                    .foregroundStyle(AgentTheme.accent(for: .journal))
                 Spacer()
                 if let groupName = candidate.groupName, !groupName.isEmpty {
                     Label(groupName, systemImage: "folder")
@@ -3384,7 +3416,7 @@ struct AgentJournalCandidateCard: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(
-                            candidate.selected ? Color(red: 191 / 255, green: 90 / 255, blue: 242 / 255) : Color.white.opacity(0.10),
+                            candidate.selected ? AgentTheme.accent(for: .journal) : Color.white.opacity(0.10),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                         )
                 }
@@ -3410,7 +3442,7 @@ private struct AgentLiveExpenseCandidateCard: View {
             if !card.timing.isEmpty { Label(card.timing, systemImage: "calendar").font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText) }
             Text("agent.organizingExpense")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255))
+                .foregroundStyle(AgentTheme.accent(for: .ledger))
         }
         .padding(12)
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
@@ -3429,7 +3461,7 @@ private struct AgentLiveJournalCandidateCard: View {
             }
             Text("agent.organizingEntry")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(Color(red: 191 / 255, green: 90 / 255, blue: 242 / 255))
+                .foregroundStyle(AgentTheme.accent(for: .journal))
         }
         .padding(12)
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)

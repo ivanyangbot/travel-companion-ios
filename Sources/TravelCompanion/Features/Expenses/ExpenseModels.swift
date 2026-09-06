@@ -1,5 +1,37 @@
 import Foundation
 
+enum ExpenseCurrency {
+    static let supported = [
+        "CNY", "HKD", "IDR", "USD", "EUR", "GBP", "JPY", "SGD", "MYR", "THB", "KRW", "AUD", "CAD", "TWD", "VND",
+    ]
+}
+
+enum ExpensePaymentMethod: String, Codable, CaseIterable, Sendable, Identifiable {
+    case cash
+    case creditCard = "credit_card"
+    case debitCard = "debit_card"
+    case alipay
+    case wechatPay = "wechat_pay"
+    case applePay = "apple_pay"
+    case bankTransfer = "bank_transfer"
+    case other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cash: String(localized: "expense.payment.cash")
+        case .creditCard: String(localized: "expense.payment.creditCard")
+        case .debitCard: String(localized: "expense.payment.debitCard")
+        case .alipay: String(localized: "expense.payment.alipay")
+        case .wechatPay: String(localized: "expense.payment.wechatPay")
+        case .applePay: String(localized: "expense.payment.applePay")
+        case .bankTransfer: String(localized: "expense.payment.bankTransfer")
+        case .other: String(localized: "expense.payment.other")
+        }
+    }
+}
+
 enum ExpenseCategory: String, Codable, CaseIterable, Sendable, Identifiable {
     case transport, lodging, food, tickets, shopping, other
 
@@ -98,6 +130,11 @@ enum ExpenseOptimisticMutation {
         if let value = request.paidBy { updated.paidBy = value }
         if let value = request.splitMode { updated.splitMode = value }
         if let value = request.occurredOn { updated.occurredOn = value }
+        if let value = request.spentAt { updated.spentAt = value }
+        updated.purchaseChannel = request.purchaseChannel ?? (request.fieldsToClear.contains("purchaseChannel") ? nil : updated.purchaseChannel)
+        updated.paymentMethod = request.paymentMethod ?? (request.fieldsToClear.contains("paymentMethod") ? nil : updated.paymentMethod)
+        updated.consumerUserID = request.consumerUserID ?? (request.fieldsToClear.contains("consumerUserId") ? nil : updated.consumerUserID)
+        updated.consumerName = request.consumerName ?? (request.fieldsToClear.contains("consumerName") ? nil : updated.consumerName)
         updated.note = request.note ?? (request.fieldsToClear.contains("note") ? nil : updated.note)
         updated.cardID = request.cardID ?? (request.fieldsToClear.contains("cardId") ? nil : updated.cardID)
         updated.updatedAt = .now

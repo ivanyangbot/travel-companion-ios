@@ -3,6 +3,8 @@ import SwiftUI
 struct ExpenseSummaryView: View {
     let trip: SharedTripSnapshot
     let currency: String
+    let members: [TripMemberSummary]
+    let onCurrencyChange: (String) -> Void
 
     private var expenses: [ExpenseSnapshot] { trip.expenses }
     private var cards: [TravelCardSnapshot] { trip.days.flatMap(\.cards) }
@@ -32,6 +34,51 @@ struct ExpenseSummaryView: View {
         }
     }
 
+    private var showsConsumerTotals: Bool {
+        members.count > 1 || expenses.contains { $0.consumerUserID != nil || $0.consumerName?.isEmpty == false }
+    }
+
+    private var consumerTotals: [ExpenseConsumerTotal] {
+        let knownIDs = Set(members.map(\.userId))
+        var totals: [String: Int64] = [:]
+        var names: [String: String] = [:]
+
+        for member in members {
+            let key = "member:\(member.userId)"
+            names[key] = member.visibleName
+            totals[key] = 0
+        }
+
+        for expense in expenses {
+            guard let amount = expense.amountForSettlement else { continue }
+            let key: String
+            let name: String
+            if let userID = expense.consumerUserID {
+                key = "member:\(userID)"
+                name = members.first { $0.userId == userID }?.visibleName
+                    ?? expense.consumerName
+                    ?? String(localized: "expensesummary.formerMember")
+            } else if let savedName = expense.consumerName, !savedName.isEmpty {
+                key = "name:\(savedName)"
+                name = savedName
+            } else {
+                key = "unspecified"
+                name = String(localized: "expensesummary.unspecifiedConsumer")
+            }
+            names[key] = name
+            totals[key, default: 0] += amount
+        }
+
+        return totals.map { key, amount in
+            ExpenseConsumerTotal(id: key, name: names[key] ?? key, amount: amount)
+        }
+        .filter { $0.amount > 0 || ($0.id.hasPrefix("member:") && knownIDs.contains(Int(String($0.id.dropFirst(7))) ?? -1)) }
+        .sorted { lhs, rhs in
+            if lhs.amount != rhs.amount { return lhs.amount > rhs.amount }
+            return lhs.name.localizedCompare(rhs.name) == .orderedAscending
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -43,10 +90,68 @@ struct ExpenseSummaryView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
+            HStack {
+                Text("expensesummary.primaryCurrency")
+                    .font(.subheadline)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                Spacer()
+                Menu {
+                    ForEach(ExpenseCurrency.supported, id: \.self) { code in
+                        Button {
+                            onCurrencyChange(code)
+                        } label: {
+                            if code == currency {
+                                Label(code, systemImage: "checkmark")
+                            } else {
+                                Text(code)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(currency)
+                            .font(.subheadline.weight(.semibold).monospaced())
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 34)
+                    .background(PrimaryTabPalette.accent.opacity(0.12), in: Capsule())
+                }
+                .accessibilityLabel(Text("expensesummary.changePrimaryCurrencyA11y"))
+                .accessibilityValue(Text(currency))
+            }
             totalRow(label: String(localized: "expensesummary.actual"), amount: actualTotal, prominent: false)
             totalRow(label: String(localized: "expensesummary.estimated"), amount: estimatedTotal, prominent: false)
             Divider().overlay(PrimaryTabPalette.divider)
             totalRow(label: String(localized: "expensesummary.total"), amount: grandTotal, prominent: true)
+            if showsConsumerTotals {
+                Divider().overlay(PrimaryTabPalette.divider)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("expensesummary.byConsumer")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    ForEach(consumerTotals) { item in
+                        HStack(spacing: 10) {
+                            Text(String(item.name.prefix(1)).uppercased())
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.black)
+                                .frame(width: 26, height: 26)
+                                .background(PrimaryTabPalette.accent, in: Circle())
+                            Text(item.name)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.86))
+                                .lineLimit(1)
+                            Spacer()
+                            Text(ExpenseMoney.formatted(item.amount, currency: currency))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+            }
             Divider().overlay(PrimaryTabPalette.divider)
             VStack(alignment: .leading, spacing: 8) {
                 Text("expensesummary.byCategory")
@@ -88,4 +193,10 @@ struct ExpenseSummaryView: View {
                 .monospacedDigit()
         }
     }
+}
+
+private struct ExpenseConsumerTotal: Identifiable {
+    let id: String
+    let name: String
+    let amount: Int64
 }

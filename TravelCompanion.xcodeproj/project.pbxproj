@@ -100,6 +100,9 @@
 		A8364023D2EC1516D5945D50 /* ExpenseSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE7AC844A5A5929E9C18F8D /* ExpenseSummaryView.swift */; };
 		A85A5EA57496C62193E16781 /* ExpensesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239E82715D8B09548A9B6AE2 /* ExpensesTests.swift */; };
 		AADAF1743D75ECEDE43DC8DC /* JournalMediaSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5BEF8FBB530519A885CB28 /* JournalMediaSupport.swift */; };
+		B10000000000000000000001 /* JournalEntryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* JournalEntryDetailView.swift */; };
+		B10000000000000000000002 /* JournalMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* JournalMapView.swift */; };
+		B10000000000000000000003 /* JournalPhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* JournalPhotoViewer.swift */; };
 		AB651682CAA79075E6E225E1 /* MapsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971BB2C1553DAD49063C4934 /* MapsTests.swift */; };
 		B0F43F3DFD03ED20D7B2CE48 /* TravelCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F5D705DE2E7F9662C9A578 /* TravelCompanionApp.swift */; };
 		B36392744E730C463F8AB645 /* dest-sahara.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 95454C75C59E6639A370A997 /* dest-sahara.jpg */; };
@@ -240,6 +243,9 @@
 		7C998B1C01614DB76665E7C5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7D05FB265C37B209B9DB4C4C /* AgentV2SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentV2SessionStore.swift; sourceTree = "<group>"; };
 		7D5BEF8FBB530519A885CB28 /* JournalMediaSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalMediaSupport.swift; sourceTree = "<group>"; };
+		B10000000000000000000011 /* JournalEntryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalEntryDetailView.swift; sourceTree = "<group>"; };
+		B10000000000000000000012 /* JournalMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalMapView.swift; sourceTree = "<group>"; };
+		B10000000000000000000013 /* JournalPhotoViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalPhotoViewer.swift; sourceTree = "<group>"; };
 		80DE9C428D21C35C4F57930C /* MemoAssistModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoAssistModels.swift; sourceTree = "<group>"; };
 		81143AC25FD597D5D0AC83EC /* Morph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Morph.swift; sourceTree = "<group>"; };
 		827A0A71D6521A7A5118B40E /* dest-hokkaido.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "dest-hokkaido.jpg"; sourceTree = "<group>"; };
@@ -633,8 +639,11 @@
 		FF85003B9A78518F181F0603 /* Notes */ = {
 			isa = PBXGroup;
 			children = (
+				B10000000000000000000011 /* JournalEntryDetailView.swift */,
+				B10000000000000000000012 /* JournalMapView.swift */,
 				7D5BEF8FBB530519A885CB28 /* JournalMediaSupport.swift */,
 				D2257908B5B0D4672E0FD271 /* JournalModels.swift */,
+				B10000000000000000000013 /* JournalPhotoViewer.swift */,
 				8CB83218A06E8F8F9F34CA62 /* NotesView.swift */,
 			);
 			path = Notes;
@@ -837,8 +846,11 @@
 				0E7C6172ACCE591382CA08CE /* GooeyPinDemoView.swift in Sources */,
 				554F3057D599DDA39DEDABE6 /* ItineraryChatCardView.swift in Sources */,
 				19F1C33E48AF1767E4D3EF29 /* ItineraryView.swift in Sources */,
+				B10000000000000000000001 /* JournalEntryDetailView.swift in Sources */,
+				B10000000000000000000002 /* JournalMapView.swift in Sources */,
 				AADAF1743D75ECEDE43DC8DC /* JournalMediaSupport.swift in Sources */,
 				9068403E3B53DE6E8BA45DFF /* JournalModels.swift in Sources */,
+				B10000000000000000000003 /* JournalPhotoViewer.swift in Sources */,
 				D1C34A8978C74BF45F5D7C2D /* JourneyView.swift in Sources */,
 				36F9B0F26C4A95B17D31BEFF /* KeychainStore.swift in Sources */,
 				B66AC424F51D6D527254777D /* Lattice.swift in Sources */,

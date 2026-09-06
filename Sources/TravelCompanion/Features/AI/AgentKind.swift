@@ -22,15 +22,11 @@ enum AgentKind: String, CaseIterable, Sendable, Hashable {
     var suggestionsMode: String? { self == .itinerary ? nil : rawValue }
 }
 
-/// 每个 agent 的主题色与文案 key。按钮保持同一豆奶动画形象，仅随 tab
-/// 切换背景色与无障碍标签，让用户明确感知切换了 agent。
+/// 每个 agent 的主题色与文案 key。三个 tab 统一使用品牌橙色，按钮保持
+/// 同一豆奶动画形象，仅切换无障碍标签来反映当前 agent 身份。
 enum AgentTheme {
-    static func accent(for kind: AgentKind) -> Color {
-        switch kind {
-        case .itinerary: PrimaryTabPalette.accent
-        case .ledger: Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255)
-        case .journal: Color(red: 191 / 255, green: 90 / 255, blue: 242 / 255)
-        }
+    static func accent(for _: AgentKind) -> Color {
+        PrimaryTabPalette.accent
     }
 
     static func buttonBackground(for kind: AgentKind) -> Color {

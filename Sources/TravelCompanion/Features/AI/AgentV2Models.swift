@@ -95,7 +95,7 @@ struct AgentV2TurnRequest: Codable, Sendable {
         }
     }
 
-    /// 账本 agent 的只读费用快照项（服务端上限 60 条，note 截 200）。
+    /// 账本 agent 的只读费用快照项（服务端上限 60 条，上下文备注最多 200 字符）。
     struct ExpenseSnapshotItem: Codable, Sendable, Equatable {
         let id: Int
         let amountMinor: Int64
@@ -105,6 +105,12 @@ struct AgentV2TurnRequest: Codable, Sendable {
         var note: String? = nil
         var cardId: Int? = nil
         var settlementAmountMinor: Int64? = nil
+        var spentAt: String? = nil
+        var purchaseChannel: String? = nil
+        var paymentMethod: String? = nil
+        var consumerUserId: Int? = nil
+        var consumerName: String? = nil
+        var createdAt: String? = nil
     }
 
     /// 手书 agent 的只读手书快照（groups ≤ 20 / entries ≤ 40，content 截 2000）。
@@ -271,6 +277,12 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     var cardId: Int? = nil
     /// expense：修改行程卡实际价时的新实际价（最小单位）。
     var actualPriceMinor: Int64? = nil
+    /// expense：实际消费时间（ISO 8601）、消费平台/商户、支付方式与消费人。
+    var spentAt: String? = nil
+    var purchaseChannel: String? = nil
+    var paymentMethod: String? = nil
+    var consumerUserId: Int? = nil
+    var consumerName: String? = nil
     /// journal_entry：正文。
     var content: String? = nil
     /// journal_entry：目标分组名（提交时服务端按名找组，无则建组）。
@@ -422,6 +434,11 @@ extension AgentV2Candidate {
         category = try container.decodeIfPresent(String.self, forKey: .category)
         cardId = try container.decodeIfPresent(Int.self, forKey: .cardId)
         actualPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .actualPriceMinor)
+        spentAt = try container.decodeIfPresent(String.self, forKey: .spentAt)
+        purchaseChannel = try container.decodeIfPresent(String.self, forKey: .purchaseChannel)
+        paymentMethod = try container.decodeIfPresent(String.self, forKey: .paymentMethod)
+        consumerUserId = try container.decodeIfPresent(Int.self, forKey: .consumerUserId)
+        consumerName = try container.decodeIfPresent(String.self, forKey: .consumerName)
         content = try container.decodeIfPresent(String.self, forKey: .content)
         groupName = try container.decodeIfPresent(String.self, forKey: .groupName)
     }

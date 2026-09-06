@@ -368,6 +368,11 @@ final class SyncEngine: ObservableObject {
                     paidBy: expense.paidBy,
                     splitMode: expense.splitMode,
                     occurredOn: expense.occurredOn,
+                    spentAt: expense.spentAt,
+                    purchaseChannel: expense.purchaseChannel,
+                    paymentMethod: expense.paymentMethod,
+                    consumerUserID: expense.consumerUserID,
+                    consumerName: expense.consumerName,
                     note: expense.note,
                     cardID: migratedCardID
                 ),
@@ -628,6 +633,30 @@ final class SyncEngine: ObservableObject {
             return
         }
         await enqueueTripPatch(request)
+    }
+
+    /// Updates the ledger's primary display/settlement currency without making
+    /// the user reopen the trip setup flow. The server refresh recalculates
+    /// converted expense amounts; until then, stale conversions are excluded.
+    func updatePrimaryCurrency(_ currency: String) async {
+        let normalized = currency.uppercased()
+        guard ExpenseCurrency.supported.contains(normalized), var current = trip else { return }
+        guard current.currency?.uppercased() != normalized else { return }
+
+        if localOnly {
+            Self.applyPrimaryCurrency(normalized, to: &current)
+            current.updatedAt = .now
+            do {
+                try saveLocalSnapshot(current)
+            } catch {
+                status = .failed(String(localized: "error.localSaveFailed"))
+            }
+            return
+        }
+
+        await enqueueTripPatch(
+            TripPatchRequest(destination: nil, startDate: nil, endDate: nil, currency: normalized)
+        )
     }
 
     func addDay(_ date: Date) async {
@@ -1152,7 +1181,20 @@ final class SyncEngine: ObservableObject {
         let baseVersion = current.version
         do {
             let body = try await apiClient.encode(request)
-            let expense = ExpenseSnapshot(amountMinor: amountMinor, currency: currency, settlementCurrency: settlementCurrency, category: category, occurredOn: occurredOn, note: request.note, cardID: request.cardID)
+            let expense = ExpenseSnapshot(
+                amountMinor: amountMinor,
+                currency: currency,
+                settlementCurrency: settlementCurrency,
+                category: category,
+                occurredOn: occurredOn,
+                spentAt: request.spentAt,
+                purchaseChannel: request.purchaseChannel,
+                paymentMethod: request.paymentMethod,
+                consumerUserID: request.consumerUserID,
+                consumerName: request.consumerName,
+                note: request.note,
+                cardID: request.cardID
+            )
             current.expenses.append(expense)
             trip = current
             try repository.save(current)
@@ -1358,10 +1400,13 @@ final class SyncEngine: ObservableObject {
             }
             let now = Date()
             var current = trip ?? SharedTripSnapshot(id: activeTripID, destination: nil, startDate: nil, endDate: nil, currency: nil, version: 0, updatedAt: now, days: [], expenses: [])
-            current.destination = request.destination
-            current.startDate = request.startDate
-            current.endDate = request.endDate
-            current.currency = request.currency
+            if let destination = request.destination { current.destination = destination }
+            if let startDate = request.startDate { current.startDate = startDate }
+            if let endDate = request.endDate { current.endDate = endDate }
+            if let currency = request.currency,
+               current.currency?.uppercased() != currency.uppercased() {
+                Self.applyPrimaryCurrency(currency.uppercased(), to: &current)
+            }
             current.updatedAt = now
             trip = current
             try repository.save(current)
@@ -1369,6 +1414,20 @@ final class SyncEngine: ObservableObject {
             await replayPendingOperations()
         } catch {
             status = .failed(String(localized: "error.localSaveFailed"))
+        }
+    }
+
+    private static func applyPrimaryCurrency(_ currency: String, to snapshot: inout SharedTripSnapshot) {
+        snapshot.currency = currency
+        for index in snapshot.expenses.indices {
+            snapshot.expenses[index].settlementCurrency = currency
+            snapshot.expenses[index].exchangeRate = nil
+            snapshot.expenses[index].exchangeRateAsOf = nil
+            snapshot.expenses[index].exchangeRateSource = nil
+            snapshot.expenses[index].settlementAmountMinor =
+                snapshot.expenses[index].currency.uppercased() == currency
+                ? snapshot.expenses[index].amountMinor
+                : nil
         }
     }
 
@@ -1960,6 +2019,10 @@ private struct MigrationExpenseFingerprint: Hashable {
     let paidBy: String?
     let splitMode: String?
     let occurredOn: String
+    let spentAt: Date?
+    let purchaseChannel: String?
+    let paymentMethod: String?
+    let consumerUserID: Int?
     let note: String?
     let cardID: Int?
 
@@ -1970,6 +2033,10 @@ private struct MigrationExpenseFingerprint: Hashable {
         paidBy = expense.paidBy?.rawValue
         splitMode = expense.splitMode?.rawValue
         occurredOn = expense.occurredOn
+        spentAt = expense.spentAt
+        purchaseChannel = expense.purchaseChannel
+        paymentMethod = expense.paymentMethod
+        consumerUserID = expense.consumerUserID
         note = expense.note
         self.cardID = cardID
     }

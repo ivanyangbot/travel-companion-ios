@@ -163,6 +163,7 @@ final class JournalSyncCoordinator: ObservableObject, @unchecked Sendable {
                     }
                     media.append(try await upload(
                         attachment,
+                        sourceImage: image,
                         tripID: tripID,
                         completed: &completed,
                         total: total
@@ -197,6 +198,7 @@ final class JournalSyncCoordinator: ObservableObject, @unchecked Sendable {
 
     private func upload(
         _ attachment: JournalAttachment,
+        sourceImage: JournalImage?,
         tripID: Int,
         completed: inout Int,
         total: Int
@@ -249,6 +251,10 @@ final class JournalSyncCoordinator: ObservableObject, @unchecked Sendable {
             contentType: attachment.primary.contentType,
             fileName: attachment.primary.fileName,
             sizeBytes: attachment.primary.sizeBytes,
+            latitude: sourceImage?.latitude,
+            longitude: sourceImage?.longitude,
+            capturedAt: sourceImage?.capturedAt,
+            description: sourceImage?.description,
             pairedVideo: pairedUpload
         ))
     }
@@ -272,6 +278,18 @@ private enum JournalSyncError: LocalizedError {
     }
 }
 
+/// 手书 tab 的展示模式：列表阅读 或 照片地图（仿行程 tab 的列表/地图切换）。
+enum JournalDisplayMode {
+    case list
+    case map
+}
+
+/// 地图弹窗上下文：单张或聚合组（组内在查看器中翻页）。
+private struct MapViewerContext: Identifiable {
+    let id: String
+    let pins: [JournalPhotoPin]
+}
+
 struct NotesView: View {
     @ObservedObject var syncEngine: SyncEngine
     @ObservedObject var journalSync: JournalSyncCoordinator
@@ -283,6 +301,8 @@ struct NotesView: View {
     @State private var showsGroupEditor = false
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var displayMode: JournalDisplayMode = .list
+    @State private var mapViewer: MapViewerContext?
     private let api = APIClient()
 
     init(syncEngine: SyncEngine, journalSync: JournalSyncCoordinator) {
@@ -303,34 +323,22 @@ struct NotesView: View {
                 VStack(spacing: 0) {
                     journalHeader
                         .allowsHitTesting(!isSyncingJournal)
-                    journalSummary
+                    if displayMode == .list {
+                        journalSummary
+                    }
                     journalSyncBanner
 
                     Group {
-                        if isLoading && snapshot.entries.isEmpty {
-                            ProgressView("journal.loading")
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .padding(.bottom, 112)
-                        } else if visibleEntries.isEmpty {
-                            ContentUnavailableView(
-                                "journal.emptyTitle",
-                                systemImage: "book.closed",
-                                description: Text("journal.emptyDesc")
-                            )
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.bottom, 112)
-                        } else {
-                            ScrollView {
-                                LazyVStack(spacing: 12) {
-                                    ForEach(visibleEntries) { entry in
-                                        journalCard(entry)
-                                    }
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 128)
+                        switch displayMode {
+                        case .list:
+                            listContent
+                        case .map:
+                            JournalPhotoMapScreen(pins: photoPins) { selectedPins in
+                                mapViewer = MapViewerContext(
+                                    id: selectedPins.first?.id ?? UUID().uuidString,
+                                    pins: selectedPins
+                                )
                             }
-                            .scrollIndicators(.hidden)
-                            .refreshable { await reload() }
                         }
                     }
                     .allowsHitTesting(!isSyncingJournal)
@@ -338,6 +346,23 @@ struct NotesView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
+            .navigationDestination(for: JournalEntry.self) { pushed in
+                // 以 pushed.id 从最新 snapshot 取值，编辑/加照片保存后详情页自动刷新。
+                let latest = snapshot.entries.first(where: { $0.id == pushed.id }) ?? pushed
+                JournalEntryDetailView(
+                    entry: latest,
+                    groups: snapshot.groups,
+                    onEdit: {
+                        editor = latest
+                    },
+                    onAddPhotos: { attachments in
+                        await addPhotos(entry: latest, attachments: attachments)
+                    },
+                    onSaveDescription: { imageKey, description in
+                        await updateImageDescription(entryID: latest.id, imageKey: imageKey, description: description)
+                    }
+                )
+            }
             .task { await reload() }
             .onChange(of: syncEngine.isUserAuthenticated) { _, authenticated in
                 journalSync.updateSession(isAuthenticated: authenticated, tripID: syncEngine.selectedTripID)
@@ -362,6 +387,30 @@ struct NotesView: View {
                     await save(entry: entry, request: request, attachments: attachments)
                 }
             }
+            .fullScreenCover(item: $mapViewer) { context in
+                JournalPhotoViewer(
+                    photos: context.pins.map { pin in
+                        JournalPhotoViewer.Photo(
+                            id: pin.id,
+                            url: pin.imageURL,
+                            description: pin.description,
+                            capturedAt: pin.capturedAt
+                        )
+                    },
+                    initialIndex: 0,
+                    onSaveDescription: { imageKey, description in
+                        // 组内照片可能分属不同条目，按 key 找到所属 entry。
+                        let pin = photoPins.first { $0.id == imageKey }
+                            ?? context.pins.first { $0.id == imageKey }
+                        guard let pin else { return }
+                        await updateImageDescription(
+                            entryID: pin.entryID,
+                            imageKey: imageKey,
+                            description: description
+                        )
+                    }
+                )
+            }
             .sheet(isPresented: $showsGroupEditor) {
                 JournalGroupsEditor(groups: snapshot.groups) {
                     await saveGroup($0)
@@ -379,6 +428,44 @@ struct NotesView: View {
                 Button("common.ok", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var listContent: some View {
+        if isLoading && snapshot.entries.isEmpty {
+            ProgressView("journal.loading")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, 112)
+        } else if visibleEntries.isEmpty {
+            ContentUnavailableView(
+                "journal.emptyTitle",
+                systemImage: "book.closed",
+                description: Text("journal.emptyDesc")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 112)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(visibleEntries) { entry in
+                        journalCard(entry)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 128)
+            }
+            .scrollIndicators(.hidden)
+            .refreshable { await reload() }
+        }
+    }
+
+    /// 地图 pin：当前分组过滤下的全部带位置照片。
+    private var photoPins: [JournalPhotoPin] {
+        visibleEntries.flatMap { entry in
+            entry.images.compactMap { image in
+                JournalPhotoPin(entry: entry, image: image)
             }
         }
     }
@@ -409,6 +496,22 @@ struct NotesView: View {
                 .accessibilityLabel(Text("journal.groupMenuA11y"))
 
                 Spacer(minLength: 0)
+
+                Button {
+                    withAnimation(.snappy(duration: 0.28)) {
+                        displayMode = displayMode == .list ? .map : .list
+                    }
+                } label: {
+                    Image(displayMode == .list ? "icon-mapview-outline" : "icon-timeview-outline")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .frame(width: 40, height: 40)
+                }
+                .primaryTabHeaderButtonStyle()
+                .accessibilityLabel(Text(displayMode == .list ? "journal.mapModeA11y" : "journal.listModeA11y"))
 
                 Button {
                     createEntry()
@@ -545,7 +648,8 @@ struct NotesView: View {
     }
 
     private func journalCard(_ entry: JournalEntry) -> some View {
-        Button { editor = entry } label: {
+        // 点卡片进只读详情页；编辑只从明确的编辑入口（详情页铅笔 / 长按菜单）进。
+        NavigationLink(value: entry) {
             VStack(alignment: .leading, spacing: 12) {
                 if let first = entry.images.first {
                     JournalMediaView(media: first)
@@ -667,6 +771,46 @@ struct NotesView: View {
         }
     }
 
+    /// 详情页快捷加照片：保留既有附件引用，追加新上传，复用编辑器的保存链路。
+    private func addPhotos(entry: JournalEntry, attachments: [JournalAttachment]) async {
+        guard let latest = snapshot.entries.first(where: { $0.id == entry.id }) else { return }
+        let request = JournalEntryRequest(
+            groupId: latest.groupId,
+            title: latest.title,
+            content: latest.content,
+            imageKeys: latest.images.map(\.uploadReference)
+        )
+        await save(entry: latest, request: request, attachments: attachments)
+    }
+
+    /// 查看器里保存照片描述：整条 PATCH（imageKeys 携带全部元数据）或本地更新。
+    private func updateImageDescription(entryID: Int, imageKey: String, description: String) async {
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let latest = snapshot.entries.first(where: { $0.id == entryID }) else { return }
+        guard let tripID = remoteTripID else {
+            do {
+                try localStore.updateImage(entryID: latest.id, imageKey: imageKey, description: trimmed.isEmpty ? nil : trimmed)
+                snapshot = localStore.snapshot
+            } catch { errorMessage = error.localizedDescription }
+            return
+        }
+        do {
+            var images = latest.images
+            guard let index = images.firstIndex(where: { $0.key == imageKey }) else { return }
+            images[index].description = trimmed.isEmpty ? nil : trimmed
+            let request = JournalEntryRequest(
+                groupId: latest.groupId,
+                title: latest.title,
+                content: latest.content,
+                imageKeys: images.map(\.uploadReference)
+            )
+            _ = try await api.updateJournalEntry(id: latest.id, request, tripID: tripID)
+            await reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func deleteEntries(at offsets: IndexSet) {
         guard let tripID = remoteTripID else {
             do {
@@ -731,6 +875,10 @@ struct NotesView: View {
             contentType: attachment.primary.contentType,
             fileName: attachment.primary.fileName,
             sizeBytes: attachment.primary.sizeBytes,
+            latitude: attachment.latitude,
+            longitude: attachment.longitude,
+            capturedAt: attachment.capturedAt,
+            description: nil,
             pairedVideo: pairedUpload
         ))
     }
@@ -794,7 +942,11 @@ final class LocalJournalStore: ObservableObject {
                 contentType: attachment.primary.contentType,
                 fileName: attachment.primary.fileName,
                 sizeBytes: attachment.primary.sizeBytes,
-                pairedVideo: paired
+                pairedVideo: paired,
+                latitude: attachment.latitude,
+                longitude: attachment.longitude,
+                capturedAt: attachment.capturedAt,
+                description: nil
             )
         }
         let now = Date()
@@ -863,6 +1015,26 @@ final class LocalJournalStore: ObservableObject {
             groups: snapshot.groups,
             entries: snapshot.entries.filter { !idSet.contains($0.id) }
         )
+        try persist()
+    }
+
+    /// 更新单张照片的描述（游客/离线路径，查看器与地图弹窗共用）。
+    func updateImage(entryID: Int, imageKey: String, description: String?) throws {
+        guard let entryIndex = snapshot.entries.firstIndex(where: { $0.id == entryID }),
+              let imageIndex = snapshot.entries[entryIndex].images.firstIndex(where: { $0.key == imageKey })
+        else { return }
+        var entries = snapshot.entries
+        entries[entryIndex].images[imageIndex].description = description
+        entries[entryIndex] = JournalEntry(
+            id: entries[entryIndex].id,
+            groupId: entries[entryIndex].groupId,
+            title: entries[entryIndex].title,
+            content: entries[entryIndex].content,
+            images: entries[entryIndex].images,
+            createdAt: entries[entryIndex].createdAt,
+            updatedAt: .now
+        )
+        snapshot = JournalSnapshot(groups: snapshot.groups, entries: entries)
         try persist()
     }
 
@@ -948,8 +1120,6 @@ private struct JournalEditor: View {
     @State private var groupID: Int?
     @State private var attachments: [JournalAttachment] = []
     @State private var pickerItems: [PhotosPickerItem] = []
-    @State private var showsCamera = false
-    @State private var showsFileImporter = false
     @State private var isSaving = false
     @State private var isImporting = false
     @State private var mediaError: String?
@@ -996,13 +1166,7 @@ private struct JournalEditor: View {
                             preferredItemEncoding: .current,
                             photoLibrary: .shared()
                         ) {
-                            Label("journal.fromLibrary", systemImage: "photo.on.rectangle")
-                        }
-                        Button("journal.fromFiles", systemImage: "doc.badge.plus") {
-                            showsFileImporter = true
-                        }
-                        if CameraPicker.isAvailable {
-                            Button("journal.takePhoto", systemImage: "camera") { showsCamera = true }
+                            Label("journal.addPhotos", systemImage: "photo.on.rectangle")
                         }
                     }
                     Text("journal.mediaCaption")
@@ -1040,20 +1204,6 @@ private struct JournalEditor: View {
             .onChange(of: pickerItems) { _, values in
                 Task {
                     await importPhotoItems(values)
-                }
-            }
-            .fileImporter(
-                isPresented: $showsFileImporter,
-                allowedContentTypes: [.data],
-                allowsMultipleSelection: true
-            ) { result in
-                Task { await importFiles(result) }
-            }
-            .sheet(isPresented: $showsCamera) {
-                CameraPicker {
-                    if let attachment = JournalAttachment($0), availableAttachmentSlots > 0 {
-                        attachments.append(attachment)
-                    }
                 }
             }
             .alert(
@@ -1110,18 +1260,6 @@ private struct JournalEditor: View {
         do {
             for item in values.prefix(availableAttachmentSlots) {
                 attachments.append(try await JournalAttachment.load(from: item))
-            }
-        } catch {
-            mediaError = error.localizedDescription
-        }
-    }
-
-    private func importFiles(_ result: Result<[URL], Error>) async {
-        isImporting = true
-        defer { isImporting = false }
-        do {
-            for url in try result.get().prefix(availableAttachmentSlots) {
-                attachments.append(try await JournalAttachment.loadFile(at: url))
             }
         } catch {
             mediaError = error.localizedDescription

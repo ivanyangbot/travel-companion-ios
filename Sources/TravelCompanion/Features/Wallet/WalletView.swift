@@ -5,13 +5,14 @@ import UIKit
 /// 可嵌入的卡包内容（不含 NavigationStack），由「支出」页通过顶部切换承载。
 struct WalletSection: View {
     @ObservedObject var syncEngine: SyncEngine
+    @Binding var isAddingItem: Bool
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \LocalWalletItem.updatedAt, order: .reverse) private var items: [LocalWalletItem]
     @AppStorage("wallet.hasAcknowledgedPasteboardWarning") private var hasAcknowledgedPasteboardWarning = false
 
     @State private var decryptedSecrets: [UUID: WalletSecret] = [:]
     @State private var unreadableItemIDs = Set<UUID>()
-    @State private var editor: WalletEditorTarget?
+    @State private var editingItem: LocalWalletItem?
     @State private var pendingDeletion: LocalWalletItem?
     @State private var pendingCopy: WalletSecret?
     @State private var copied = false
@@ -29,18 +30,6 @@ struct WalletSection: View {
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
                 Spacer()
-                Button { editor = .new } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(
-                            PrimaryTabPalette.elevatedSurface,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("wallet.addA11y"))
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -72,8 +61,13 @@ struct WalletSection: View {
         }
         .background(PrimaryTabPalette.background)
         .frame(maxHeight: .infinity, alignment: .top)
-        .sheet(item: $editor) { target in
-            WalletEditorView(syncEngine: syncEngine, item: target.item, existingSecret: target.item.flatMap { decryptedSecrets[$0.id] }) {
+        .sheet(isPresented: $isAddingItem) {
+            WalletEditorView(syncEngine: syncEngine, item: nil, existingSecret: nil) {
+                loadSecrets()
+            }
+        }
+        .sheet(item: $editingItem) { item in
+            WalletEditorView(syncEngine: syncEngine, item: item, existingSecret: decryptedSecrets[item.id]) {
                 loadSecrets()
             }
         }
@@ -116,7 +110,7 @@ struct WalletSection: View {
                 item: item,
                 secret: secret,
                 onCopy: { requestCopy(secret) },
-                onEdit: { editor = .edit(item) },
+                onEdit: { editingItem = item },
                 onDelete: { pendingDeletion = item }
             )
             .padding(14)
@@ -302,22 +296,5 @@ private struct WalletItemRow: View {
             guard !Task.isCancelled else { return }
             isRevealed = false
         }
-    }
-}
-
-private enum WalletEditorTarget: Identifiable {
-    case new
-    case edit(LocalWalletItem)
-
-    var id: UUID {
-        switch self {
-        case .new: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        case let .edit(item): item.id
-        }
-    }
-
-    var item: LocalWalletItem? {
-        if case let .edit(item) = self { return item }
-        return nil
     }
 }

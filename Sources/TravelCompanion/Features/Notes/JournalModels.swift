@@ -21,6 +21,11 @@ struct JournalImage: Codable, Identifiable, Sendable, Hashable {
     let fileName: String?
     let sizeBytes: Int?
     let pairedVideo: JournalMediaResource?
+    /// 拍摄地点与时间（PHAsset 地理信息）以及用户描述；旧数据均为 nil。
+    var latitude: Double?
+    var longitude: Double?
+    var capturedAt: Date?
+    var description: String?
     var id: String { key }
 
     init(
@@ -30,7 +35,11 @@ struct JournalImage: Codable, Identifiable, Sendable, Hashable {
         contentType: String? = nil,
         fileName: String? = nil,
         sizeBytes: Int? = nil,
-        pairedVideo: JournalMediaResource? = nil
+        pairedVideo: JournalMediaResource? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        capturedAt: Date? = nil,
+        description: String? = nil
     ) {
         self.key = key
         self.url = url
@@ -39,6 +48,10 @@ struct JournalImage: Codable, Identifiable, Sendable, Hashable {
         self.fileName = fileName
         self.sizeBytes = sizeBytes
         self.pairedVideo = pairedVideo
+        self.latitude = latitude
+        self.longitude = longitude
+        self.capturedAt = capturedAt
+        self.description = description
     }
 
     var uploadReference: JournalMediaReference {
@@ -51,6 +64,10 @@ struct JournalImage: Codable, Identifiable, Sendable, Hashable {
             contentType: contentType,
             fileName: fileName,
             sizeBytes: sizeBytes,
+            latitude: latitude,
+            longitude: longitude,
+            capturedAt: capturedAt,
+            description: description,
             pairedVideo: pairedVideo.map {
                 JournalMediaUploadResource(
                     key: $0.key,
@@ -84,6 +101,10 @@ struct JournalMediaUpload: Codable, Sendable, Hashable {
     let contentType: String
     let fileName: String
     let sizeBytes: Int
+    var latitude: Double?
+    var longitude: Double?
+    var capturedAt: Date?
+    var description: String?
     let pairedVideo: JournalMediaUploadResource?
 }
 

@@ -21,6 +21,10 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
     let primary: JournalLocalResource
     let pairedVideo: JournalLocalResource?
     let previewImage: UIImage?
+    /// 相册资产携带的拍摄地点与时间；无地理信息的资产为 nil。
+    var latitude: Double?
+    var longitude: Double?
+    var capturedAt: Date?
 
     init?(_ image: UIImage) {
         guard let data = image.jpegData(compressionQuality: 0.92) else { return nil }
@@ -39,13 +43,19 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
         } catch {
             return nil
         }
+        latitude = nil
+        longitude = nil
+        capturedAt = nil
     }
 
     init(
         kind: String,
         primary: JournalLocalResource,
         pairedVideo: JournalLocalResource? = nil,
-        previewImage: UIImage? = nil
+        previewImage: UIImage? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        capturedAt: Date? = nil
     ) throws {
         guard primary.sizeBytes <= Self.maximumResourceBytes,
               pairedVideo.map({ $0.sizeBytes <= Self.maximumResourceBytes }) ?? true else {
@@ -55,6 +65,9 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
         self.primary = primary
         self.pairedVideo = pairedVideo
         self.previewImage = previewImage
+        self.latitude = latitude
+        self.longitude = longitude
+        self.capturedAt = capturedAt
     }
 
     static func load(from item: PhotosPickerItem) async throws -> JournalAttachment {
@@ -116,7 +129,10 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
                 kind: paired == nil ? "photo" : "livePhoto",
                 primary: primary,
                 pairedVideo: paired,
-                previewImage: UIImage(contentsOfFile: primary.url.path)
+                previewImage: UIImage(contentsOfFile: primary.url.path),
+                latitude: asset.location?.coordinate.latitude,
+                longitude: asset.location?.coordinate.longitude,
+                capturedAt: asset.creationDate
             )
         case .video:
             guard let video = preferredResource(in: resources, types: [.video, .fullSizeVideo]) else {
@@ -353,5 +369,88 @@ private struct LivePhotoRepresentable: UIViewRepresentable {
         guard view.livePhoto !== livePhoto else { return }
         view.livePhoto = livePhoto
         view.startPlayback(with: .hint)
+    }
+}
+
+/// 手书照片缩略图加载器：本地 file:// 与远端预签名 URL 统一处理，
+/// NSCache 去重 + CGImageSource 降采样，供地图 pin（UIKit）与照片网格（SwiftUI）共用。
+final class JournalPhotoLoader: @unchecked Sendable {
+    static let shared = JournalPhotoLoader()
+
+    private let cache: NSCache<NSString, UIImage>
+
+    private init() {
+        cache = NSCache()
+        cache.countLimit = 240
+    }
+
+    func thumbnail(for url: URL, maxPixelSize: CGFloat) async -> UIImage? {
+        let cacheKey = "\(url.absoluteString)#\(Int(maxPixelSize))" as NSString
+        if let cached = cache.object(forKey: cacheKey) { return cached }
+        guard let image = await Self.loadAndDownsample(url: url, maxPixelSize: maxPixelSize) else { return nil }
+        cache.setObject(image, forKey: cacheKey)
+        return image
+    }
+
+    private static func loadAndDownsample(url: URL, maxPixelSize: CGFloat) async -> UIImage? {
+        let data: Data
+        if url.isFileURL {
+            guard let local = FileManager.default.contents(atPath: url.path) else { return nil }
+            data = local
+        } else {
+            guard let (downloaded, _) = try? await URLSession.shared.data(from: url) else { return nil }
+            data = downloaded
+        }
+        return downsampledImage(from: data, maxPixelSize: maxPixelSize)
+    }
+
+    static func downsampledImage(from data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        let thumbnailOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ] as CFDictionary
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
+/// 手书照片缩略图（SwiftUI）：远端/本地通用，加载中显示占位底色。
+struct JournalPhotoThumbnail: View {
+    let url: URL?
+    var maxPixelSize: CGFloat = 600
+
+    var body: some View {
+        Group {
+            if let url {
+                JournalPhotoThumbnailCore(url: url, maxPixelSize: maxPixelSize)
+            } else {
+                Rectangle().fill(.quaternary)
+            }
+        }
+    }
+}
+
+private struct JournalPhotoThumbnailCore: View {
+    let url: URL
+    let maxPixelSize: CGFloat
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Rectangle().fill(PrimaryTabPalette.elevatedSurface)
+            }
+        }
+        .task(id: url) {
+            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: maxPixelSize)
+        }
     }
 }

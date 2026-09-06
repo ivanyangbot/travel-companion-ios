@@ -1,17 +1,15 @@
 import SwiftData
 import SwiftUI
 
-/// 「本」页的备忘分区：本机物品清单 + 智能生成入口。清单数据只在本设备保存，
-/// 智能生成会把行程脱敏交给后端 AI，再在结果页一键写入闹钟/提醒/物品。
+/// 账本页的备忘分区。清单数据只在本设备保存；新建入口由账本页右上角
+/// 的统一加号承载，智能操作统一交给右下角的账本 Agent。
 struct MemoSection: View {
-    @ObservedObject var syncEngine: SyncEngine
+    @Binding var creatingList: Bool
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \LocalMemoList.updatedAt, order: .reverse) private var lists: [LocalMemoList]
 
     @State private var editingList: LocalMemoList?
-    @State private var creatingList = false
     @State private var pendingDeletion: LocalMemoList?
-    @State private var showsAssist = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,31 +23,6 @@ struct MemoSection: View {
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
                 Spacer()
-                Button { showsAssist = true } label: {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(
-                            PrimaryTabPalette.elevatedSurface,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-                    .disabled(syncEngine.trip?.isConfigured != true)
-                    .accessibilityLabel(Text("memo.generateA11y"))
-                Button { creatingList = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(
-                            PrimaryTabPalette.elevatedSurface,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("memo.addListA11y"))
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -83,9 +56,6 @@ struct MemoSection: View {
         }
         .sheet(item: $editingList) { list in
             MemoListEditor(list: list) { _, _ in }
-        }
-        .sheet(isPresented: $showsAssist) {
-            MemoAssistSheet(syncEngine: syncEngine)
         }
         .alert("memo.deleteTitle", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }), presenting: pendingDeletion) { list in
             Button("common.delete", role: .destructive) {

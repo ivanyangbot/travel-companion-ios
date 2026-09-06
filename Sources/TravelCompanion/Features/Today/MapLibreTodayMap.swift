@@ -1390,6 +1390,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     /// ambiguous when two itinerary POIs share the same location.
     let cameraFocusPointID: UUID?
     let cameraRequestID: Int
+    /// Displays MapLibre's standard user-location marker once permission has
+    /// produced a usable coordinate in the surrounding SwiftUI screen.
+    let showsUserLocation: Bool
     /// SwiftUI's global/window coordinate for the live timeline upper edge.
     /// `nil` means the overlay is hidden and the floating tab bar is the live
     /// bottom obstruction instead.
@@ -1421,7 +1424,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         mapView.maximumZoomLevel = 20
         mapView.allowsTilting = false
         mapView.allowsRotating = false
-        mapView.showsUserLocation = false
+        mapView.showsUserLocation = showsUserLocation
         mapView.showsLogoView = false
         mapView.attributionButtonPosition = .bottomLeft
         mapView.attributionButtonMargins = CGPoint(x: 12, y: 136)
@@ -1442,6 +1445,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     }
 
     func updateUIView(_ mapView: MLNMapView, context: Context) {
+        mapView.showsUserLocation = showsUserLocation
         context.coordinator.updateContent(
             on: mapView,
             points: points,
@@ -1500,6 +1504,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var routeAnnotations: [MLNPolyline] = []
         private var flightShapeAnnotations: [MLNPolyline] = []
         private var flightPlaneAnnotations: [MapLibreFlightAnnotation] = []
+        private var flightEndpointAnnotations: [MapLibreFlightEndpointAnnotation] = []
         private var flightShapeMetadata: [ObjectIdentifier: MapLibreFlightShapeMetadata] = [:]
         private var displayedRouteCoordinates: [CLLocationCoordinate2D] = []
         private var displayedFlightCoordinates: [CLLocationCoordinate2D] = []
@@ -1882,8 +1887,12 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             if !flightPlaneAnnotations.isEmpty {
                 mapView.removeAnnotations(flightPlaneAnnotations)
             }
+            if !flightEndpointAnnotations.isEmpty {
+                mapView.removeAnnotations(flightEndpointAnnotations)
+            }
             flightShapeAnnotations.removeAll(keepingCapacity: true)
             flightPlaneAnnotations.removeAll(keepingCapacity: true)
+            flightEndpointAnnotations.removeAll(keepingCapacity: true)
             flightShapeMetadata.removeAll(keepingCapacity: true)
             displayedFlightCoordinates.removeAll(keepingCapacity: true)
 
@@ -1923,6 +1932,19 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                         )
                     )
                 }
+
+                flightEndpointAnnotations.append(contentsOf: [
+                    MapLibreFlightEndpointAnnotation(
+                        routeID: route.cardID,
+                        coordinate: displayCoordinates[0],
+                        title: route.fromAirport
+                    ),
+                    MapLibreFlightEndpointAnnotation(
+                        routeID: route.cardID,
+                        coordinate: displayCoordinates[displayCoordinates.count - 1],
+                        title: route.toAirport
+                    )
+                ])
             }
 
             // Shape order is halo, accent stroke, then an almost transparent
@@ -1932,6 +1954,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             }
             if !flightPlaneAnnotations.isEmpty {
                 mapView.addAnnotations(flightPlaneAnnotations)
+            }
+            if !flightEndpointAnnotations.isEmpty {
+                mapView.addAnnotations(flightEndpointAnnotations)
             }
         }
 
@@ -2184,7 +2209,6 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     animated: false,
                     completionHandler: nil
                 )
-                mapView.showsUserLocation = false
             }
 
             guard requestID != handledCameraRequestID else { return }
@@ -2288,6 +2312,12 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 view.configure(screenAngle: annotation.screenAngle)
                 return view
             }
+            if annotation is MapLibreFlightEndpointAnnotation {
+                let identifier = MapLibreFlightEndpointAnnotationView.reuseIdentifier
+                return mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                    as? MapLibreFlightEndpointAnnotationView
+                    ?? MapLibreFlightEndpointAnnotationView(reuseIdentifier: identifier)
+            }
             guard let annotation = annotation as? MapLibreNumberedAnnotation else { return nil }
             let identifier = MapLibreNumberedAnnotationView.reuseIdentifier
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
@@ -2314,6 +2344,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             let routeID: UUID?
             if let plane = annotation as? MapLibreFlightAnnotation {
                 routeID = plane.routeID
+            } else if let endpoint = annotation as? MapLibreFlightEndpointAnnotation {
+                routeID = endpoint.routeID
             } else if let shape = annotation as? MLNShape {
                 routeID = flightShapeMetadata[ObjectIdentifier(shape)]?.routeID
             } else {
@@ -2992,6 +3024,21 @@ private final class MapLibreFlightAnnotation: MLNPointAnnotation {
     }
 }
 
+private final class MapLibreFlightEndpointAnnotation: MLNPointAnnotation {
+    let routeID: UUID
+
+    init(routeID: UUID, coordinate: CLLocationCoordinate2D, title: String) {
+        self.routeID = routeID
+        super.init()
+        self.coordinate = coordinate
+        self.title = title
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
 enum MapLibrePinTransitionGeometry {
     static let duration: TimeInterval = 0.28
 
@@ -3267,39 +3314,22 @@ private final class MapLibrePinShapeView: UIView {
 private final class MapLibreFlightAnnotationView: MLNAnnotationView {
     static let reuseIdentifier = "MapLibreTodayFlight"
 
-    private let backgroundView = UIView()
     private let planeImageView = UIImageView()
-    private let pulseLayer = CAShapeLayer()
 
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
         scalesWithViewingDistance = false
         backgroundColor = .clear
-        bounds = CGRect(x: 0, y: 0, width: 50, height: 50)
-
-        pulseLayer.fillColor = UIColor.clear.cgColor
-        pulseLayer.strokeColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 0.42).cgColor
-        pulseLayer.lineWidth = 1.5
-        layer.addSublayer(pulseLayer)
-
-        backgroundView.backgroundColor = UIColor(red: 24 / 255, green: 27 / 255, blue: 34 / 255, alpha: 0.94)
-        backgroundView.layer.cornerRadius = 18
-        backgroundView.layer.borderWidth = 1
-        backgroundView.layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
-        backgroundView.layer.shadowColor = UIColor.black.cgColor
-        backgroundView.layer.shadowOpacity = 0.34
-        backgroundView.layer.shadowRadius = 8
-        backgroundView.layer.shadowOffset = CGSize(width: 0, height: 4)
+        bounds = CGRect(x: 0, y: 0, width: 44, height: 44)
 
         planeImageView.image = UIImage(
             systemName: "airplane",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .bold)
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 21, weight: .bold)
         )
         planeImageView.tintColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
         planeImageView.contentMode = .center
 
-        addSubview(backgroundView)
-        backgroundView.addSubview(planeImageView)
+        addSubview(planeImageView)
         isAccessibilityElement = true
         accessibilityTraits = [.button]
     }
@@ -3310,31 +3340,47 @@ private final class MapLibreFlightAnnotationView: MLNAnnotationView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let badgeFrame = CGRect(x: 7, y: 7, width: 36, height: 36)
-        backgroundView.frame = badgeFrame
-        planeImageView.frame = backgroundView.bounds
-        pulseLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2)).cgPath
+        planeImageView.frame = bounds
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        pulseLayer.removeAllAnimations()
         transform = .identity
     }
 
     func configure(screenAngle: CGFloat) {
         planeImageView.transform = CGAffineTransform(rotationAngle: screenAngle)
         accessibilityLabel = String(localized: "travelcard.viewDetails")
-        if pulseLayer.animation(forKey: "flightPulse") == nil {
-            let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 0.8
-            pulse.toValue = 0.16
-            pulse.duration = 1.6
-            pulse.autoreverses = true
-            pulse.repeatCount = .infinity
-            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            pulseLayer.add(pulse, forKey: "flightPulse")
-        }
+    }
+}
+
+private final class MapLibreFlightEndpointAnnotationView: MLNAnnotationView {
+    static let reuseIdentifier = "MapLibreTodayFlightEndpoint"
+
+    override init(reuseIdentifier: String?) {
+        super.init(reuseIdentifier: reuseIdentifier)
+        scalesWithViewingDistance = false
+        bounds = CGRect(x: 0, y: 0, width: 18, height: 18)
+        backgroundColor = .clear
+        layer.cornerRadius = 9
+        layer.borderWidth = 5
+        layer.borderColor = UIColor.clear.cgColor
+        let dot = CALayer()
+        dot.name = "endpointDot"
+        dot.backgroundColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1).cgColor
+        dot.cornerRadius = 4
+        dot.frame = CGRect(x: 5, y: 5, width: 8, height: 8)
+        dot.shadowColor = UIColor.black.cgColor
+        dot.shadowOpacity = 0.35
+        dot.shadowRadius = 2
+        layer.addSublayer(dot)
+        isAccessibilityElement = true
+        accessibilityTraits = [.button]
+        accessibilityLabel = String(localized: "travelcard.viewDetails")
+    }
+
+    required init?(coder: NSCoder) {
+        nil
     }
 }
 

@@ -59,13 +59,37 @@ final class ExpensesTests: XCTestCase {
     }
 
     func testExpensePatchOnlyEncodesExplicitClears() throws {
-        let request = ExpenseRequest(amountMinor: 100, fieldsToClear: ["note", "cardId"])
+        let request = ExpenseRequest(amountMinor: 100, fieldsToClear: ["note", "cardId", "purchaseChannel", "paymentMethod", "consumerUserId", "consumerName"])
         let data = try JSONEncoder().encode(request)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(object["amountMinor"] as? Int, 100)
         XCTAssertTrue(object["note"] is NSNull)
         XCTAssertTrue(object["cardId"] is NSNull)
+        XCTAssertTrue(object["purchaseChannel"] is NSNull)
+        XCTAssertTrue(object["paymentMethod"] is NSNull)
+        XCTAssertTrue(object["consumerUserId"] is NSNull)
+        XCTAssertTrue(object["consumerName"] is NSNull)
         XCTAssertNil(object["category"])
+    }
+
+    func testExpenseRequestEncodesStructuredTransactionDetails() throws {
+        let spentAt = Date(timeIntervalSince1970: 1_760_000_000)
+        let request = ExpenseRequest(
+            amountMinor: 8_800,
+            spentAt: spentAt,
+            purchaseChannel: "Grab",
+            paymentMethod: ExpensePaymentMethod.creditCard.rawValue,
+            consumerUserID: 7,
+            consumerName: "Mina"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(request)) as? [String: Any])
+        XCTAssertNotNil(object["spentAt"] as? String)
+        XCTAssertEqual(object["purchaseChannel"] as? String, "Grab")
+        XCTAssertEqual(object["paymentMethod"] as? String, "credit_card")
+        XCTAssertEqual(object["consumerUserId"] as? Int, 7)
+        XCTAssertEqual(object["consumerName"] as? String, "Mina")
     }
 
     func testSettlementSaturatesInsteadOfOverflowing() {
@@ -75,6 +99,37 @@ final class ExpensesTests: XCTestCase {
         XCTAssertTrue(settlement.overflowed)
         XCTAssertEqual(settlement.total, Int64.max)
         XCTAssertLessThanOrEqual(abs(settlement.netA), Int64.max)
+    }
+
+    @MainActor
+    func testPrimaryCurrencyCanChangeFromLedgerAndInvalidatesStaleConversions() async throws {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(
+            for: SharedTripMirror.self, PendingOperation.self, ConfirmedAIDraftCard.self,
+            configurations: configuration
+        )
+        let repository = SharedTripRepository(modelContext: ModelContext(container))
+        let engine = SyncEngine(
+            repository: repository,
+            apiClient: APIClient(baseURL: nil),
+            authenticatedOverride: false
+        )
+
+        await engine.bootstrap()
+        let start = try XCTUnwrap(Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 1)))
+        await engine.saveSetup(destination: "东京", startDate: start, endDate: start, currency: "CNY")
+        await engine.addExpense(
+            ExpenseRequest(amountMinor: 10_000, currency: "CNY", category: .food, occurredOn: "2026-10-01")
+        )
+
+        await engine.updatePrimaryCurrency("usd")
+
+        XCTAssertEqual(engine.trip?.currency, "USD")
+        let expense = try XCTUnwrap(engine.trip?.expenses.first)
+        XCTAssertEqual(expense.settlementCurrency, "USD")
+        XCTAssertNil(expense.settlementAmountMinor)
+        XCTAssertNil(expense.amountForSettlement)
+        XCTAssertEqual(try repository.cachedTrip(id: try XCTUnwrap(engine.trip?.id))?.currency, "USD")
     }
 
     @MainActor
@@ -95,7 +150,8 @@ final class ExpensesTests: XCTestCase {
 
     func testOptimisticExpenseUpdateAndCancelUseTheLocalSnapshotBeforeServerID() {
         let local = ExpenseSnapshot(amountMinor: 100, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01", note: "旧备注")
-        let request = ExpenseRequest(amountMinor: 250, currency: "CNY", category: .transport, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-02", note: nil, cardID: nil, fieldsToClear: ["note"])
+        let spentAt = Date(timeIntervalSince1970: 1_760_000_000)
+        let request = ExpenseRequest(amountMinor: 250, currency: "CNY", category: .transport, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-02", spentAt: spentAt, purchaseChannel: "Grab", paymentMethod: ExpensePaymentMethod.creditCard.rawValue, consumerUserID: 9, consumerName: "Mina", note: nil, cardID: nil, fieldsToClear: ["note"])
 
         let updated = ExpenseOptimisticMutation.applying(request, to: local)
         XCTAssertNil(updated.serverID)
@@ -103,6 +159,11 @@ final class ExpensesTests: XCTestCase {
         XCTAssertEqual(updated.category, .transport)
         XCTAssertEqual(updated.paidBy, .personB)
         XCTAssertEqual(updated.splitMode, .self)
+        XCTAssertEqual(updated.spentAt, spentAt)
+        XCTAssertEqual(updated.purchaseChannel, "Grab")
+        XCTAssertEqual(updated.paymentMethod, "credit_card")
+        XCTAssertEqual(updated.consumerUserID, 9)
+        XCTAssertEqual(updated.consumerName, "Mina")
         XCTAssertNil(updated.note)
         XCTAssertEqual(ExpenseOptimisticMutation.removing(updated, from: [updated]).count, 0)
     }

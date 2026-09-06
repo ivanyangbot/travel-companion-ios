@@ -320,6 +320,14 @@
 "cardeditor.estimatePlaceholder" = "預估價（%@）";
 "cardeditor.currencyFallback" = "本幣";
 "cardeditor.actualPlaceholder" = "實際價（可選，填咗之後只顯示實際價）";
+"cardeditor.priceSection" = "價格";
+"cardeditor.priceCurrency" = "價格貨幣";
+"cardeditor.estimatedPrice" = "預估價";
+"cardeditor.actualPrice" = "實際價";
+"cardeditor.ticketPrice" = "票面價";
+"cardeditor.priceAmountPlaceholder" = "輸入金額";
+"cardeditor.priceHelp" = "預估價用作出發前預算；有實際使費後填寫實際價。留空即可移除相應價格。";
+"cardeditor.errorPrice" = "請輸入有效嘅正數金額，小數位唔可以超過所選貨幣精度。";
 "cardeditor.introPlaceholder" = "介紹（可選）";
 "cardeditor.visitSection" = "參觀資料";
 "cardeditor.ticketPlaceholder" = "門票價格（%@，可選）";
@@ -448,7 +456,7 @@
 "expense.section" = "支出明細";
 "expense.countFormat" = "%lld 筆";
 "expense.emptyTitle" = "仲未有實際價";
-"expense.emptyDesc" = "手動加入或者掃收據，記低交通、住宿同飲食嘅實際使費。";
+"expense.emptyDesc" = "用右上角手動加入，或者經右下角 Agent 記低實際使費。";
 "expense.needTripTitle" = "請先設定行程";
 "expense.needTripDesc" = "喺行程頁填目的地、日期同貨幣之後就可以記支出。";
 "expense.pendingSync" = "有 %lld 項修改等住同步";
@@ -481,13 +489,26 @@
 "expenseeditor.linkSection" = "關聯行程（可選）";
 "expenseeditor.cardLabel" = "行程卡片";
 "expenseeditor.noCard" = "唔關聯";
+"expenseeditor.chooseCard" = "選擇行程卡片";
+"expenseeditor.chooseCardHint" = "關聯活動、酒店或機票";
+"expenseeditor.chooseCardTitle" = "關聯行程";
+"expenseeditor.searchCards" = "搜尋名稱、地點或類型";
+"expenseeditor.unlinkCard" = "解除關聯";
+"expenseeditor.linkHelp" = "關聯後，呢筆實際支出會取代該卡片嘅預估價計入行程合計。每張卡片只可以關聯一筆支出。";
+"expenseeditor.alreadyLinked" = "已關聯";
+"expenseeditor.noLinkableCards" = "冇可關聯嘅卡片";
+"expenseeditor.noLinkableCardsHint" = "請先喺行程加入活動、酒店或機票，並等卡片完成同步。";
+"expenseeditor.noMatchingCards" = "冇符合條件嘅卡片";
+"expenseeditor.noMatchingCardsHint" = "試吓搜尋名稱、地點或者活動類型。";
 "expenseeditor.noteSection" = "備註（可選）";
-"expenseeditor.notePlaceholder" = "例如：機場去酒店";
+"expenseeditor.notePlaceholder" = "例如：待報銷";
 "expenseeditor.addTitle" = "新增實際價";
 "expenseeditor.editTitle" = "編輯實際價";
 "expenseeditor.errorInvalid" = "請輸入有效嘅正數金額，小數位唔可以超過該貨幣嘅精度。";
 "expensesummary.title" = "支出概覽";
 "expensesummary.count" = "實際 %lld 筆";
+"expensesummary.primaryCurrency" = "主要貨幣";
+"expensesummary.changePrimaryCurrencyA11y" = "修改主要貨幣";
 "expensesummary.actual" = "實際已支出";
 "expensesummary.estimated" = "預估（待記實際）";
 "expensesummary.total" = "全行程合計（實際 + 預估）";
@@ -673,6 +694,15 @@
 "journal.createGroup" = "建立分組";
 "journal.existingGroupsSection" = "已有分組";
 "journal.groupsTitle" = "手書分組";
+"journal.photoSection" = "相片";
+"journal.addPhotos" = "加入相片";
+"journal.addDescription" = "加入描述";
+"journal.descriptionPlaceholder" = "寫點什麼…";
+"journal.mapModeA11y" = "地圖模式";
+"journal.listModeA11y" = "列表模式";
+"journal.mapEmptyTitle" = "地圖上仲未有相片";
+"journal.mapEmptyDesc" = "加入帶位置資訊嘅相片後，會按拍攝地點釘喺地圖上。";
+"journal.photoPinA11y" = "相片";
 
 /* ===== 媒體 ===== */
 "media.tooLarge" = "單一檔案唔可以超過 5GB。";
@@ -1125,6 +1155,9 @@
 "hotelcard.checkOut" = "退房";
 "hotelcard.nights" = "%lld 晚";
 "today.locateA11y" = "定位到我的位置";
+"today.overviewA11y" = "顯示行程總覽";
+"today.exitOverviewA11y" = "返回當前日期";
+"today.overviewTitle" = "行程總覽";
 "rail.checkInPolicy" = "入住政策";
 "rail.checkOutPolicy" = "退房政策";
 "rail.departure" = "起飛";
@@ -1167,3 +1200,26 @@
 "agent.commitJournalDetail" = "成功儲存 %d 篇手書";
 "root.summonLedgerAgentA11y" = "叫算盤";
 "root.summonJournalAgentA11y" = "叫墨墨";
+
+/* ===== 支出詳細資料 ===== */
+"expenseeditor.transactionDetails" = "消費資料";
+"expenseeditor.transactionDetailsHelp" = "請按實際交易填寫，輸入時間會自動記錄。";
+"expenseeditor.spentAt" = "實際消費時間";
+"expenseeditor.purchaseChannel" = "消費渠道";
+"expenseeditor.purchaseChannelPlaceholder" = "消費渠道（商戶或平台）";
+"expenseeditor.paymentMethod" = "付款渠道";
+"expenseeditor.consumer" = "消費人";
+"expenseeditor.notSpecified" = "未指定";
+"expenseeditor.createdAt" = "輸入時間";
+"expenseeditor.noteHelp" = "只寫有用的補充資料，例如「待報銷」。";
+"expense.payment.cash" = "現金";
+"expense.payment.creditCard" = "信用卡";
+"expense.payment.debitCard" = "銀行卡";
+"expense.payment.alipay" = "支付寶";
+"expense.payment.wechatPay" = "WeChat Pay";
+"expense.payment.applePay" = "Apple Pay";
+"expense.payment.bankTransfer" = "銀行轉帳";
+"expense.payment.other" = "其他";
+"expensesummary.byConsumer" = "按消費人";
+"expensesummary.formerMember" = "已離開成員";
+"expensesummary.unspecifiedConsumer" = "未指定消費人";

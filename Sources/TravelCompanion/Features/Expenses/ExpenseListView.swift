@@ -4,9 +4,11 @@ struct ExpenseListView: View {
     @ObservedObject var syncEngine: SyncEngine
     @State private var editorTarget: ExpenseSnapshot?
     @State private var addingExpense = false
-    @State private var showingAIScan = false
+    @State private var addingWalletItem = false
+    @State private var creatingMemoList = false
     @State private var pendingDeletion: ExpenseSnapshot?
     @State private var section: ExpenseSection = .expenses
+    @State private var members: [TripMemberSummary] = []
 
     var body: some View {
         NavigationStack {
@@ -23,9 +25,9 @@ struct ExpenseListView: View {
                     case .expenses:
                         expenseContent
                     case .wallet:
-                        WalletSection(syncEngine: syncEngine)
+                        WalletSection(syncEngine: syncEngine, isAddingItem: $addingWalletItem)
                     case .memo:
-                        MemoSection(syncEngine: syncEngine)
+                        MemoSection(creatingList: $creatingMemoList)
                     }
                 }
             }
@@ -33,21 +35,14 @@ struct ExpenseListView: View {
             .preferredColorScheme(.dark)
             .sheet(isPresented: $addingExpense) {
                 if let trip = syncEngine.trip {
-                    ExpenseEditorView(trip: trip) { request in
-                        Task { await syncEngine.addExpense(request) }
-                    }
-                }
-            }
-            .sheet(isPresented: $showingAIScan) {
-                if let trip = syncEngine.trip {
-                    AIExpenseConversationSheet(syncEngine: syncEngine, trip: trip) { request in
+                    ExpenseEditorView(trip: trip, members: members) { request in
                         Task { await syncEngine.addExpense(request) }
                     }
                 }
             }
             .sheet(item: $editorTarget) { expense in
                 if let trip = syncEngine.trip {
-                    ExpenseEditorView(trip: trip, existingExpense: expense) { request in
+                    ExpenseEditorView(trip: trip, existingExpense: expense, members: members) { request in
                         Task { await syncEngine.updateExpense(expense, request: request) }
                     }
                 }
@@ -68,6 +63,13 @@ struct ExpenseListView: View {
             } message: { _ in
                 Text("expense.deleteSharedNote")
             }
+            .task(id: syncEngine.selectedTripID) {
+                guard syncEngine.isUserAuthenticated else {
+                    members = []
+                    return
+                }
+                members = (try? await syncEngine.fetchTripMembers()) ?? []
+            }
         }
     }
 
@@ -80,21 +82,14 @@ struct ExpenseListView: View {
             HStack { 
                 Spacer(minLength: 0)
 
-                if section == .expenses {
-                    Menu {
-                        Button("expense.manualAdd", systemImage: "plus") { addingExpense = true }
-                        Button("expense.scanChat", systemImage: "doc.viewfinder") { showingAIScan = true }
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 21, weight: .medium))
-                            .frame(width: 40, height: 40)
-                    }
-                    .primaryTabHeaderButtonStyle()
-                    .disabled(syncEngine.trip?.currency == nil)
-                    .accessibilityLabel(Text("expense.addA11y"))
-                } else {
-                    Color.clear.frame(width: 48, height: 48)
+                Button(action: addManualEntry) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 21, weight: .medium))
+                        .frame(width: 40, height: 40)
                 }
+                .primaryTabHeaderButtonStyle()
+                .disabled(section == .expenses && syncEngine.trip?.currency == nil)
+                .accessibilityLabel(Text(LocalizedStringKey(section.addAccessibilityKey)))
             }
         }
         .frame(height: 48)
@@ -147,7 +142,9 @@ struct ExpenseListView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     syncFeedback
-                    ExpenseSummaryView(trip: trip, currency: currency)
+                    ExpenseSummaryView(trip: trip, currency: currency, members: members) { newCurrency in
+                        Task { await syncEngine.updatePrimaryCurrency(newCurrency) }
+                    }
 
                     HStack {
                         Text("expense.section")
@@ -210,21 +207,35 @@ struct ExpenseListView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
 
-                HStack(spacing: 6) {
-                    Text(expense.occurredOn)
-                    if let card = linkedCard(for: expense) {
-                        Text("·").foregroundStyle(PrimaryTabPalette.tertiaryText)
-                        Image(systemName: "link")
-                        Text(card.title).lineLimit(1)
-                    }
+                Text(expenseTimeText(expense))
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+
+                if !expenseMetadata(expense).isEmpty {
+                    Text(expenseMetadata(expense))
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .lineLimit(2)
                 }
-                .font(.caption)
-                .foregroundStyle(PrimaryTabPalette.secondaryText)
+
+                if let card = linkedCard(for: expense) {
+                    Label {
+                        Text(card.title).lineLimit(1)
+                    } icon: {
+                        Image(systemName: card.kind.systemImage)
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(PrimaryTabPalette.accent.opacity(0.11), in: Capsule())
+                }
 
                 if let note = expense.note, !note.isEmpty {
                     Text(note)
                         .font(.caption)
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .lineLimit(2)
                 }
             }
 
@@ -256,6 +267,31 @@ struct ExpenseListView: View {
     private func linkedCard(for expense: ExpenseSnapshot) -> TravelCardSnapshot? {
         guard let cardID = expense.cardID else { return nil }
         return syncEngine.trip?.days.flatMap(\.cards).first { $0.serverID == cardID }
+    }
+
+    private func expenseTimeText(_ expense: ExpenseSnapshot) -> String {
+        guard let spentAt = expense.spentAt else { return expense.occurredOn }
+        return spentAt.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func expenseMetadata(_ expense: ExpenseSnapshot) -> String {
+        let payment = expense.paymentMethod.map { rawValue in
+            ExpensePaymentMethod(rawValue: rawValue)?.title ?? rawValue
+        }
+        return [expense.purchaseChannel, payment, expense.consumerName]
+            .compactMap { value in
+                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            .joined(separator: " · ")
+    }
+
+    private func addManualEntry() {
+        switch section {
+        case .expenses: addingExpense = true
+        case .wallet: addingWalletItem = true
+        case .memo: creatingMemoList = true
+        }
     }
 
     @ViewBuilder
@@ -308,6 +344,14 @@ private enum ExpenseSection: CaseIterable, Identifiable {
         case .expenses: String(localized: "expense.tab.expenses")
         case .wallet: String(localized: "expense.tab.wallet")
         case .memo: String(localized: "expense.tab.memo")
+        }
+    }
+
+    var addAccessibilityKey: String {
+        switch self {
+        case .expenses: "expense.addA11y"
+        case .wallet: "wallet.addA11y"
+        case .memo: "memo.addListA11y"
         }
     }
 

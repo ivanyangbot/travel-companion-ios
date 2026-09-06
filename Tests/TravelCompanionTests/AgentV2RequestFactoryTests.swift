@@ -39,7 +39,20 @@ final class AgentV2RequestFactoryTests: XCTestCase {
 
     func testLedgerRequestCarriesAgentFieldExpenseAndReferenceSnapshots() throws {
         var trip = makeTrip(expenses: [
-            ExpenseSnapshot(serverID: 101, amountMinor: 6_050, currency: "JPY", category: .food, occurredOn: "2026-10-04", note: String(repeating: "长", count: 300), cardID: 11),
+            ExpenseSnapshot(
+                serverID: 101,
+                amountMinor: 6_050,
+                currency: "JPY",
+                category: .food,
+                occurredOn: "2026-10-04",
+                spentAt: Date(timeIntervalSince1970: 1_760_000_000),
+                purchaseChannel: "大众点评",
+                paymentMethod: ExpensePaymentMethod.alipay.rawValue,
+                consumerUserID: 42,
+                consumerName: "小林",
+                note: "客户报销；参考汇率仅供参考",
+                cardID: 11
+            ),
             ExpenseSnapshot(amountMinor: 999, currency: "JPY", category: .other, occurredOn: "2026-10-01"),  // 离线记录：无 serverID，不下发
         ])
         trip.expenses.append(contentsOf: (1...70).map { index in
@@ -59,7 +72,15 @@ final class AgentV2RequestFactoryTests: XCTestCase {
         XCTAssertEqual(request.intent, "ledger")
         XCTAssertEqual(request.expenses?.count, AgentV2TurnRequestFactory.expenseSnapshotLimit)
         XCTAssertEqual(request.expenses?.first?.id, 101)
-        XCTAssertEqual(request.expenses?.first?.note?.count, 200)
+        XCTAssertEqual(request.expenses?.first?.note, "客户报销；参考汇率仅供参考")
+        XCTAssertNotNil(request.expenses?.first?.spentAt)
+        XCTAssertEqual(request.expenses?.first?.purchaseChannel, "大众点评")
+        XCTAssertEqual(request.expenses?.first?.paymentMethod, "alipay")
+        XCTAssertEqual(request.expenses?.first?.consumerUserId, 42)
+        XCTAssertEqual(request.expenses?.first?.consumerName, "小林")
+        XCTAssertNotNil(request.expenses?.first?.createdAt)
+        XCTAssertTrue(request.message.hasPrefix("记一笔晚餐"))
+        XCTAssertTrue(request.message.contains("Keep expense notes strictly concise"))
         XCTAssertNil(request.journal)
         XCTAssertEqual(request.memos?.first?.title, "买潜水镜")
         XCTAssertEqual(request.walletCards?.first?.title, "招商银行信用卡")
@@ -150,5 +171,22 @@ final class AgentV2RequestFactoryTests: XCTestCase {
             ExpenseSnapshot(serverID: index, amountMinor: 10, currency: "JPY", category: .other, occurredOn: "2026-10-0\(index % 3 + 1)")
         }
         XCTAssertEqual(AgentV2TurnRequestFactory.expenseSnapshot(from: trip).count, 60)
+    }
+
+    func testExpenseCandidatePreservesNotesIncludingBookingDetailsAndLongText() throws {
+        let id = UUID()
+        let originalNotes = "入住时补付押金；Booking订单号 123；待报销。" + String(repeating: "保留原文", count: 30)
+        let json = """
+        {
+          "id": "\(id.uuidString)",
+          "kind": "expense",
+          "title": "酒店",
+          "notes": "\(originalNotes)"
+        }
+        """
+        let candidate = try JSONDecoder().decode(AgentV2Candidate.self, from: Data(json.utf8))
+        XCTAssertEqual(candidate.notes, originalNotes)
+        let roundTripped = try JSONDecoder().decode(AgentV2Candidate.self, from: JSONEncoder().encode(candidate))
+        XCTAssertEqual(roundTripped.notes, originalNotes)
     }
 }

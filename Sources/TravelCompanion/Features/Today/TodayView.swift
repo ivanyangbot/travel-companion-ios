@@ -25,6 +25,7 @@ struct TodayView: View {
     @State private var selectedDayIndex: Int?
     @State private var weatherEntries: [TodayWeatherEntry] = []
     @State private var isPOIOverlayExpanded = true
+    @State private var isTripOverview = false
     // Restored from the original home-page quick-action drawer. The current
     // down button now collapses the POI overlay and opens this menu in one tap.
     @State private var activeQuickAction: TodayQuickAction?
@@ -233,14 +234,22 @@ struct TodayView: View {
         )
         let pois = poiCards(in: day, projectedCards: projectedCards)
         let flights = flightCards(in: day, projectedCards: projectedCards)
-        let flightIDs = Set(flights.map(\.id))
+        let allCards = days.flatMap(\.cards).sorted { $0.startAt < $1.startAt }
+        let allPOIs = allCards.filter { $0.kind != .flight }
+        let allFlights = allCards.filter { $0.kind == .flight }
+        let displayedPOIs = isTripOverview ? allPOIs : pois
+        let displayedFlights = isTripOverview ? allFlights : flights
+        let flightIDs = Set(displayedFlights.map(\.id))
         let flightRoutes = resolvedFlightRoutes.filter { flightIDs.contains($0.cardID) }
-        let points = mapPoints(pois: pois)
+        let points = mapPoints(pois: displayedPOIs)
         // Adjacent POI pairs that a flight connects are drawn as the flight
         // arc only; their ground route is never requested or rendered.
-        let flownLegOriginIDs = ItineraryListPresentation.flownLegOriginIDs(pois: pois, flights: flights)
-        let showsPOISwiper = !pois.isEmpty && isPOIOverlayExpanded
-        let showsTimeline = pois.isEmpty || isPOIOverlayExpanded
+        let flownLegOriginIDs = ItineraryListPresentation.flownLegOriginIDs(
+            pois: displayedPOIs,
+            flights: displayedFlights
+        )
+        let showsPOISwiper = !isTripOverview && !pois.isEmpty && isPOIOverlayExpanded
+        let showsTimeline = !isTripOverview && (pois.isEmpty || isPOIOverlayExpanded)
         ZStack(alignment: .top) {
             MapLibreTodayMapCanvas(
                 points: points,
@@ -249,18 +258,19 @@ struct TodayView: View {
                 // A selected map marker is the visual counterpart of the
                 // visible POI card. Keep every marker compact and neutral
                 // while the user has collapsed the bottom overlay.
-                selectedIndex: isPOIOverlayExpanded ? clampedIndex(pois: pois) : nil,
+                selectedIndex: !isTripOverview && isPOIOverlayExpanded ? clampedIndex(pois: pois) : nil,
                 cameraFocus: cameraFocus,
                 cameraFocusPointID: cameraFocusPointID,
                 cameraRequestID: cameraRequestID,
+                showsUserLocation: userLocationProvider.coordinate != nil,
                 // While the timeline is visible, its live frame is the bottom
                 // pin boundary and follows card expansion. A date without POIs
                 // keeps this boundary because its timeline remains on screen.
                 timelineTopInGlobal: showsTimeline ? lastTimelineTopInGlobal : nil,
-                overviewBottomInset: isPOIOverlayExpanded ? 240 : 112,
+                overviewBottomInset: isTripOverview ? 112 : (isPOIOverlayExpanded ? 240 : 112),
                 routeRefreshID: 0,
                 onFlightSelected: { cardID in
-                    guard let card = flights.first(where: { $0.id == cardID }) else { return }
+                    guard let card = displayedFlights.first(where: { $0.id == cardID }) else { return }
                     selectedFlightCard = card
                 }
             ) { _ in
@@ -288,21 +298,34 @@ struct TodayView: View {
                 mapHeader(
                     days: days,
                     for: day,
-                    pois: pois,
+                    pois: displayedPOIs,
                     flightRoutes: flightRoutes,
                     currentIndex: currentIndex,
                     baseIndex: baseIndex
                 )
                 Spacer()
-                if showsTimeline {
-                    let timelineWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
-                    VStack(spacing: 8) {
-                        // 定位按钮：时间轴上方、页面右下角，点击把地图移到用户位置。
-                        HStack {
-                            Spacer(minLength: 0)
-                            locateButton
+                VStack(spacing: 8) {
+                    HStack {
+                        overviewButton(isActive: isTripOverview) {
+                            let willShowOverview = !isTripOverview
+                            withAnimation(.snappy(duration: 0.28)) {
+                                isTripOverview = willShowOverview
+                                expandedPOICardID = nil
+                                poiExpansionProgress = 0
+                            }
+                            if willShowOverview {
+                                fitAll(pois: allPOIs, flightRoutes: resolvedFlightRoutes)
+                            } else {
+                                fitAll(pois: pois, flightRoutes: flightRoutes)
+                            }
                         }
+                        Spacer(minLength: 0)
+                        locateButton
+                    }
+                    .padding(.horizontal, 20)
 
+                    if showsTimeline {
+                        let timelineWidth = min(390, max(0, UIScreen.main.bounds.width - 40))
                         TodayDateTimeline(
                             days: days,
                             selectedIndex: currentIndex,
@@ -333,9 +356,8 @@ struct TodayView: View {
                             )
                         }
                     }
-                    .padding(.bottom, 112)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
+                .padding(.bottom, 112)
             }
             .padding(.top, 2)
         }
@@ -345,13 +367,18 @@ struct TodayView: View {
                 lastTimelineTopInGlobal = top
             }
         }
-        .task(id: "\(day.id)-\(cardsKey(pois + flights))") {
+        .task(id: "\(day.id)-\(cardsKey(allCards))") {
             hasCenteredOnPOIs = false
-            let routes = await AppleMapService.resolveFlightRoutes(cards: flights)
+            let routes = await AppleMapService.resolveFlightRoutes(cards: allFlights)
             guard !Task.isCancelled else { return }
             syncEngine.cacheFlightAirportLocations(from: routes)
             resolvedFlightRoutes = routes
-            fitAll(pois: pois, flightRoutes: routes)
+            let targetFlights = isTripOverview ? allFlights : flights
+            let targetFlightIDs = Set(targetFlights.map(\.id))
+            fitAll(
+                pois: isTripOverview ? allPOIs : pois,
+                flightRoutes: routes.filter { targetFlightIDs.contains($0.cardID) }
+            )
             hasCenteredOnPOIs = true
         }
     }
@@ -380,7 +407,11 @@ struct TodayView: View {
         baseIndex: Int
     ) -> some View {
         ZStack(alignment: .top) {
-            Text(mapHeaderTitle(for: day, currentIndex: currentIndex, baseIndex: baseIndex))
+            Text(
+                isTripOverview
+                    ? String(localized: "today.overviewTitle")
+                    : mapHeaderTitle(for: day, currentIndex: currentIndex, baseIndex: baseIndex)
+            )
                 .font(.system(size: 20, weight: .semibold))
                 .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 48)
                 .foregroundStyle(.white)
@@ -530,6 +561,7 @@ struct TodayView: View {
         weatherEntries = []
         expandedPOICardID = nil
         poiExpansionProgress = 0
+        isTripOverview = false
     }
 
     private func mapHeaderTitle(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> String {
@@ -603,6 +635,7 @@ struct TodayView: View {
         poiSwipeStartExpansionProgress = nil
         poiSwipeTranslation = 0
         weatherEntries = []
+        isTripOverview = false
         withAnimation(.easeInOut(duration: 0.25)) {
             selectedDayIndex = index
         }
@@ -939,6 +972,34 @@ struct TodayView: View {
         .buttonStyle(.plain)
         .opacity(userLocationProvider.coordinate == nil ? 0.55 : 1)
         .accessibilityLabel(Text("today.locateA11y"))
+    }
+
+    private func overviewButton(isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(isActive ? .black : .white)
+                .frame(width: 40, height: 40)
+                .background(
+                    isActive ? PrimaryTabPalette.accent : PrimaryTabPalette.elevatedSurface,
+                    in: Circle()
+                )
+                .overlay {
+                    Circle().stroke(.white.opacity(isActive ? 0 : 0.10), lineWidth: 1)
+                }
+                .shadow(
+                    color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
+                    radius: 12,
+                    y: 12
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(LocalizedStringKey(
+            isActive ? "today.exitOverviewA11y" : "today.overviewA11y"
+        )))
+        .accessibilityValue(
+            isActive ? Text("common.selected") : Text("")
+        )
     }
 
     private func fitAll(

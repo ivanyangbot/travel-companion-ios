@@ -39,7 +39,7 @@ struct AgentV2TurnRequestFactory {
             sessionId: session.id,
             turnId: UUID(),
             intent: agent == .itinerary ? "itinerary" : agent.rawValue,
-            message: message,
+            message: agent == .ledger ? Self.ledgerMessage(message) : message,
             trip: Self.tripEnvelope(for: trip, includeActualPrices: agent == .ledger),
             preferences: session.preferences,
             history: history,
@@ -97,7 +97,7 @@ struct AgentV2TurnRequestFactory {
     }
 
     /// 费用快照：按发生日倒序取最近 60 条；离线创建（尚无服务端 ID）的
-    /// 记录不下发，note 截 200 字符。
+    /// 记录不下发；上下文备注按接口上限取 200 字符，不修改原始账目。
     static func expenseSnapshot(from trip: SharedTripSnapshot) -> [AgentV2TurnRequest.ExpenseSnapshotItem] {
         trip.expenses
             .sorted { $0.occurredOn > $1.occurredOn }
@@ -111,11 +111,26 @@ struct AgentV2TurnRequestFactory {
                     occurredOn: expense.occurredOn,
                     note: expense.note.map { String($0.prefix(200)) },
                     cardId: expense.cardID,
-                    settlementAmountMinor: expense.settlementAmountMinor
+                    settlementAmountMinor: expense.settlementAmountMinor,
+                    spentAt: expense.spentAt.map { iso8601.string(from: $0) },
+                    purchaseChannel: expense.purchaseChannel,
+                    paymentMethod: expense.paymentMethod,
+                    consumerUserId: expense.consumerUserID,
+                    consumerName: expense.consumerName,
+                    createdAt: iso8601.string(from: expense.createdAt)
                 )
             }
             .prefix(expenseSnapshotLimit)
             .map { $0 }
+    }
+
+    private static func ledgerMessage(_ userMessage: String) -> String {
+        """
+        \(userMessage)
+
+        [Ledger output rules]
+        Keep expense notes strictly concise. Put transaction time, merchant/platform, payment method, consumer, linked itinerary card, amount, currency, and category in their dedicated structured fields, never in notes. Notes may contain only a user-stated reconciliation detail that has no structured field; otherwise return notes as null. Do not copy booking descriptions, cancellation policies, exchange-rate disclaimers, confirmations, or generic advice into notes. Limit any note to 80 characters. When evidence is available, populate spentAt (ISO 8601), purchaseChannel, paymentMethod, consumerUserId/consumerName, and cardId. paymentMethod must be one of cash, credit_card, debit_card, alipay, wechat_pay, apple_pay, bank_transfer, or other.
+        """
     }
 
     /// 备忘物品引用：id 为顺序编号（仅轮内引用），仅未勾选项对记账有意义，

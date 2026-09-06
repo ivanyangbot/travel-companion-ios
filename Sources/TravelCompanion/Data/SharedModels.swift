@@ -119,13 +119,19 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
     var paidBy: ExpensePaidBy?
     var splitMode: ExpenseSplitMode?
     var occurredOn: String
+    var spentAt: Date?
+    var purchaseChannel: String?
+    var paymentMethod: String?
+    var consumerUserID: Int?
+    var consumerName: String?
     var note: String?
     var cardID: Int?
+    var createdAt: Date
     var updatedAt: Date
 
-    enum CodingKeys: String, CodingKey { case serverID = "id", localID, amountMinor, currency, settlementAmountMinor, settlementCurrency, exchangeRate, exchangeRateAsOf, exchangeRateSource, category, paidBy, splitMode, occurredOn, note, cardID = "cardId", updatedAt }
+    enum CodingKeys: String, CodingKey { case serverID = "id", localID, amountMinor, currency, settlementAmountMinor, settlementCurrency, exchangeRate, exchangeRateAsOf, exchangeRateSource, category, paidBy, splitMode, occurredOn, spentAt, purchaseChannel, paymentMethod, consumerUserID = "consumerUserId", consumerName, note, cardID = "cardId", createdAt, updatedAt }
 
-    init(serverID: Int? = nil, amountMinor: Int64, currency: String, settlementAmountMinor: Int64? = nil, settlementCurrency: String? = nil, exchangeRate: String? = nil, exchangeRateAsOf: String? = nil, exchangeRateSource: String? = nil, category: ExpenseCategory, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String, note: String? = nil, cardID: Int? = nil, updatedAt: Date = .now) {
+    init(serverID: Int? = nil, amountMinor: Int64, currency: String, settlementAmountMinor: Int64? = nil, settlementCurrency: String? = nil, exchangeRate: String? = nil, exchangeRateAsOf: String? = nil, exchangeRateSource: String? = nil, category: ExpenseCategory, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String, spentAt: Date? = nil, purchaseChannel: String? = nil, paymentMethod: String? = nil, consumerUserID: Int? = nil, consumerName: String? = nil, note: String? = nil, cardID: Int? = nil, createdAt: Date = .now, updatedAt: Date = .now) {
         id = UUID()
         self.serverID = serverID
         self.amountMinor = amountMinor
@@ -139,8 +145,14 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.paidBy = paidBy
         self.splitMode = splitMode
         self.occurredOn = occurredOn
+        self.spentAt = spentAt
+        self.purchaseChannel = purchaseChannel
+        self.paymentMethod = paymentMethod
+        self.consumerUserID = consumerUserID
+        self.consumerName = consumerName
         self.note = note
         self.cardID = cardID
+        self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
@@ -158,9 +170,15 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         paidBy = try container.decodeIfPresent(ExpensePaidBy.self, forKey: .paidBy)
         splitMode = try container.decodeIfPresent(ExpenseSplitMode.self, forKey: .splitMode)
         occurredOn = try container.decode(String.self, forKey: .occurredOn)
+        spentAt = try container.decodeIfPresent(Date.self, forKey: .spentAt)
+        purchaseChannel = try container.decodeIfPresent(String.self, forKey: .purchaseChannel)
+        paymentMethod = try container.decodeIfPresent(String.self, forKey: .paymentMethod)
+        consumerUserID = try container.decodeIfPresent(Int.self, forKey: .consumerUserID)
+        consumerName = try container.decodeIfPresent(String.self, forKey: .consumerName)
         note = try container.decodeIfPresent(String.self, forKey: .note)
         cardID = try container.decodeIfPresent(Int.self, forKey: .cardID)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? updatedAt
         id = try container.decodeIfPresent(UUID.self, forKey: .localID) ?? UUID()
     }
 
@@ -179,8 +197,14 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encode(paidBy, forKey: .paidBy)
         try container.encode(splitMode, forKey: .splitMode)
         try container.encode(occurredOn, forKey: .occurredOn)
+        try container.encodeIfPresent(spentAt, forKey: .spentAt)
+        try container.encodeIfPresent(purchaseChannel, forKey: .purchaseChannel)
+        try container.encodeIfPresent(paymentMethod, forKey: .paymentMethod)
+        try container.encodeIfPresent(consumerUserID, forKey: .consumerUserID)
+        try container.encodeIfPresent(consumerName, forKey: .consumerName)
         try container.encodeIfPresent(note, forKey: .note)
         try container.encodeIfPresent(cardID, forKey: .cardID)
+        try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
     }
 }
