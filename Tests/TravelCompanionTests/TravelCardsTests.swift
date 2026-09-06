@@ -1668,7 +1668,7 @@ final class TravelCardsTests: XCTestCase {
             category: .tickets,
             occurredOn: "2026-10-01",
             note: "本地支出",
-            cardID: 20
+            cardIDs: [20]
         )
         let localTrip = SharedTripSnapshot(
             id: -1,
@@ -1703,7 +1703,7 @@ final class TravelCardsTests: XCTestCase {
         XCTAssertEqual(engine.trip?.id, 42)
         XCTAssertEqual(engine.trip?.days.first?.cards.first?.title, "西湖")
         XCTAssertEqual(engine.trip?.expenses.first?.amountMinor, 12_500)
-        XCTAssertEqual(engine.trip?.expenses.first?.cardID, 201)
+        XCTAssertEqual(engine.trip?.expenses.first?.cardIDs, [201])
         XCTAssertTrue(try repository.pendingOperations().isEmpty)
         XCTAssertEqual(try context.fetch(FetchDescriptor<LocalWalletItem>()).first?.encryptedSecret, wallet.encryptedSecret)
         XCTAssertEqual(

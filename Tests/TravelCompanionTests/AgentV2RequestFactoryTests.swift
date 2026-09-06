@@ -51,7 +51,8 @@ final class AgentV2RequestFactoryTests: XCTestCase {
                 consumerUserID: 42,
                 consumerName: "小林",
                 note: "客户报销；参考汇率仅供参考",
-                cardID: 11
+                paidAt: Date(timeIntervalSince1970: 1_760_000_050),
+                cardIDs: [11, 12]
             ),
             ExpenseSnapshot(amountMinor: 999, currency: "JPY", category: .other, occurredOn: "2026-10-01"),  // 离线记录：无 serverID，不下发
         ])
@@ -78,6 +79,8 @@ final class AgentV2RequestFactoryTests: XCTestCase {
         XCTAssertEqual(request.expenses?.first?.paymentMethod, "alipay")
         XCTAssertEqual(request.expenses?.first?.consumerUserId, 42)
         XCTAssertEqual(request.expenses?.first?.consumerName, "小林")
+        XCTAssertEqual(request.expenses?.first?.cardIds, [11, 12])
+        XCTAssertNotNil(request.expenses?.first?.paidAt)
         XCTAssertNotNil(request.expenses?.first?.createdAt)
         XCTAssertTrue(request.message.hasPrefix("记一笔晚餐"))
         XCTAssertTrue(request.message.contains("Keep expense notes strictly concise"))

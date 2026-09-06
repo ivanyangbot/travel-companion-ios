@@ -131,12 +131,13 @@ enum ExpenseOptimisticMutation {
         if let value = request.splitMode { updated.splitMode = value }
         if let value = request.occurredOn { updated.occurredOn = value }
         if let value = request.spentAt { updated.spentAt = value }
+        updated.paidAt = request.paidAt ?? (request.fieldsToClear.contains("paidAt") ? nil : updated.paidAt)
         updated.purchaseChannel = request.purchaseChannel ?? (request.fieldsToClear.contains("purchaseChannel") ? nil : updated.purchaseChannel)
         updated.paymentMethod = request.paymentMethod ?? (request.fieldsToClear.contains("paymentMethod") ? nil : updated.paymentMethod)
         updated.consumerUserID = request.consumerUserID ?? (request.fieldsToClear.contains("consumerUserId") ? nil : updated.consumerUserID)
         updated.consumerName = request.consumerName ?? (request.fieldsToClear.contains("consumerName") ? nil : updated.consumerName)
         updated.note = request.note ?? (request.fieldsToClear.contains("note") ? nil : updated.note)
-        updated.cardID = request.cardID ?? (request.fieldsToClear.contains("cardId") ? nil : updated.cardID)
+        updated.cardIDs = request.cardIDs ?? (request.fieldsToClear.contains("cardIds") ? [] : updated.cardIDs)
         updated.updatedAt = .now
         return updated
     }
@@ -160,6 +161,8 @@ struct ExpenseSettlement: Equatable {
 }
 
 enum ExpenseSettlementCalculator {
+    /// 结算（谁垫付/谁欠谁）只看已支付的账；未支出（如到店付）还没发生
+    /// 资金往来，由汇总区单独展示，不进入欠款计算。
     static func calculate(_ expenses: [ExpenseSnapshot]) -> ExpenseSettlement {
         var total: Int64 = 0
         var byCategory: [ExpenseCategory: Int64] = [:]
@@ -168,7 +171,7 @@ enum ExpenseSettlementCalculator {
         var owedA: Int64 = 0
         var owedB: Int64 = 0
         var overflowed = false
-        for expense in expenses {
+        for expense in expenses where expense.isPaid(at: .now) {
             guard let settled = expense.amountForSettlement else { continue }
             total = safeAdd(total, settled, overflowed: &overflowed)
             byCategory[expense.category] = safeAdd(byCategory[expense.category, default: 0], settled, overflowed: &overflowed)
@@ -210,9 +213,121 @@ extension ExpenseSnapshot {
         if settlementCurrency == nil || settlementCurrency == currency { return amountMinor }
         return nil
     }
+
+    /// 已支出/未支出由支付发生时间判定：paidAt 已过即已支出；为空（尚未
+    /// 约定支付时间）或在未来（到店付）均为未支出。跨过支付时刻后自动翻转。
+    func isPaid(at reference: Date = .now) -> Bool {
+        guard let paidAt else { return false }
+        return paidAt <= reference
+    }
 }
 
-enum ExpenseMemberNames {
+// MARK: - 账单列表筛选与排序
+
+/// 账单页的筛选/排序条件。纯值类型：输入全量支出，输出展示顺序，
+/// 与视图解耦以便单测。
+struct ExpenseListFilter: Equatable, Sendable {
+    enum PaymentStatus: String, CaseIterable, Sendable, Identifiable {
+        case all, paid, unpaid
+        var id: String { rawValue }
+    }
+
+    enum SortOrder: String, CaseIterable, Sendable, Identifiable {
+        case timeDesc, timeAsc, amountDesc, amountAsc
+        var id: String { rawValue }
+    }
+
+    /// 消费人筛选的稳定标识：成员 ID、自由文本姓名或未指定。
+    struct ConsumerOption: Equatable, Hashable, Sendable, Identifiable {
+        let id: String
+        let name: String
+        static let unspecified = ConsumerOption(id: "unspecified", name: String(localized: "expensesummary.unspecifiedConsumer"))
+    }
+
+    var consumer: ConsumerOption?
+    var paymentStatus: PaymentStatus = .all
+    var category: ExpenseCategory?
+    var sortOrder: SortOrder = .timeDesc
+
+    var isActive: Bool {
+        consumer != nil || paymentStatus != .all || category != nil
+    }
+
+    func apply(to expenses: [ExpenseSnapshot]) -> [ExpenseSnapshot] {
+        let filtered = expenses.filter { expense in
+            if let consumer, consumerID(of: expense) != consumer.id { return false }
+            switch paymentStatus {
+            case .all: break
+            case .paid: if !expense.isPaid() { return false }
+            case .unpaid: if expense.isPaid() { return false }
+            }
+            if let category, expense.category != category { return false }
+            return true
+        }
+        switch sortOrder {
+        case .timeDesc:
+            return filtered.sorted { ($0.occurredOn, $0.updatedAt) > ($1.occurredOn, $1.updatedAt) }
+        case .timeAsc:
+            return filtered.sorted { ($0.occurredOn, $0.updatedAt) < ($1.occurredOn, $1.updatedAt) }
+        case .amountDesc, .amountAsc:
+            let ascending = sortOrder == .amountAsc
+            return filtered.sorted {
+                let lhs = $0.amountForSettlement ?? $0.amountMinor
+                let rhs = $1.amountForSettlement ?? $1.amountMinor
+                if lhs != rhs { return ascending ? lhs < rhs : lhs > rhs }
+                // 金额相同的按时间稳定排序。
+                return ($0.occurredOn, $0.updatedAt) > ($1.occurredOn, $1.updatedAt)
+            }
+        }
+    }
+
+    /// 与汇总区 byConsumer 同一套 key 规则，保证筛选与统计口径一致。
+    func consumerID(of expense: ExpenseSnapshot) -> String {
+        ConsumerOption.key(of: expense)
+    }
+
+    /// 从支出与成员名单推导可选的消费人选项（成员优先，按出现顺序稳定）。
+    static func consumerOptions(from expenses: [ExpenseSnapshot], members: [TripMemberSummary]) -> [ConsumerOption] {
+        var byID: [String: ConsumerOption] = [:]
+        var order: [String] = []
+        func record(_ option: ConsumerOption) {
+            if byID[option.id] == nil {
+                byID[option.id] = option
+                order.append(option.id)
+            }
+        }
+        for member in members {
+            record(ConsumerOption(id: "member:\(member.userId)", name: member.visibleName))
+        }
+        for expense in expenses {
+            let id = ConsumerOption.key(of: expense)
+            if byID[id] != nil { continue }
+            if let userID = expense.consumerUserID {
+                let name = members.first { $0.userId == userID }?.visibleName
+                    ?? expense.consumerName
+                    ?? String(localized: "expensesummary.formerMember")
+                record(ConsumerOption(id: id, name: name))
+            } else if let name = expense.consumerName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                record(ConsumerOption(id: id, name: name))
+            } else {
+                record(.unspecified)
+            }
+        }
+        return order.compactMap { byID[$0] }
+    }
+}
+
+extension ExpenseListFilter.ConsumerOption {
+    /// 成员用 "member:<id>"，自由姓名用 "name:<名>"，其余归「未指定」。
+    static func key(of expense: ExpenseSnapshot) -> String {
+        if let userID = expense.consumerUserID { return "member:\(userID)" }
+        if let name = expense.consumerName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return "name:\(name)"
+        }
+        return ExpenseListFilter.ConsumerOption.unspecified.id
+    }
+}
+
     static func name(for person: ExpensePaidBy) -> String {
         let key = person == .personA ? "expense.memberA.name" : "expense.memberB.name"
         let fallback = person == .personA ? String(localized: "expense.memberA") : String(localized: "expense.memberB")

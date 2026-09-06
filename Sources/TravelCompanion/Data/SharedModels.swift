@@ -125,13 +125,17 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
     var consumerUserID: Int?
     var consumerName: String?
     var note: String?
-    var cardID: Int?
+    /// 关联的行程卡（一笔支出可关联多张，顺序即选择顺序）。
+    var cardIDs: [Int]
+    /// 支付发生时间：早于现在即「已支出」；为空或晚于现在即「未支出」
+    /// （如到店付的预计支付时间）。
+    var paidAt: Date?
     var createdAt: Date
     var updatedAt: Date
 
-    enum CodingKeys: String, CodingKey { case serverID = "id", localID, amountMinor, currency, settlementAmountMinor, settlementCurrency, exchangeRate, exchangeRateAsOf, exchangeRateSource, category, paidBy, splitMode, occurredOn, spentAt, purchaseChannel, paymentMethod, consumerUserID = "consumerUserId", consumerName, note, cardID = "cardId", createdAt, updatedAt }
+    enum CodingKeys: String, CodingKey { case serverID = "id", localID, amountMinor, currency, settlementAmountMinor, settlementCurrency, exchangeRate, exchangeRateAsOf, exchangeRateSource, category, paidBy, splitMode, occurredOn, spentAt, purchaseChannel, paymentMethod, consumerUserID = "consumerUserId", consumerName, note, cardIDs = "cardIds", legacyCardID = "cardId", paidAt, createdAt, updatedAt }
 
-    init(serverID: Int? = nil, amountMinor: Int64, currency: String, settlementAmountMinor: Int64? = nil, settlementCurrency: String? = nil, exchangeRate: String? = nil, exchangeRateAsOf: String? = nil, exchangeRateSource: String? = nil, category: ExpenseCategory, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String, spentAt: Date? = nil, purchaseChannel: String? = nil, paymentMethod: String? = nil, consumerUserID: Int? = nil, consumerName: String? = nil, note: String? = nil, cardID: Int? = nil, createdAt: Date = .now, updatedAt: Date = .now) {
+    init(serverID: Int? = nil, amountMinor: Int64, currency: String, settlementAmountMinor: Int64? = nil, settlementCurrency: String? = nil, exchangeRate: String? = nil, exchangeRateAsOf: String? = nil, exchangeRateSource: String? = nil, category: ExpenseCategory, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String, spentAt: Date? = nil, paidAt: Date? = nil, purchaseChannel: String? = nil, paymentMethod: String? = nil, consumerUserID: Int? = nil, consumerName: String? = nil, note: String? = nil, cardIDs: [Int] = [], createdAt: Date = .now, updatedAt: Date = .now) {
         id = UUID()
         self.serverID = serverID
         self.amountMinor = amountMinor
@@ -146,12 +150,13 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         self.splitMode = splitMode
         self.occurredOn = occurredOn
         self.spentAt = spentAt
+        self.paidAt = paidAt
         self.purchaseChannel = purchaseChannel
         self.paymentMethod = paymentMethod
         self.consumerUserID = consumerUserID
         self.consumerName = consumerName
         self.note = note
-        self.cardID = cardID
+        self.cardIDs = cardIDs
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -176,7 +181,13 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         consumerUserID = try container.decodeIfPresent(Int.self, forKey: .consumerUserID)
         consumerName = try container.decodeIfPresent(String.self, forKey: .consumerName)
         note = try container.decodeIfPresent(String.self, forKey: .note)
-        cardID = try container.decodeIfPresent(Int.self, forKey: .cardID)
+        // 旧快照/旧服务端只有单值 cardId，回退成单元素数组。
+        if let linked = try container.decodeIfPresent([Int].self, forKey: .cardIDs) {
+            cardIDs = linked
+        } else {
+            cardIDs = try container.decodeIfPresent(Int.self, forKey: .legacyCardID).map { [$0] } ?? []
+        }
+        paidAt = try container.decodeIfPresent(Date.self, forKey: .paidAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? updatedAt
         id = try container.decodeIfPresent(UUID.self, forKey: .localID) ?? UUID()
@@ -203,7 +214,8 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(consumerUserID, forKey: .consumerUserID)
         try container.encodeIfPresent(consumerName, forKey: .consumerName)
         try container.encodeIfPresent(note, forKey: .note)
-        try container.encodeIfPresent(cardID, forKey: .cardID)
+        try container.encode(cardIDs, forKey: .cardIDs)
+        try container.encodeIfPresent(paidAt, forKey: .paidAt)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
     }

@@ -507,12 +507,12 @@ enum MapLibrePinLabelGeometry {
 
     /// Preserve every represented member while keeping the visible edge pill
     /// inside the available width. Up to five pins retain their itinerary
-    /// numbers; larger groups collapse into a compact `×count` badge.
+    /// numbers; larger groups collapse into a compact count badge.
     static func fittingText(displayOrders: [Int], maximumWidth: CGFloat) -> String {
         let labels = displayOrders.map { String($0 + 1) }
         guard !labels.isEmpty else { return "" }
         if labels.count > maximumVisibleSequenceCount {
-            return "×\(labels.count)"
+            return String(labels.count)
         }
         let fullText = labels.joined(separator: ".")
         guard size(for: fullText).width > maximumWidth else { return fullText }
@@ -1389,6 +1389,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     /// Origins of adjacent point pairs that a flight connects. Those legs get
     /// no road geometry at all — the flight arc is their only connection.
     let flownLegOriginIDs: Set<UUID>
+    /// Routes still use `points` when POI pins are hidden in trip overview.
+    let showsPointAnnotations: Bool
     /// `nil` renders all POIs as compact number pins, for example while the
     /// action drawer is open and the POI swiper is hidden.
     let selectedIndex: Int?
@@ -1441,6 +1443,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: points,
             flightRoutes: flightRoutes,
             flownLegOriginIDs: flownLegOriginIDs,
+            showsPointAnnotations: showsPointAnnotations,
             selectedIndex: selectedIndex,
             timelineTopInGlobal: timelineTopInGlobal,
             routeRefreshID: routeRefreshID,
@@ -1458,6 +1461,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: points,
             flightRoutes: flightRoutes,
             flownLegOriginIDs: flownLegOriginIDs,
+            showsPointAnnotations: showsPointAnnotations,
             selectedIndex: selectedIndex,
             timelineTopInGlobal: timelineTopInGlobal,
             routeRefreshID: routeRefreshID,
@@ -1487,6 +1491,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             let points: [TodayMapPoint]
             let flightRoutes: [TodayFlightRoute]
             let flownLegOriginIDs: Set<UUID>
+            let showsPointAnnotations: Bool
             let selectedIndex: Int?
             let timelineTopInGlobal: CGFloat?
             let routeRefreshID: Int
@@ -1521,6 +1526,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var renderedPoints: [TodayMapPoint] = []
         private var renderedFlightRoutes: [TodayFlightRoute] = []
         private var renderedFlownLegOriginIDs: Set<UUID> = []
+        private var renderedShowsPointAnnotations = true
         private var renderedSelection: Int?
         private var handledCameraRequestID = -1
         private var handledRouteRefreshID = -1
@@ -1584,6 +1590,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: [TodayMapPoint],
             flightRoutes: [TodayFlightRoute],
             flownLegOriginIDs: Set<UUID>,
+            showsPointAnnotations: Bool,
             selectedIndex: Int?,
             timelineTopInGlobal: CGFloat?,
             routeRefreshID: Int,
@@ -1595,6 +1602,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             self.onFlightSelected = onFlightSelected
             let pointsChanged = points != renderedPoints || flightRoutes != renderedFlightRoutes
                 || flownLegOriginIDs != renderedFlownLegOriginIDs
+                || showsPointAnnotations != renderedShowsPointAnnotations
             let cameraTransitionIsActive = isMapRegionChanging || isProgrammaticCameraChange
             if pendingContentUpdate != nil || (pointsChanged && cameraTransitionIsActive) {
                 let isFirstDeferredUpdate = pendingContentUpdate == nil
@@ -1602,6 +1610,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     points: points,
                     flightRoutes: flightRoutes,
                     flownLegOriginIDs: flownLegOriginIDs,
+                    showsPointAnnotations: showsPointAnnotations,
                     selectedIndex: selectedIndex,
                     timelineTopInGlobal: timelineTopInGlobal,
                     routeRefreshID: routeRefreshID,
@@ -1625,6 +1634,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 points: points,
                 flightRoutes: flightRoutes,
                 flownLegOriginIDs: flownLegOriginIDs,
+                showsPointAnnotations: showsPointAnnotations,
                 selectedIndex: selectedIndex,
                 timelineTopInGlobal: timelineTopInGlobal,
                 routeRefreshID: routeRefreshID,
@@ -1639,6 +1649,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             points: [TodayMapPoint],
             flightRoutes: [TodayFlightRoute],
             flownLegOriginIDs: Set<UUID>,
+            showsPointAnnotations: Bool,
             selectedIndex: Int?,
             timelineTopInGlobal: CGFloat?,
             routeRefreshID: Int,
@@ -1653,7 +1664,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             let flightsChanged = flightRoutes != renderedFlightRoutes
             let selectionChanged = selectedIndex != renderedSelection
             let flownLegsChanged = flownLegOriginIDs != renderedFlownLegOriginIDs
-            let contentChanged = pointsChanged || flightsChanged || selectionChanged || flownLegsChanged
+            let pointVisibilityChanged = showsPointAnnotations != renderedShowsPointAnnotations
+            let contentChanged = pointsChanged || flightsChanged || selectionChanged
+                || flownLegsChanged || pointVisibilityChanged
             let safeAreaChanged = !MapLibreEdgePinGeometry.nearlyEqual(
                 self.timelineTopInGlobal,
                 timelineTopInGlobal
@@ -1674,18 +1687,25 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             }
             let forceRouteRefresh = refreshRequested && routeRefreshID > 0
 
-            if pointsChanged {
+            if pointsChanged || pointVisibilityChanged {
                 if !pointAnnotations.isEmpty {
                     mapView.removeAnnotations(pointAnnotations)
                 }
-                pointAnnotations = points.enumerated().map { index, point in
-                    MapLibreNumberedAnnotation(
-                        point: point,
-                        index: index,
-                        isHighlighted: selectedIndex == index
-                    )
+                if showsPointAnnotations {
+                    pointAnnotations = points.enumerated().map { index, point in
+                        MapLibreNumberedAnnotation(
+                            point: point,
+                            index: index,
+                            isHighlighted: selectedIndex == index
+                        )
+                    }
+                    mapView.addAnnotations(pointAnnotations)
+                } else {
+                    pointAnnotations = []
+                    pinPlacements = [:]
+                    previousEdgeGroups = []
+                    hasAppliedPinPlacements = false
                 }
-                mapView.addAnnotations(pointAnnotations)
             } else if selectionChanged {
                 for annotation in pointAnnotations {
                     annotation.isHighlighted = selectedIndex == annotation.index
@@ -1710,6 +1730,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             renderedPoints = points
             renderedFlightRoutes = flightRoutes
             renderedFlownLegOriginIDs = flownLegOriginIDs
+            renderedShowsPointAnnotations = showsPointAnnotations
             renderedSelection = selectedIndex
             updatePinPlacements(
                 on: mapView,
@@ -1745,6 +1766,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 points: content.points,
                 flightRoutes: content.flightRoutes,
                 flownLegOriginIDs: content.flownLegOriginIDs,
+                showsPointAnnotations: content.showsPointAnnotations,
                 selectedIndex: content.selectedIndex,
                 timelineTopInGlobal: content.timelineTopInGlobal,
                 routeRefreshID: content.routeRefreshID,
@@ -3462,7 +3484,8 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
         numberLabel.text = placement.labelText ?? String(annotation.index + 1)
 
         let accentColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
-        let isCountBadge = placement.labelText?.hasPrefix("×") == true
+        let isCountBadge = placement.representedMemberIDs.count
+            > MapLibrePinLabelGeometry.maximumVisibleSequenceCount
         numberBackground.fillColor = isCountBadge ? accentColor : .white
         numberLabel.textColor = isCountBadge ? .white : .black
         numberLabel.font = .systemFont(

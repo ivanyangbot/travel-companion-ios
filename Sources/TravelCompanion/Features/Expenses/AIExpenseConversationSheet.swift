@@ -229,6 +229,8 @@ struct ExpenseDraftPreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var cardID: Int? = nil
 
+    /// 新契约按数组下发 cardIds；确认页保留单卡选择，包装成单元素数组。
+
     private var currency: String { draft.currency ?? trip.currency ?? "" }
 
     var body: some View {
@@ -291,7 +293,7 @@ struct ExpenseDraftPreviewSheet: View {
             category: draft.category,
             occurredOn: draft.occurredOn,
             note: draft.note,
-            cardID: cardID,
+            cardIDs: cardID.map { [$0] },
             fieldsToClear: []
         )
     }

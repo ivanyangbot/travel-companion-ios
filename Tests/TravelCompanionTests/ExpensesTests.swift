@@ -21,14 +21,33 @@ final class ExpensesTests: XCTestCase {
     }
 
     func testSettlementForSharedAndSelfExpenses() {
-        let shared = ExpenseSnapshot(amountMinor: 10_000, currency: "CNY", category: .transport, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01")
-        let selfPaid = ExpenseSnapshot(amountMinor: 6_000, currency: "CNY", category: .food, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-01")
+        let shared = ExpenseSnapshot(amountMinor: 10_000, currency: "CNY", category: .transport, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01", paidAt: .distantPast)
+        let selfPaid = ExpenseSnapshot(amountMinor: 6_000, currency: "CNY", category: .food, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-01", paidAt: .distantPast)
         let settlement = ExpenseSettlementCalculator.calculate([shared, selfPaid])
         XCTAssertEqual(settlement.total, 16_000)
         XCTAssertEqual(settlement.byCategory[.transport], 10_000)
         XCTAssertEqual(settlement.netA, 5_000)
         XCTAssertEqual(settlement.netB, -5_000)
         XCTAssertEqual(ExpenseMoney.formatted(5_000, currency: "CNY").isEmpty, false)
+    }
+
+    func testSettlementIgnoresUnpaidExpensesUntilPaidAtPasses() {
+        let paid = ExpenseSnapshot(amountMinor: 10_000, currency: "CNY", category: .transport, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01", paidAt: .distantPast)
+        // 到店付：预计支付时间在未来 → 未支出，不进入结算。
+        let scheduled = ExpenseSnapshot(amountMinor: 8_000, currency: "CNY", category: .lodging, paidBy: .personB, splitMode: .equal, occurredOn: "2026-10-02", paidAt: .distantFuture)
+        let noDate = ExpenseSnapshot(amountMinor: 5, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-02")
+        let settlement = ExpenseSettlementCalculator.calculate([paid, scheduled, noDate])
+        XCTAssertEqual(settlement.total, 10_000)
+        XCTAssertEqual(settlement.owedByB, 5_000)
+    }
+
+    func testIsPaidDerivesFromPaymentDateVersusNow() {
+        let now = Date()
+        XCTAssertTrue(ExpenseSnapshot(amountMinor: 1, currency: "CNY", category: .food, occurredOn: "2026-10-01", paidAt: now.addingTimeInterval(-1)).isPaid(at: now))
+        XCTAssertFalse(ExpenseSnapshot(amountMinor: 1, currency: "CNY", category: .food, occurredOn: "2026-10-01", paidAt: now.addingTimeInterval(60)).isPaid(at: now))
+        XCTAssertFalse(ExpenseSnapshot(amountMinor: 1, currency: "CNY", category: .food, occurredOn: "2026-10-01").isPaid(at: now))
+        // 跨过预计支付时刻后自动视为已支出。
+        XCTAssertTrue(ExpenseSnapshot(amountMinor: 1, currency: "CNY", category: .food, occurredOn: "2026-10-01", paidAt: now.addingTimeInterval(60)).isPaid(at: now.addingTimeInterval(61)))
     }
 
     func testSettlementUsesConvertedSnapshotInsteadOfAddingDifferentCurrencies() {
@@ -41,16 +60,17 @@ final class ExpensesTests: XCTestCase {
             exchangeRateAsOf: "2026-09-01",
             exchangeRateSource: "frankfurter",
             category: .lodging,
-            occurredOn: "2026-09-24"
+            occurredOn: "2026-09-24",
+            paidAt: .distantPast
         )
-        let idr = ExpenseSnapshot(amountMinor: 100_000, currency: "IDR", category: .food, occurredOn: "2026-09-24")
+        let idr = ExpenseSnapshot(amountMinor: 100_000, currency: "IDR", category: .food, occurredOn: "2026-09-24", paidAt: .distantPast)
         let settlement = ExpenseSettlementCalculator.calculate([hkd, idr])
         XCTAssertEqual(settlement.total, 257_679_400)
         XCTAssertEqual(settlement.byCategory[.lodging], 257_579_400)
     }
 
     func testOddMinorUnitEqualSplitDeterministicallyAssignsRemainderToPersonB() {
-        let expense = ExpenseSnapshot(amountMinor: 101, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01")
+        let expense = ExpenseSnapshot(amountMinor: 101, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01", paidAt: .distantPast)
         let settlement = ExpenseSettlementCalculator.calculate([expense])
         XCTAssertEqual(settlement.owedByA, 50)
         XCTAssertEqual(settlement.owedByB, 51)
@@ -59,16 +79,17 @@ final class ExpensesTests: XCTestCase {
     }
 
     func testExpensePatchOnlyEncodesExplicitClears() throws {
-        let request = ExpenseRequest(amountMinor: 100, fieldsToClear: ["note", "cardId", "purchaseChannel", "paymentMethod", "consumerUserId", "consumerName"])
+        let request = ExpenseRequest(amountMinor: 100, fieldsToClear: ["note", "cardIds", "purchaseChannel", "paymentMethod", "consumerUserId", "consumerName", "paidAt"])
         let data = try JSONEncoder().encode(request)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(object["amountMinor"] as? Int, 100)
         XCTAssertTrue(object["note"] is NSNull)
-        XCTAssertTrue(object["cardId"] is NSNull)
+        XCTAssertTrue(object["cardIds"] is NSNull)
         XCTAssertTrue(object["purchaseChannel"] is NSNull)
         XCTAssertTrue(object["paymentMethod"] is NSNull)
         XCTAssertTrue(object["consumerUserId"] is NSNull)
         XCTAssertTrue(object["consumerName"] is NSNull)
+        XCTAssertTrue(object["paidAt"] is NSNull)
         XCTAssertNil(object["category"])
     }
 
@@ -149,9 +170,10 @@ final class ExpensesTests: XCTestCase {
     }
 
     func testOptimisticExpenseUpdateAndCancelUseTheLocalSnapshotBeforeServerID() {
-        let local = ExpenseSnapshot(amountMinor: 100, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01", note: "旧备注")
+        let local = ExpenseSnapshot(amountMinor: 100, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01", note: "旧备注", cardIDs: [11])
         let spentAt = Date(timeIntervalSince1970: 1_760_000_000)
-        let request = ExpenseRequest(amountMinor: 250, currency: "CNY", category: .transport, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-02", spentAt: spentAt, purchaseChannel: "Grab", paymentMethod: ExpensePaymentMethod.creditCard.rawValue, consumerUserID: 9, consumerName: "Mina", note: nil, cardID: nil, fieldsToClear: ["note"])
+        let paidAt = Date(timeIntervalSince1970: 1_760_000_100)
+        let request = ExpenseRequest(amountMinor: 250, currency: "CNY", category: .transport, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-02", spentAt: spentAt, paidAt: paidAt, purchaseChannel: "Grab", paymentMethod: ExpensePaymentMethod.creditCard.rawValue, consumerUserID: 9, consumerName: "Mina", note: nil, cardIDs: [12, 13], fieldsToClear: ["note"])
 
         let updated = ExpenseOptimisticMutation.applying(request, to: local)
         XCTAssertNil(updated.serverID)
@@ -160,12 +182,68 @@ final class ExpensesTests: XCTestCase {
         XCTAssertEqual(updated.paidBy, .personB)
         XCTAssertEqual(updated.splitMode, .self)
         XCTAssertEqual(updated.spentAt, spentAt)
+        XCTAssertEqual(updated.paidAt, paidAt)
         XCTAssertEqual(updated.purchaseChannel, "Grab")
         XCTAssertEqual(updated.paymentMethod, "credit_card")
         XCTAssertEqual(updated.consumerUserID, 9)
         XCTAssertEqual(updated.consumerName, "Mina")
+        XCTAssertEqual(updated.cardIDs, [12, 13])
         XCTAssertNil(updated.note)
         XCTAssertEqual(ExpenseOptimisticMutation.removing(updated, from: [updated]).count, 0)
+    }
+
+    func testOptimisticCardLinkClearResetsToEmptyArray() {
+        let local = ExpenseSnapshot(amountMinor: 100, currency: "CNY", category: .food, occurredOn: "2026-10-01", cardIDs: [11, 12])
+        let updated = ExpenseOptimisticMutation.applying(
+            ExpenseRequest(amountMinor: 100, cardIDs: nil, fieldsToClear: ["cardIds"]),
+            to: local
+        )
+        XCTAssertEqual(updated.cardIDs, [])
+    }
+
+    func testCardIDsDecodeFallsBackToLegacySingleCardId() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let paidAtISO = "2026-10-02T02:00:00Z"
+
+        let modern = try decoder.decode(ExpenseSnapshot.self, from: Data("""
+        {"id": 9, "amountMinor": 500, "currency": "CNY", "category": "food", "occurredOn": "2026-10-01",
+         "cardIds": [3, 5, 7], "paidAt": "\(paidAtISO)", "updatedAt": "2026-10-02T03:00:00Z"}
+        """.utf8))
+        XCTAssertEqual(modern.cardIDs, [3, 5, 7])
+        XCTAssertEqual(modern.paidAt, ISO8601DateFormatter().date(from: paidAtISO))
+
+        let legacy = try decoder.decode(ExpenseSnapshot.self, from: Data("""
+        {"id": 8, "amountMinor": 500, "currency": "CNY", "category": "food", "occurredOn": "2026-10-01",
+         "cardId": 4, "updatedAt": "2026-10-02T03:00:00Z"}
+        """.utf8))
+        XCTAssertEqual(legacy.cardIDs, [4])
+        XCTAssertNil(legacy.paidAt)
+    }
+
+    func testListFilterFiltersByConsumerStatusCategoryAndSorts() {
+        let now = Date()
+        let minaPaid = ExpenseSnapshot(amountMinor: 1_000, currency: "CNY", category: .food, occurredOn: "2026-10-03", paidAt: now.addingTimeInterval(-60))
+        minaPaid.consumerUserID = 1
+        let ivanUnpaid = ExpenseSnapshot(amountMinor: 500, currency: "CNY", category: .lodging, occurredOn: "2026-10-01", paidAt: now.addingTimeInterval(600))
+        ivanUnpaid.consumerUserID = 2
+        let freeNamePaid = ExpenseSnapshot(amountMinor: 300, currency: "CNY", category: .transport, occurredOn: "2026-10-02", paidAt: now.addingTimeInterval(-60))
+        freeNamePaid.consumerName = "阿猫"
+        let expenses = [minaPaid, ivanUnpaid, freeNamePaid]
+
+        let memberOption = ExpenseListFilter.ConsumerOption(id: "member:1", name: "Mina")
+        XCTAssertEqual(ExpenseListFilter(consumer: memberOption).apply(to: expenses).map(\.amountMinor), [1_000])
+        XCTAssertEqual(ExpenseListFilter(paymentStatus: .unpaid).apply(to: expenses).map(\.amountMinor), [500])
+        XCTAssertEqual(ExpenseListFilter(paymentStatus: .paid).apply(to: expenses).map(\.amountMinor), [1_000, 300])
+        XCTAssertEqual(ExpenseListFilter(category: .lodging).apply(to: expenses).map(\.amountMinor), [500])
+        XCTAssertEqual(ExpenseListFilter(sortOrder: .amountAsc).apply(to: expenses).map(\.amountMinor), [300, 500, 1_000])
+        XCTAssertEqual(ExpenseListFilter(sortOrder: .timeAsc).apply(to: expenses).map(\.occurredOn), ["2026-10-01", "2026-10-02", "2026-10-03"])
+
+        let options = ExpenseListFilter.consumerOptions(
+            from: expenses,
+            members: [TripMemberSummary(userId: 2, displayName: "Ivan", email: nil, role: "editor", joinedAt: now)]
+        )
+        XCTAssertEqual(options.map(\.id), ["member:2", "member:1", "name:阿猫"])
     }
 
     @MainActor

@@ -3265,7 +3265,8 @@ struct AgentExpenseCandidateCard: View {
                         .foregroundStyle(AgentTheme.accent(for: .ledger))
                 }
                 if let category = candidate.category, !category.isEmpty {
-                    Text(category)
+                    // 分类沿用账本页的本地化名称；未知值原样兜底。
+                    Text(ExpenseCategory(rawValue: category)?.title ?? category)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.85))
                         .padding(.horizontal, 9)
@@ -3301,7 +3302,7 @@ struct AgentExpenseCandidateCard: View {
             }
 
             if !candidate.missingFields.isEmpty {
-                Label(candidate.missingFields.joined(separator: " · "), systemImage: "questionmark.circle.fill")
+                Label(AgentMissingFieldLocalizer.displayText(candidate.missingFields).joined(separator: " · "), systemImage: "questionmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .lineLimit(3)
@@ -3398,7 +3399,7 @@ struct AgentJournalCandidateCard: View {
             }
 
             if !candidate.missingFields.isEmpty {
-                Label(candidate.missingFields.joined(separator: " · "), systemImage: "questionmark.circle.fill")
+                Label(AgentMissingFieldLocalizer.displayText(candidate.missingFields).joined(separator: " · "), systemImage: "questionmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .lineLimit(3)
@@ -3724,7 +3725,7 @@ struct AgentV2CandidateCard: View {
                 }
 
                 if !candidate.missingFields.isEmpty {
-                    Label(candidate.missingFields.joined(separator: " · "), systemImage: "questionmark.circle.fill")
+                    Label(AgentMissingFieldLocalizer.displayText(candidate.missingFields).joined(separator: " · "), systemImage: "questionmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .lineLimit(3)
@@ -3832,7 +3833,7 @@ private struct AgentFlightCandidateCard: View {
                     route
 
                     if !candidate.missingFields.isEmpty {
-                        Label(candidate.missingFields.joined(separator: " · "), systemImage: "exclamationmark.circle.fill")
+                        Label(AgentMissingFieldLocalizer.displayText(candidate.missingFields).joined(separator: " · "), systemImage: "exclamationmark.circle.fill")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.orange)
                             .lineLimit(3)
@@ -4022,7 +4023,7 @@ private struct AgentFlightDetailSheet: View {
                 }
                 if !candidate.missingFields.isEmpty {
                     section(title: String(localized: "agent.needsConfirmation"), icon: "questionmark.circle.fill", tint: .orange) {
-                        bulletList(candidate.missingFields, tint: .orange)
+                        bulletList(AgentMissingFieldLocalizer.displayText(candidate.missingFields), tint: .orange)
                     }
                 }
                 if let notes = candidate.notes, !notes.isEmpty {
@@ -5061,6 +5062,49 @@ private extension AgentV2Change.Operation {
         case .remove: .red
         case .keep: PrimaryTabPalette.accent
         }
+    }
+}
+
+/// 模型偶尔把缺省字段直接写成原始英文名（spentAt、purchaseChannel…）放进
+/// missingFields；渲染前把行首命中的字段名映射为本地化标签，其余文本原样
+/// 保留。纯展示层转换：持久化草稿仍保存服务端原文。
+private enum AgentMissingFieldLocalizer {
+    private static let fieldKeys: [String: String] = [
+        "spentAt": "agent.field.spentAt",
+        "purchaseChannel": "agent.field.purchaseChannel",
+        "paymentMethod": "agent.field.paymentMethod",
+        "consumerUserId": "agent.field.consumer",
+        "consumerName": "agent.field.consumer",
+        "cardId": "agent.linkedCardBadge",
+        "priceMinor": "agent.field.amount",
+        "amountMinor": "agent.field.amount",
+        "priceCurrency": "agent.field.currency",
+        "occurredOn": "agent.field.date",
+        "category": "agent.field.category",
+        "notes": "agent.field.notes",
+        "content": "agent.field.content",
+        "groupName": "agent.field.groupName",
+    ]
+
+    /// 无信息量的纯填充词，映射后丢弃。
+    private static let fillers: Set<String> = ["等字段", "等等", "…"]
+
+    static func displayText(_ fields: [String]) -> [String] {
+        fields.map(localize).filter { !fillers.contains($0) && !$0.isEmpty }
+    }
+
+    private static func localize(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        // 字段名必须在行首命中（大小写不敏感），保留「待确认」等中文后缀。
+        let tokens = fieldKeys.keys.sorted { $0.count > $1.count }
+        for token in tokens {
+            guard trimmed.range(of: token, options: [.caseInsensitive, .anchored]) != nil else { continue }
+            let remainder = String(trimmed.dropFirst(token.count))
+            let label = NSLocalizedString(fieldKeys[token]!, comment: "")
+            return remainder.isEmpty ? label : label + remainder
+        }
+        return trimmed
     }
 }
 

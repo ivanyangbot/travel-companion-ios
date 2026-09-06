@@ -15,7 +15,12 @@ struct ExpenseEditorView: View {
     @State private var paymentMethod: String
     @State private var consumerUserID: Int?
     @State private var note: String
-    @State private var cardID: Int?
+    @State private var cardIDs: [Int]
+    /// 支付状态：已支出时 paidAt 为实际支付时间；未支出（如到店付）可留空
+    /// 或设定预计支付时间，跨过该时刻后前端自动视为已支出。
+    @State private var isPaid: Bool
+    @State private var paidAtDate: Date
+    @State private var hasExpectedPaidAt: Bool
     @State private var showsCardPicker = false
     @State private var validationMessage: String?
 
@@ -33,7 +38,11 @@ struct ExpenseEditorView: View {
         _paymentMethod = State(initialValue: existingExpense?.paymentMethod ?? "")
         _consumerUserID = State(initialValue: existingExpense?.consumerUserID)
         _note = State(initialValue: existingExpense?.note ?? "")
-        _cardID = State(initialValue: existingExpense?.cardID)
+        _cardIDs = State(initialValue: existingExpense?.cardIDs ?? [])
+        // 手动记一笔默认已支付（沿用旧行为）；仅未支付的单子保留预计支付时间。
+        _isPaid = State(initialValue: existingExpense.map(\.isPaid) ?? true)
+        _paidAtDate = State(initialValue: existingExpense?.paidAt ?? .now)
+        _hasExpectedPaidAt = State(initialValue: existingExpense?.paidAt != nil)
     }
 
     var body: some View {
@@ -57,6 +66,33 @@ struct ExpenseEditorView: View {
                             Label(category.title, systemImage: category.systemImage).tag(category)
                         }
                     }
+                }
+                Section {
+                    Picker("expenseeditor.paymentStatus", selection: $isPaid) {
+                        Text("expenseeditor.paid").tag(true)
+                        Text("expenseeditor.unpaid").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    if isPaid {
+                        DatePicker(
+                            "expenseeditor.paidAt",
+                            selection: $paidAtDate,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                    } else {
+                        Toggle("expenseeditor.expectedPaidAtToggle", isOn: $hasExpectedPaidAt)
+                        if hasExpectedPaidAt {
+                            DatePicker(
+                                "expenseeditor.expectedPaidAt",
+                                selection: $paidAtDate,
+                                displayedComponents: [.date, .hourAndMinute]
+                            )
+                        }
+                    }
+                } header: {
+                    Text("expenseeditor.paymentSection")
+                } footer: {
+                    Text(isPaid ? "expenseeditor.paymentPaidHelp" : "expenseeditor.paymentUnpaidHelp")
                 }
                 Section {
                     DatePicker(
@@ -94,18 +130,63 @@ struct ExpenseEditorView: View {
                     Text("expenseeditor.transactionDetailsHelp")
                 }
                 Section {
+                    ForEach(cardIDs, id: \.self) { cardID in
+                        if let card = allCards.first(where: { $0.serverID == cardID }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: card.kind.systemImage)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(PrimaryTabPalette.accent)
+                                    .frame(width: 38, height: 38)
+                                    .background(PrimaryTabPalette.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(card.title).lineLimit(1)
+                                    Text(card.kind.title)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 8)
+                                Button {
+                                    cardIDs.removeAll { $0 == cardID }
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundStyle(.red.opacity(0.85))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(Text(String(format: String(localized: "expenseeditor.unlinkCardA11y"), card.title)))
+                            }
+                        }
+                    }
+
                     Button {
                         showsCardPicker = true
                     } label: {
-                        linkedCardSelectionRow
+                        HStack(spacing: 12) {
+                            Image(systemName: "link.badge.plus")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(cardIDs.isEmpty ? Color.secondary : PrimaryTabPalette.accent)
+                                .frame(width: 38, height: 38)
+                                .background(
+                                    (cardIDs.isEmpty ? Color.secondary : PrimaryTabPalette.accent).opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                )
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(cardIDs.isEmpty
+                                     ? String(localized: "expenseeditor.chooseCard")
+                                     : String(format: String(localized: "expenseeditor.linkedCountFormat"), cardIDs.count))
+                                    .foregroundStyle(.primary)
+                                Text("expenseeditor.chooseCardHint")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-
-                    if cardID != nil {
-                        Button("expenseeditor.unlinkCard", systemImage: "link.badge.minus", role: .destructive) {
-                            cardID = nil
-                        }
-                    }
                 } header: {
                     Text("expenseeditor.linkSection")
                 } footer: {
@@ -132,11 +213,14 @@ struct ExpenseEditorView: View {
             .sheet(isPresented: $showsCardPicker) {
                 ExpenseCardLinkPicker(
                     trip: trip,
-                    selectedCardID: cardID,
+                    selectedCardIDs: cardIDs,
                     unavailableCardIDs: unavailableCardIDs
-                ) { selectedID in
-                    cardID = selectedID
-                    showsCardPicker = false
+                ) { toggledID in
+                    if let index = cardIDs.firstIndex(of: toggledID) {
+                        cardIDs.remove(at: index)
+                    } else {
+                        cardIDs.append(toggledID)
+                    }
                 }
             }
         }
@@ -146,51 +230,13 @@ struct ExpenseEditorView: View {
         trip.days.flatMap(\.cards).filter { $0.serverID != nil }.sorted { $0.title < $1.title }
     }
 
-    private var linkedCard: TravelCardSnapshot? {
-        guard let cardID else { return nil }
-        return allCards.first { $0.serverID == cardID }
-    }
-
+    /// 每张卡片仍只能被一笔支出关联；他笔已占用的卡在本选择器中禁用。
     private var unavailableCardIDs: Set<Int> {
         Set(
             trip.expenses
                 .filter { $0.id != existingExpense?.id }
-                .compactMap(\.cardID)
+                .flatMap(\.cardIDs)
         )
-    }
-
-    @ViewBuilder
-    private var linkedCardSelectionRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: linkedCard?.kind.systemImage ?? "link")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(linkedCard == nil ? PrimaryTabPalette.secondaryText : PrimaryTabPalette.accent)
-                .frame(width: 38, height: 38)
-                .background(
-                    (linkedCard == nil ? Color.secondary : PrimaryTabPalette.accent).opacity(0.12),
-                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
-                )
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(linkedCard?.title ?? String(localized: "expenseeditor.chooseCard"))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                if let linkedCard {
-                    Text(linkedCard.kind.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("expenseeditor.chooseCardHint")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .contentShape(Rectangle())
     }
 
     private func save() {
@@ -201,6 +247,8 @@ struct ExpenseEditorView: View {
         let normalizedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPurchaseChannel = purchaseChannel.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedConsumer = consumerUserID.flatMap { id in members.first { $0.userId == id } }
+        // 已支出 → 实际支付时间；未支出 → 预计支付时间或留空（不设字段即 null）。
+        let resolvedPaidAt: Date? = isPaid ? paidAtDate : (hasExpectedPaidAt ? paidAtDate : nil)
         var clears: Set<String> = []
         if existingExpense != nil && normalizedNote.isEmpty { clears.insert("note") }
         if existingExpense != nil && normalizedPurchaseChannel.isEmpty { clears.insert("purchaseChannel") }
@@ -208,19 +256,21 @@ struct ExpenseEditorView: View {
         if existingExpense?.consumerUserID != nil && consumerUserID == nil {
             clears.formUnion(["consumerUserId", "consumerName"])
         }
-        if existingExpense?.cardID != nil && cardID == nil { clears.insert("cardId") }
+        if existingExpense?.paidAt != nil && resolvedPaidAt == nil { clears.insert("paidAt") }
         onSave(ExpenseRequest(
             amountMinor: amountMinor,
             currency: currency,
             category: category,
             occurredOn: Self.dayFormatter.string(from: spentAt),
             spentAt: spentAt,
+            paidAt: resolvedPaidAt,
             purchaseChannel: normalizedPurchaseChannel.isEmpty ? nil : normalizedPurchaseChannel,
             paymentMethod: paymentMethod.isEmpty ? nil : paymentMethod,
             consumerUserID: consumerUserID,
             consumerName: selectedConsumer?.visibleName ?? existingExpense?.consumerName,
             note: normalizedNote.isEmpty ? nil : normalizedNote,
-            cardID: cardID,
+            // 整组替换：空数组即为清空全部关联。
+            cardIDs: cardIDs,
             fieldsToClear: clears
         ))
         dismiss()
@@ -251,9 +301,9 @@ struct ExpenseEditorView: View {
 
 private struct ExpenseCardLinkPicker: View {
     let trip: SharedTripSnapshot
-    let selectedCardID: Int?
+    let selectedCardIDs: [Int]
     let unavailableCardIDs: Set<Int>
-    let onSelect: (Int?) -> Void
+    let onToggle: (Int) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
@@ -284,13 +334,8 @@ private struct ExpenseCardLinkPicker: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "expenseeditor.searchCards")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("common.cancel") { dismiss() }
-                }
-                if selectedCardID != nil {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("expenseeditor.noCard") { onSelect(nil) }
-                    }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("common.done") { dismiss() }
                 }
             }
         }
@@ -318,12 +363,12 @@ private struct ExpenseCardLinkPicker: View {
 
     private func cardRow(_ card: TravelCardSnapshot) -> some View {
         let cardID = card.serverID!
-        let isSelected = cardID == selectedCardID
-        let isUnavailable = unavailableCardIDs.contains(cardID)
+        let isSelected = selectedCardIDs.contains(cardID)
+        let isUnavailable = unavailableCardIDs.contains(cardID) && !isSelected
 
         return Button {
             guard !isUnavailable else { return }
-            onSelect(cardID)
+            onToggle(cardID)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: card.kind.systemImage)

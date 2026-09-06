@@ -9,12 +9,19 @@ struct ExpenseSummaryView: View {
     private var expenses: [ExpenseSnapshot] { trip.expenses }
     private var cards: [TravelCardSnapshot] { trip.days.flatMap(\.cards) }
 
-    /// Sum of all recorded actual prices (card-linked and standalone spends).
-    private var actualTotal: Int64 { expenses.compactMap(\.amountForSettlement).reduce(0, +) }
+    /// 已支出合计：只统计支付发生时间已过的账（card-linked 与卡外支出）。
+    private var paidTotal: Int64 {
+        expenses.filter { $0.isPaid() }.compactMap(\.amountForSettlement).reduce(0, +)
+    }
+
+    /// 待支付合计：到店付等尚未支付的账，单独展示不混入已支出。
+    private var unpaidTotal: Int64 {
+        expenses.filter { !$0.isPaid() }.compactMap(\.amountForSettlement).reduce(0, +)
+    }
 
     /// Cards whose estimate still counts: those with no linked actual expense.
     private var estimatedTotal: Int64 {
-        let linked = Set(expenses.compactMap(\.cardID))
+        let linked = Set(expenses.flatMap(\.cardIDs))
         return cards.reduce(Int64(0)) { acc, card in
             guard let serverID = card.serverID, !linked.contains(serverID),
                   card.priceCurrency == nil || card.priceCurrency == currency,
@@ -26,7 +33,7 @@ struct ExpenseSummaryView: View {
     /// Full-trip total: every card contributes either its actual expense (if
     /// recorded) or its estimate, plus standalone spends. Avoids double
     /// counting a card that has both an estimate and a linked actual.
-    private var grandTotal: Int64 { actualTotal + estimatedTotal }
+    private var grandTotal: Int64 { paidTotal + unpaidTotal + estimatedTotal }
 
     private var byCategory: [ExpenseCategory: Int64] {
         expenses.reduce(into: [ExpenseCategory: Int64]()) { result, expense in
@@ -121,7 +128,10 @@ struct ExpenseSummaryView: View {
                 .accessibilityLabel(Text("expensesummary.changePrimaryCurrencyA11y"))
                 .accessibilityValue(Text(currency))
             }
-            totalRow(label: String(localized: "expensesummary.actual"), amount: actualTotal, prominent: false)
+            totalRow(label: String(localized: "expensesummary.paid"), amount: paidTotal, prominent: false)
+            if unpaidTotal > 0 {
+                totalRow(label: String(localized: "expensesummary.unpaid"), amount: unpaidTotal, prominent: false)
+            }
             totalRow(label: String(localized: "expensesummary.estimated"), amount: estimatedTotal, prominent: false)
             Divider().overlay(PrimaryTabPalette.divider)
             totalRow(label: String(localized: "expensesummary.total"), amount: grandTotal, prominent: true)

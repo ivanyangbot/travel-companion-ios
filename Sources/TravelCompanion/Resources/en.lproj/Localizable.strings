@@ -1222,3 +1222,46 @@
 "expensesummary.byConsumer" = "By traveler";
 "expensesummary.formerMember" = "Former member";
 "expensesummary.unspecifiedConsumer" = "Not assigned";
+
+/* ===== Localized field names for missing candidate details ===== */
+"agent.field.spentAt" = "Payment Time";
+"agent.field.purchaseChannel" = "Purchase Channel";
+"agent.field.paymentMethod" = "Payment Method";
+"agent.field.consumer" = "Spender";
+"agent.field.amount" = "Amount";
+"agent.field.currency" = "Currency";
+"agent.field.date" = "Date";
+"agent.field.category" = "Category";
+"agent.field.notes" = "Notes";
+"agent.field.content" = "Content";
+"agent.field.groupName" = "Group";
+
+/* Ledger iteration: multi-card links + payment status + filter/sort */
+"expensesummary.paid" = "Paid";
+"expensesummary.unpaid" = "Pending payment";
+"expense.filteredCountFormat" = "%1$lld of %2$lld";
+"expense.noMatchTitle" = "No matching expenses";
+"expense.noMatchDesc" = "Try adjusting the filters.";
+"expense.unpaidBadge" = "Unpaid";
+"expense.unpaidWithDateBadge" = "Unpaid · due %@";
+"expense.filter.consumer" = "Consumer";
+"expense.filter.status" = "Status";
+"expense.filter.paid" = "Paid";
+"expense.filter.unpaid" = "Unpaid";
+"expense.filter.category" = "Category";
+"expense.filter.all" = "All";
+"expense.filter.clear" = "Reset";
+"expense.sort.timeDesc" = "Time ↓";
+"expense.sort.timeAsc" = "Time ↑";
+"expense.sort.amountDesc" = "Amount ↓";
+"expense.sort.amountAsc" = "Amount ↑";
+"expenseeditor.paymentSection" = "Payment";
+"expenseeditor.paid" = "Paid";
+"expenseeditor.unpaid" = "Unpaid";
+"expenseeditor.paidAt" = "Paid at";
+"expenseeditor.expectedPaidAtToggle" = "Set expected payment date";
+"expenseeditor.expectedPaidAt" = "Expected payment";
+"expenseeditor.paymentPaidHelp" = "When the payment happened; counts toward the paid total.";
+"expenseeditor.paymentUnpaidHelp" = "Not paid yet (e.g. pay on arrival). Turns paid automatically once the expected date passes.";
+"expenseeditor.linkedCountFormat" = "%lld cards linked";
+"expenseeditor.unlinkCardA11y" = "Unlink \"%@\"";

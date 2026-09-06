@@ -255,6 +255,7 @@ struct TodayView: View {
                 points: points,
                 flightRoutes: flightRoutes,
                 flownLegOriginIDs: flownLegOriginIDs,
+                showsPointAnnotations: !isTripOverview,
                 // A selected map marker is the visual counterpart of the
                 // visible POI card. Keep every marker compact and neutral
                 // while the user has collapsed the bottom overlay.

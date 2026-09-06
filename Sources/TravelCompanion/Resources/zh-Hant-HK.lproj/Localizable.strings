@@ -1224,3 +1224,46 @@
 "expensesummary.byConsumer" = "按消費人";
 "expensesummary.formerMember" = "已離開成員";
 "expensesummary.unspecifiedConsumer" = "未指定消費人";
+
+/* ===== 候選缺失欄位的本地化欄位名 ===== */
+"agent.field.spentAt" = "支付時間";
+"agent.field.purchaseChannel" = "消費渠道";
+"agent.field.paymentMethod" = "支付方式";
+"agent.field.consumer" = "消費人";
+"agent.field.amount" = "金額";
+"agent.field.currency" = "幣別";
+"agent.field.date" = "日期";
+"agent.field.category" = "分類";
+"agent.field.notes" = "備註";
+"agent.field.content" = "內容";
+"agent.field.groupName" = "分組";
+
+/* 账單迭代：多卡關聯 + 支付狀態 + 篩選排序 */
+"expensesummary.paid" = "已支出";
+"expensesummary.unpaid" = "待支付";
+"expense.filteredCountFormat" = "%1$lld/%2$lld 筆";
+"expense.noMatchTitle" = "沒有符合條件的支出";
+"expense.noMatchDesc" = "換個篩選條件試試。";
+"expense.unpaidBadge" = "未支出";
+"expense.unpaidWithDateBadge" = "未支出 · %@ 到店付";
+"expense.filter.consumer" = "消費人";
+"expense.filter.status" = "支付狀態";
+"expense.filter.paid" = "已支出";
+"expense.filter.unpaid" = "未支出";
+"expense.filter.category" = "類別";
+"expense.filter.all" = "全部";
+"expense.filter.clear" = "清除";
+"expense.sort.timeDesc" = "時間↓";
+"expense.sort.timeAsc" = "時間↑";
+"expense.sort.amountDesc" = "金額↓";
+"expense.sort.amountAsc" = "金額↑";
+"expenseeditor.paymentSection" = "支付";
+"expenseeditor.paid" = "已支出";
+"expenseeditor.unpaid" = "未支出";
+"expenseeditor.paidAt" = "支付時間";
+"expenseeditor.expectedPaidAtToggle" = "設定預計支付時間";
+"expenseeditor.expectedPaidAt" = "預計支付時間";
+"expenseeditor.paymentPaidHelp" = "已完成支付的時間，計入「已支出」合計。";
+"expenseeditor.paymentUnpaidHelp" = "到店付等尚未支付的賬目。跨過預計支付時間後自動視為已支出。";
+"expenseeditor.linkedCountFormat" = "已關聯 %lld 張卡片";
+"expenseeditor.unlinkCardA11y" = "移除與「%@」的關聯";

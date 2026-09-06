@@ -843,7 +843,7 @@ final class MapsTests: XCTestCase {
         )
 
         XCTAssertEqual(cluster.members.count, 6)
-        XCTAssertEqual(cluster.labelText, "×6")
+        XCTAssertEqual(cluster.labelText, "6")
         XCTAssertEqual(
             MapLibrePinLabelGeometry.fittingText(
                 displayOrders: Array(0..<5),

@@ -111,9 +111,10 @@ struct AgentV2TurnRequestFactory {
                     category: expense.category.rawValue,
                     occurredOn: expense.occurredOn,
                     note: expense.note.map { String($0.prefix(200)) },
-                    cardId: expense.cardID,
+                    cardIds: expense.cardIDs,
                     settlementAmountMinor: expense.settlementAmountMinor,
                     spentAt: expense.spentAt.map { formatter.string(from: $0) },
+                    paidAt: expense.paidAt.map { formatter.string(from: $0) },
                     purchaseChannel: expense.purchaseChannel,
                     paymentMethod: expense.paymentMethod,
                     consumerUserId: expense.consumerUserID,
@@ -130,7 +131,7 @@ struct AgentV2TurnRequestFactory {
         \(userMessage)
 
         [Ledger output rules]
-        Keep expense notes strictly concise. Put transaction time, merchant/platform, payment method, consumer, linked itinerary card, amount, currency, and category in their dedicated structured fields, never in notes. Notes may contain only a user-stated reconciliation detail that has no structured field; otherwise return notes as null. Do not copy booking descriptions, cancellation policies, exchange-rate disclaimers, confirmations, or generic advice into notes. Limit any note to 80 characters. When evidence is available, populate spentAt (ISO 8601), purchaseChannel, paymentMethod, consumerUserId/consumerName, and cardId. paymentMethod must be one of cash, credit_card, debit_card, alipay, wechat_pay, apple_pay, bank_transfer, or other.
+        Keep expense notes strictly concise. Put transaction time, payment time, merchant/platform, payment method, consumer, linked itinerary cards, amount, currency, and category in their dedicated structured fields, never in notes. Notes may contain only a user-stated reconciliation detail that has no structured field; otherwise return notes as null. Do not copy booking descriptions, cancellation policies, exchange-rate disclaimers, confirmations, or generic advice into notes. Limit any note to 80 characters. When evidence is available, populate spentAt (ISO 8601), paidAt (actual payment time when already paid, expected payment time for pay-on-arrival, or empty when unpaid), purchaseChannel, paymentMethod, consumerUserId/consumerName, and cardIds (JSON array of itinerary card IDs; one expense may cover several cards). paymentMethod must be one of cash, credit_card, debit_card, alipay, wechat_pay, apple_pay, bank_transfer, or other.
         """
     }
 

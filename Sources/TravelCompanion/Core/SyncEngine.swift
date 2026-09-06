@@ -353,8 +353,8 @@ final class SyncEngine: ObservableObject {
         var remoteCounts = Self.expenseCounts(in: remote)
 
         for expense in localExpenses.sorted(by: { ($0.occurredOn, $0.updatedAt) < ($1.occurredOn, $1.updatedAt) }) {
-            let migratedCardID = expense.cardID.flatMap { cardIDMap[$0] }
-            let fingerprint = MigrationExpenseFingerprint(expense: expense, cardID: migratedCardID)
+            let migratedCardIDs = expense.cardIDs.compactMap { cardIDMap[$0] }
+            let fingerprint = MigrationExpenseFingerprint(expense: expense, cardIDs: migratedCardIDs)
             if remoteCounts[fingerprint, default: 0] > 0 {
                 remoteCounts[fingerprint, default: 0] -= 1
                 continue
@@ -369,12 +369,13 @@ final class SyncEngine: ObservableObject {
                     splitMode: expense.splitMode,
                     occurredOn: expense.occurredOn,
                     spentAt: expense.spentAt,
+                    paidAt: expense.paidAt,
                     purchaseChannel: expense.purchaseChannel,
                     paymentMethod: expense.paymentMethod,
                     consumerUserID: expense.consumerUserID,
                     consumerName: expense.consumerName,
                     note: expense.note,
-                    cardID: migratedCardID
+                    cardIDs: migratedCardIDs
                 ),
                 tripID: remote.id,
                 baseVersion: version
@@ -1188,12 +1189,13 @@ final class SyncEngine: ObservableObject {
                 category: category,
                 occurredOn: occurredOn,
                 spentAt: request.spentAt,
+                paidAt: request.paidAt,
                 purchaseChannel: request.purchaseChannel,
                 paymentMethod: request.paymentMethod,
                 consumerUserID: request.consumerUserID,
                 consumerName: request.consumerName,
                 note: request.note,
-                cardID: request.cardID
+                cardIDs: request.cardIDs ?? []
             )
             current.expenses.append(expense)
             trip = current
@@ -1784,7 +1786,7 @@ final class SyncEngine: ObservableObject {
     private static func expenseCounts(in trip: SharedTripSnapshot) -> [MigrationExpenseFingerprint: Int] {
         var counts: [MigrationExpenseFingerprint: Int] = [:]
         for expense in trip.expenses {
-            counts[MigrationExpenseFingerprint(expense: expense, cardID: expense.cardID), default: 0] += 1
+            counts[MigrationExpenseFingerprint(expense: expense, cardIDs: expense.cardIDs), default: 0] += 1
         }
         return counts
     }
@@ -2024,9 +2026,9 @@ private struct MigrationExpenseFingerprint: Hashable {
     let paymentMethod: String?
     let consumerUserID: Int?
     let note: String?
-    let cardID: Int?
+    let cardIDs: [Int]
 
-    init(expense: ExpenseSnapshot, cardID: Int?) {
+    init(expense: ExpenseSnapshot, cardIDs: [Int]) {
         amountMinor = expense.amountMinor
         currency = expense.currency
         category = expense.category.rawValue
@@ -2038,7 +2040,7 @@ private struct MigrationExpenseFingerprint: Hashable {
         paymentMethod = expense.paymentMethod
         consumerUserID = expense.consumerUserID
         note = expense.note
-        self.cardID = cardID
+        self.cardIDs = cardIDs
     }
 }
 

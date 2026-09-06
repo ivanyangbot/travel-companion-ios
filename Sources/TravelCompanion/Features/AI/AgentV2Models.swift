@@ -103,9 +103,10 @@ struct AgentV2TurnRequest: Codable, Sendable {
         let category: String
         let occurredOn: String
         var note: String? = nil
-        var cardId: Int? = nil
+        var cardIds: [Int]? = nil
         var settlementAmountMinor: Int64? = nil
         var spentAt: String? = nil
+        var paidAt: String? = nil
         var purchaseChannel: String? = nil
         var paymentMethod: String? = nil
         var consumerUserId: Int? = nil
@@ -273,12 +274,15 @@ struct AgentV2Candidate: Codable, Sendable, Equatable, Identifiable {
     // ----- 账本/手书候选的专属字段（decodeIfPresent，旧会话解码不受影响） -----
     /// expense：账本分类 transport|lodging|food|tickets|shopping|other。
     var category: String? = nil
-    /// expense：关联的行程卡 ID（该项目的一笔实际花费）。
+    /// expense：关联的行程卡 ID 数组（一笔支出可关联多张卡）。
+    var cardIds: [Int]? = nil
+    /// expense：旧服务端/旧会话的单卡字段，decode 时并入 cardIds。
     var cardId: Int? = nil
     /// expense：修改行程卡实际价时的新实际价（最小单位）。
     var actualPriceMinor: Int64? = nil
-    /// expense：实际消费时间（ISO 8601）、消费平台/商户、支付方式与消费人。
+    /// expense：实际消费时间（ISO 8601）、支付发生时间、消费平台/商户、支付方式与消费人。
     var spentAt: String? = nil
+    var paidAt: String? = nil
     var purchaseChannel: String? = nil
     var paymentMethod: String? = nil
     var consumerUserId: Int? = nil
@@ -432,9 +436,16 @@ extension AgentV2Candidate {
         missingFields = try container.decodeIfPresent([String].self, forKey: .missingFields) ?? []
         selected = try container.decodeIfPresent(Bool.self, forKey: .selected) ?? false
         category = try container.decodeIfPresent(String.self, forKey: .category)
+        // 新协议给数组；旧会话/旧服务端只有单值 cardId，回退成单元素数组。
+        if let linked = try container.decodeIfPresent([Int].self, forKey: .cardIds) {
+            cardIds = linked
+        } else {
+            cardIds = try container.decodeIfPresent(Int.self, forKey: .cardId).map { [$0] }
+        }
         cardId = try container.decodeIfPresent(Int.self, forKey: .cardId)
         actualPriceMinor = try container.decodeIfPresent(Int64.self, forKey: .actualPriceMinor)
         spentAt = try container.decodeIfPresent(String.self, forKey: .spentAt)
+        paidAt = try container.decodeIfPresent(String.self, forKey: .paidAt)
         purchaseChannel = try container.decodeIfPresent(String.self, forKey: .purchaseChannel)
         paymentMethod = try container.decodeIfPresent(String.self, forKey: .paymentMethod)
         consumerUserId = try container.decodeIfPresent(Int.self, forKey: .consumerUserId)

@@ -9,6 +9,7 @@ struct ExpenseListView: View {
     @State private var pendingDeletion: ExpenseSnapshot?
     @State private var section: ExpenseSection = .expenses
     @State private var members: [TripMemberSummary] = []
+    @State private var listFilter = ExpenseListFilter()
 
     var body: some View {
         NavigationStack {
@@ -141,7 +142,8 @@ struct ExpenseListView: View {
         if let trip = syncEngine.trip, let currency = trip.currency {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    syncFeedback
+                    // 同步状态不再展示提示条：本地先落库，登录后由前台
+                    // 轮询/场景回前台静默重试上传（SyncEngine.startForegroundSync）。
                     ExpenseSummaryView(trip: trip, currency: currency, members: members) { newCurrency in
                         Task { await syncEngine.updatePrimaryCurrency(newCurrency) }
                     }
@@ -151,11 +153,15 @@ struct ExpenseListView: View {
                             .font(.system(size: 19, weight: .semibold))
                             .foregroundStyle(.white)
                         Spacer()
-                        Text(String(format: String(localized: "expense.countFormat"), trip.expenses.count))
+                        Text(String(format: String(localized: "expense.filteredCountFormat"), visibleExpenses(in: trip).count, trip.expenses.count))
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(PrimaryTabPalette.secondaryText)
                     }
                     .padding(.top, 4)
+
+                    if !trip.expenses.isEmpty {
+                        filterBar(trip: trip)
+                    }
 
                     if trip.expenses.isEmpty {
                         ContentUnavailableView(
@@ -165,12 +171,16 @@ struct ExpenseListView: View {
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 36)
+                    } else if visibleExpenses(in: trip).isEmpty {
+                        ContentUnavailableView(
+                            "expense.noMatchTitle",
+                            systemImage: "line.3.horizontal.decrease.circle",
+                            description: Text("expense.noMatchDesc")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 36)
                     } else {
-                        ForEach(
-                            trip.expenses.sorted {
-                                ($0.occurredOn, $0.updatedAt) > ($1.occurredOn, $1.updatedAt)
-                            }
-                        ) { expense in
+                        ForEach(visibleExpenses(in: trip)) { expense in
                             expenseRow(expense, currency: currency)
                         }
                     }
@@ -191,6 +201,138 @@ struct ExpenseListView: View {
         }
     }
 
+    private func visibleExpenses(in trip: SharedTripSnapshot) -> [ExpenseSnapshot] {
+        listFilter.apply(to: trip.expenses)
+    }
+
+    private func filterBar(trip: SharedTripSnapshot) -> some View {
+        let consumerOptions = ExpenseListFilter.consumerOptions(from: trip.expenses, members: members)
+        return HStack(spacing: 8) {
+            Menu {
+                Button("expense.filter.all") { listFilter.consumer = nil }
+                ForEach(consumerOptions) { option in
+                    Button {
+                        listFilter.consumer = option
+                    } label: {
+                        if listFilter.consumer == option {
+                            Label(option.name, systemImage: "checkmark")
+                        } else {
+                            Text(option.name)
+                        }
+                    }
+                }
+            } label: {
+                filterChipLabel(
+                    title: listFilter.consumer?.name ?? String(localized: "expense.filter.consumer"),
+                    active: listFilter.consumer != nil
+                )
+            }
+
+            Menu {
+                Button("expense.filter.all") { listFilter.paymentStatus = .all }
+                Button("expense.filter.paid") { listFilter.paymentStatus = .paid }
+                Button("expense.filter.unpaid") { listFilter.paymentStatus = .unpaid }
+            } label: {
+                filterChipLabel(
+                    title: paymentFilterTitle,
+                    active: listFilter.paymentStatus != .all
+                )
+            }
+
+            Menu {
+                Button("expense.filter.all") { listFilter.category = nil }
+                ForEach(ExpenseCategory.allCases) { category in
+                    Button {
+                        listFilter.category = category
+                    } label: {
+                        if listFilter.category == category {
+                            Label(category.title, systemImage: "checkmark")
+                        } else {
+                            Label(category.title, systemImage: category.systemImage)
+                        }
+                    }
+                }
+            } label: {
+                filterChipLabel(
+                    title: listFilter.category?.title ?? String(localized: "expense.filter.category"),
+                    active: listFilter.category != nil
+                )
+            }
+
+            Menu {
+                ForEach(ExpenseListFilter.SortOrder.allCases) { order in
+                    Button {
+                        listFilter.sortOrder = order
+                    } label: {
+                        if listFilter.sortOrder == order {
+                            Label(sortTitle(order), systemImage: "checkmark")
+                        } else {
+                            Text(sortTitle(order))
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(sortTitle(listFilter.sortOrder))
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 32)
+                .background(PrimaryTabPalette.surface, in: Capsule())
+            }
+
+            if listFilter.isActive {
+                Button("expense.filter.clear") {
+                    listFilter.consumer = nil
+                    listFilter.paymentStatus = .all
+                    listFilter.category = nil
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(PrimaryTabPalette.accent)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var paymentFilterTitle: String {
+        switch listFilter.paymentStatus {
+        case .all: String(localized: "expense.filter.status")
+        case .paid: String(localized: "expense.filter.paid")
+        case .unpaid: String(localized: "expense.filter.unpaid")
+        }
+    }
+
+    private func sortTitle(_ order: ExpenseListFilter.SortOrder) -> String {
+        switch order {
+        case .timeDesc: String(localized: "expense.sort.timeDesc")
+        case .timeAsc: String(localized: "expense.sort.timeAsc")
+        case .amountDesc: String(localized: "expense.sort.amountDesc")
+        case .amountAsc: String(localized: "expense.sort.amountAsc")
+        }
+    }
+
+    private func filterChipLabel(title: String, active: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+        }
+        .foregroundStyle(active ? .black : PrimaryTabPalette.secondaryText)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 32)
+        .background(
+            active ? PrimaryTabPalette.accent.opacity(0.85) : PrimaryTabPalette.surface,
+            in: Capsule()
+        )
+    }
+
     private func expenseRow(_ expense: ExpenseSnapshot, currency: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: expense.category.systemImage)
@@ -203,9 +345,20 @@ struct ExpenseListView: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(expense.category.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    Text(expense.category.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                    if !expense.isPaid() {
+                        Text(expense.paidAt.map { String(format: String(localized: "expense.unpaidWithDateBadge"), Self.badgeDateFormatter.string(from: $0)) }
+                            ?? String(localized: "expense.unpaidBadge"))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.orange.opacity(0.16), in: Capsule())
+                    }
+                }
 
                 Text(expenseTimeText(expense))
                     .font(.caption)
@@ -218,17 +371,22 @@ struct ExpenseListView: View {
                         .lineLimit(2)
                 }
 
-                if let card = linkedCard(for: expense) {
-                    Label {
-                        Text(card.title).lineLimit(1)
-                    } icon: {
-                        Image(systemName: card.kind.systemImage)
+                let cards = linkedCards(for: expense)
+                if !cards.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(cards, id: \.serverID) { card in
+                            Label {
+                                Text(card.title).lineLimit(1)
+                            } icon: {
+                                Image(systemName: card.kind.systemImage)
+                            }
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(PrimaryTabPalette.accent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(PrimaryTabPalette.accent.opacity(0.11), in: Capsule())
+                        }
                     }
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(PrimaryTabPalette.accent)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(PrimaryTabPalette.accent.opacity(0.11), in: Capsule())
                 }
 
                 if let note = expense.note, !note.isEmpty {
@@ -264,9 +422,9 @@ struct ExpenseListView: View {
         }
     }
 
-    private func linkedCard(for expense: ExpenseSnapshot) -> TravelCardSnapshot? {
-        guard let cardID = expense.cardID else { return nil }
-        return syncEngine.trip?.days.flatMap(\.cards).first { $0.serverID == cardID }
+    private func linkedCards(for expense: ExpenseSnapshot) -> [TravelCardSnapshot] {
+        let cards = syncEngine.trip?.days.flatMap(\.cards) ?? []
+        return expense.cardIDs.compactMap { id in cards.first { $0.serverID == id } }
     }
 
     private func expenseTimeText(_ expense: ExpenseSnapshot) -> String {
@@ -286,50 +444,18 @@ struct ExpenseListView: View {
             .joined(separator: " · ")
     }
 
+    private static let badgeDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateFormat = "M/d"
+        return formatter
+    }()
+
     private func addManualEntry() {
         switch section {
         case .expenses: addingExpense = true
         case .wallet: addingWalletItem = true
         case .memo: creatingMemoList = true
-        }
-    }
-
-    @ViewBuilder
-    private var syncFeedback: some View {
-        switch syncEngine.status {
-        case .synced:
-            EmptyView()
-        case .loading, .syncing:
-            EmptyView()
-        case .pending(let count):
-            HStack {
-                Label(String(format: String(localized: "expense.pendingSync"), count), systemImage: "clock.arrow.circlepath")
-                Spacer()
-                Button("common.retry") { Task { await syncEngine.retry() } }
-                    .font(.caption.weight(.semibold))
-            }
-            .font(.caption)
-            .foregroundStyle(.orange)
-        case .conflict:
-            HStack {
-                Label("expense.conflictNote", systemImage: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90")
-                Spacer()
-                Button("common.refresh") { Task { await syncEngine.retry() } }
-                    .font(.caption.weight(.semibold))
-            }
-            .font(.caption)
-            .foregroundStyle(.orange)
-        case .localOnly:
-            EmptyView()
-        case .offline(let message), .failed(let message):
-            HStack(alignment: .top) {
-                Label(message, systemImage: "wifi.exclamationmark")
-                Spacer()
-                Button("common.retry") { Task { await syncEngine.retry() } }
-                    .font(.caption.weight(.semibold))
-            }
-            .font(.caption)
-            .foregroundStyle(.red)
         }
     }
 }
