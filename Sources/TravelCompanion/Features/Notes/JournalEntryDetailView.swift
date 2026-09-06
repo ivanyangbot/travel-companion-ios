@@ -179,7 +179,7 @@ struct JournalEntryDetailView: View {
             matching: .images,
             preferredItemEncoding: .current,
             photoLibrary: .shared()
-        ) label: {
+        ) {
             VStack(spacing: 10) {
                 Image(systemName: "photo.badge.plus")
                     .font(.system(size: 26))

@@ -99,7 +99,8 @@ struct AgentV2TurnRequestFactory {
     /// 费用快照：按发生日倒序取最近 60 条；离线创建（尚无服务端 ID）的
     /// 记录不下发；上下文备注按接口上限取 200 字符，不修改原始账目。
     static func expenseSnapshot(from trip: SharedTripSnapshot) -> [AgentV2TurnRequest.ExpenseSnapshotItem] {
-        trip.expenses
+        let formatter = ISO8601DateFormatter()
+        return trip.expenses
             .sorted { $0.occurredOn > $1.occurredOn }
             .compactMap { expense in
                 guard let id = expense.serverID else { return nil }
@@ -112,12 +113,12 @@ struct AgentV2TurnRequestFactory {
                     note: expense.note.map { String($0.prefix(200)) },
                     cardId: expense.cardID,
                     settlementAmountMinor: expense.settlementAmountMinor,
-                    spentAt: expense.spentAt.map { iso8601.string(from: $0) },
+                    spentAt: expense.spentAt.map { formatter.string(from: $0) },
                     purchaseChannel: expense.purchaseChannel,
                     paymentMethod: expense.paymentMethod,
                     consumerUserId: expense.consumerUserID,
                     consumerName: expense.consumerName,
-                    createdAt: iso8601.string(from: expense.createdAt)
+                    createdAt: formatter.string(from: expense.createdAt)
                 )
             }
             .prefix(expenseSnapshotLimit)
