@@ -1268,3 +1268,10 @@
 "expenseeditor.linkedCountFormat" = "%lld cards linked";
 "expenseeditor.unlinkCardA11y" = "Unlink \"%@\"";
 "agent.commitLedgerWithPriceEdits" = "Saved %1$d expense(s), updated %2$d itinerary price(s), removed %3$d";
+
+/* Expense card redesign: VoiceOver field labels */
+"expense.a11y.consumer" = "Consumer: %@";
+"expense.a11y.channel" = "Channel: %@";
+"expense.a11y.paymentMethod" = "Payment method: %@";
+"expense.a11y.linkedCard" = "Linked card: %@";
+"expense.a11y.linkedCards" = "Linked %2$lld cards: %@";

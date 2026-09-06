@@ -356,65 +356,94 @@ struct ExpenseListView: View {
         )
     }
 
+    // MARK: - 支出卡片
+
+    /// 卡片文案拆解：agent 记账会把项目名并入 note 首行，取之作标题，
+    /// 其余行作为备注展示；无 note 时退回分类名，保证卡片始终有主标题。
+    private struct ExpenseCopy {
+        let title: String
+        let noteRemainder: String?
+
+        init(_ expense: ExpenseSnapshot) {
+            let lines = (expense.note ?? "")
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            if let first = lines.first, !first.isEmpty {
+                title = String(first)
+                let rest = lines.dropFirst().filter { !$0.isEmpty }
+                noteRemainder = rest.isEmpty ? nil : rest.joined(separator: "\n")
+            } else {
+                title = expense.category.title
+                noteRemainder = nil
+            }
+        }
+    }
+
     private func expenseRow(_ expense: ExpenseSnapshot, currency: String) -> some View {
-        HStack(spacing: 12) {
+        let copy = ExpenseCopy(expense)
+        let cards = linkedCards(for: expense)
+        return HStack(alignment: .top, spacing: 11) {
+            // 分类图标：着色底衬，仅作快速识别锚点。
             Image(systemName: expense.category.systemImage)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.white.opacity(0.82))
-                .frame(width: 38, height: 38)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PrimaryTabPalette.accent)
+                .frame(width: 34, height: 34)
                 .background(
-                    PrimaryTabPalette.surface,
-                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    PrimaryTabPalette.accent.opacity(0.13),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                 )
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
+                // 标题行：项目名 + 分类·时间副标题（本地化短格式）。
+                Text(copy.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+
+                HStack(spacing: 5) {
                     Text(expense.category.title)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                    if !expense.isPaid() {
-                        Text(expense.paidAt.map { String(format: String(localized: "expense.unpaidWithDateBadge"), Self.badgeDateFormatter.string(from: $0)) }
-                            ?? String(localized: "expense.unpaidBadge"))
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.16), in: Capsule())
-                    }
+                    Text("·")
+                    Text(expenseTimeText(expense))
                 }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .lineLimit(1)
 
-                Text(expenseTimeText(expense))
-                    .font(.caption)
-                    .foregroundStyle(PrimaryTabPalette.secondaryText)
-
-                if !expenseMetadata(expense).isEmpty {
-                    Text(expenseMetadata(expense))
-                        .font(.caption)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                        .lineLimit(2)
-                }
-
-                let cards = linkedCards(for: expense)
-                if !cards.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(cards, id: \.serverID) { card in
-                            Label {
-                                Text(card.title).lineLimit(1)
-                            } icon: {
-                                Image(systemName: card.kind.systemImage)
-                            }
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(PrimaryTabPalette.accent)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(PrimaryTabPalette.accent.opacity(0.11), in: Capsule())
+                // 属性 chips：小图标消歧字段（消费人/渠道/支付方式），流式换行。
+                let attributeChips = attributeChipModels(expense)
+                if !attributeChips.isEmpty {
+                    FlowLayout(spacing: 6, lineSpacing: 6) {
+                        ForEach(attributeChips) { chip in
+                            attributeChip(chip)
                         }
                     }
                 }
 
-                if let note = expense.note, !note.isEmpty {
-                    Text(note)
-                        .font(.caption)
+                // 关联行程卡：强调色单行 chip，多卡折叠为「首卡名 +n」。
+                if let linked = cards.first {
+                    HStack(spacing: 5) {
+                        Image(systemName: linked.kind.systemImage)
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(cards.count > 1
+                             ? "\(linked.title) +\(cards.count - 1)"
+                             : linked.title)
+                            .lineLimit(1)
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(PrimaryTabPalette.accent.opacity(0.12), in: Capsule())
+                    .accessibilityLabel(Text(String(
+                        format: String(localized: cards.count > 1 ? "expense.a11y.linkedCards" : "expense.a11y.linkedCard"),
+                        linked.title, cards.count
+                    )))
+                }
+
+                // 备注：仅显示未被标题占用的剩余内容。
+                if let remainder = copy.noteRemainder {
+                    Text(remainder)
+                        .font(.system(size: 12))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                         .lineLimit(2)
                 }
@@ -422,20 +451,32 @@ struct ExpenseListView: View {
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 3) {
+            // 右列：金额 + 折算 + 支付状态徽标，垂直堆叠右对齐。
+            VStack(alignment: .trailing, spacing: 4) {
                 Text(ExpenseMoney.formatted(expense.amountMinor, currency: expense.currency))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .monospacedDigit()
-                if expense.currency != currency, let settled = expense.amountForSettlement {
+                    .lineLimit(1)
+                if !expense.isPaid() {
+                    Text(expense.paidAt.map { String(format: String(localized: "expense.unpaidWithDateBadge"), Self.badgeDateFormatter.string(from: $0)) }
+                        ?? String(localized: "expense.unpaidBadge"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.16), in: Capsule())
+                        .fixedSize()
+                } else if expense.currency != currency, let settled = expense.amountForSettlement {
                     Text("≈ " + ExpenseMoney.formatted(settled, currency: currency))
-                        .font(.caption)
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                         .monospacedDigit()
+                        .lineLimit(1)
                 }
             }
         }
-        .padding(14)
+        .padding(12)
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
         .contentShape(Rectangle())
         .onTapGesture { editorTarget = expense }
@@ -445,26 +486,62 @@ struct ExpenseListView: View {
         }
     }
 
+    private struct AttributeChip: Identifiable {
+        let id: String
+        let systemImage: String
+        let text: String
+        let a11yKey: String
+    }
+
+    /// 消费人优先取成员名（更即时），渠道/支付方式取结构化字段。
+    private func attributeChipModels(_ expense: ExpenseSnapshot) -> [AttributeChip] {
+        var chips: [AttributeChip] = []
+        let consumerName = expense.consumerUserID.flatMap { id in
+            members.first { $0.userId == id }?.visibleName
+        } ?? expense.consumerName
+        if let consumer = consumerName?.trimmingCharacters(in: .whitespacesAndNewlines), !consumer.isEmpty {
+            chips.append(AttributeChip(id: "consumer", systemImage: "person.fill", text: consumer, a11yKey: "expense.a11y.consumer"))
+        }
+        if let channel = expense.purchaseChannel?.trimmingCharacters(in: .whitespacesAndNewlines), !channel.isEmpty {
+            chips.append(AttributeChip(id: "channel", systemImage: "storefront", text: channel, a11yKey: "expense.a11y.channel"))
+        }
+        if let method = expense.paymentMethod {
+            let title = ExpensePaymentMethod(rawValue: method)?.title ?? method
+            chips.append(AttributeChip(id: "payment", systemImage: "creditcard", text: title, a11yKey: "expense.a11y.paymentMethod"))
+        }
+        return chips
+    }
+
+    private func attributeChip(_ chip: AttributeChip) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: chip.systemImage)
+                .font(.system(size: 9, weight: .semibold))
+            Text(chip.text)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(PrimaryTabPalette.secondaryText)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(PrimaryTabPalette.surface, in: Capsule())
+        .fixedSize()
+        .accessibilityLabel(Text(String(format: String(localized: String.LocalizationValue(chip.a11yKey)), chip.text)))
+    }
+
     private func linkedCards(for expense: ExpenseSnapshot) -> [TravelCardSnapshot] {
         let cards = syncEngine.trip?.days.flatMap(\.cards) ?? []
         return expense.cardIDs.compactMap { id in cards.first { $0.serverID == id } }
     }
 
+    /// 消费时间优先；否则把发生日 ISO 串转成本地化短日期，不再裸奔 yyyy-MM-dd。
     private func expenseTimeText(_ expense: ExpenseSnapshot) -> String {
-        guard let spentAt = expense.spentAt else { return expense.occurredOn }
-        return spentAt.formatted(date: .abbreviated, time: .shortened)
-    }
-
-    private func expenseMetadata(_ expense: ExpenseSnapshot) -> String {
-        let payment = expense.paymentMethod.map { rawValue in
-            ExpensePaymentMethod(rawValue: rawValue)?.title ?? rawValue
+        if let spentAt = expense.spentAt {
+            return spentAt.formatted(.dateTime.month().day().hour().minute())
         }
-        return [expense.purchaseChannel, payment, expense.consumerName]
-            .compactMap { value in
-                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return trimmed.isEmpty ? nil : trimmed
-            }
-            .joined(separator: " · ")
+        if let date = Self.cardDayFormatter.date(from: expense.occurredOn) {
+            return date.formatted(.dateTime.month().day())
+        }
+        return expense.occurredOn
     }
 
     private static let badgeDateFormatter: DateFormatter = {
@@ -474,12 +551,73 @@ struct ExpenseListView: View {
         return formatter
     }()
 
+    private static let cardDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
     private func addManualEntry() {
         switch section {
         case .expenses: addingExpense = true
         case .wallet: addingWalletItem = true
         case .memo: creatingMemoList = true
         }
+    }
+}
+
+/// 简易流式布局：属性 chips 超出可用宽度时自动换行，保持卡片紧凑。
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = Self.rows(subviews: subviews, maxWidth: proposal.width, spacing: spacing)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + lineSpacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: max(width, 0), height: max(height, 0))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = Self.rows(subviews: subviews, maxWidth: bounds.width, spacing: spacing)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: .unspecified)
+                x += size.width + spacing
+            }
+            y += row.height + lineSpacing
+        }
+    }
+
+    private static func rows(subviews: Subviews, maxWidth: CGFloat?, spacing: CGFloat) -> [Row] {
+        var rows: [Row] = [Row()]
+        var x: CGFloat = 0
+        let limit = maxWidth ?? .infinity
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            if x > 0, x + size.width > limit {
+                rows.append(Row())
+                x = 0
+            }
+            let isFirstInRow = x == 0
+            rows[rows.count - 1].indices.append(index)
+            rows[rows.count - 1].width += size.width + (isFirstInRow ? 0 : spacing)
+            rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
+            x += size.width + spacing
+        }
+        return rows
     }
 }
 

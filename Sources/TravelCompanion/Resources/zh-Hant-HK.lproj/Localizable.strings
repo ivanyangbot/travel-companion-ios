@@ -1270,3 +1270,10 @@
 "expenseeditor.linkedCountFormat" = "已關聯 %lld 張卡片";
 "expenseeditor.unlinkCardA11y" = "移除與「%@」的關聯";
 "agent.commitLedgerWithPriceEdits" = "儲存 %1$d 筆支出，更新 %2$d 項行程價格，移除 %3$d 筆";
+
+/* 支出卡片重設計：VoiceOver 欄位標籤 */
+"expense.a11y.consumer" = "消費人：%@";
+"expense.a11y.channel" = "消費渠道：%@";
+"expense.a11y.paymentMethod" = "支付方式：%@";
+"expense.a11y.linkedCard" = "關聯行程卡：%@";
+"expense.a11y.linkedCards" = "關聯 %2$lld 張行程卡：%@";

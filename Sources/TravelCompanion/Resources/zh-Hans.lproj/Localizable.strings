@@ -1268,3 +1268,10 @@
 "expenseeditor.linkedCountFormat" = "已关联 %lld 张卡片";
 "expenseeditor.unlinkCardA11y" = "移除与「%@」的关联";
 "agent.commitLedgerWithPriceEdits" = "保存 %1$d 笔支出，更新 %2$d 项行程价格，移除 %3$d 笔";
+
+/* 支出卡片重设计：VoiceOver 字段标签 */
+"expense.a11y.consumer" = "消费人：%@";
+"expense.a11y.channel" = "消费渠道：%@";
+"expense.a11y.paymentMethod" = "支付方式：%@";
+"expense.a11y.linkedCard" = "关联行程卡：%@";
+"expense.a11y.linkedCards" = "关联 %2$lld 张行程卡：%@";
