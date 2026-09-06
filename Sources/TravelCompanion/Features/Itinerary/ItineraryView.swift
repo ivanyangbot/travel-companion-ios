@@ -1371,7 +1371,7 @@ struct ItineraryView: View {
                         Spacer(minLength: 8)
                         if let price {
                             VStack(alignment: .trailing, spacing: 2) {
-                                Text(card.actualPriceMinor == nil ? String(localized: "travelcard.estimateLabel") : String(localized: "travelcard.actualLabel"))
+                                Text(hasRecordedActualPrice(for: card) ? String(localized: "travelcard.actualLabel") : String(localized: "travelcard.estimateLabel"))
                                     .font(.caption2)
                                     .foregroundStyle(PrimaryTabPalette.secondaryText)
                                 Text(price)
@@ -1514,7 +1514,7 @@ struct ItineraryView: View {
                         Spacer(minLength: 8)
                         if let price {
                             VStack(alignment: .trailing, spacing: 2) {
-                                Text(card.actualPriceMinor == nil ? String(localized: "travelcard.estimateLabel") : String(localized: "travelcard.actualLabel"))
+                                Text(hasRecordedActualPrice(for: card) ? String(localized: "travelcard.actualLabel") : String(localized: "travelcard.estimateLabel"))
                                     .font(.caption2)
                                     .foregroundStyle(PrimaryTabPalette.secondaryText)
                                 Text(price)
@@ -1971,9 +1971,32 @@ struct ItineraryView: View {
 
     private func compactCardPrice(for card: TravelCardSnapshot) -> String? {
         let currency = syncEngine.trip?.currency
-        return CardPrice.formatRoundedMajor(minor: card.actualPriceMinor, currency: card.priceCurrency ?? currency)
-            ?? CardPrice.formatRoundedMajor(minor: card.priceMinor, currency: card.priceCurrency ?? currency)
+        if let actual = CardPrice.formatRoundedMajor(
+            minor: card.actualPriceMinor,
+            currency: card.priceCurrency ?? currency
+        ) {
+            return actual
+        }
+        if let expense = linkedActualExpense(for: card),
+           let actual = CardPrice.formatRoundedMajor(
+               minor: expense.amountMinor,
+               currency: expense.currency
+           ) {
+            return actual
+        }
+        return CardPrice.formatRoundedMajor(minor: card.priceMinor, currency: card.priceCurrency ?? currency)
             ?? CardPrice.formatRoundedMajor(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency)
+    }
+
+    private func hasRecordedActualPrice(for card: TravelCardSnapshot) -> Bool {
+        card.actualPriceMinor != nil || linkedActualExpense(for: card) != nil
+    }
+
+    private func linkedActualExpense(for card: TravelCardSnapshot) -> ExpenseSnapshot? {
+        guard let cardID = card.serverID else { return nil }
+        return syncEngine.trip?.expenses
+            .filter { $0.cardID == cardID }
+            .max { $0.updatedAt < $1.updatedAt }
     }
 
     private func handleListCardSwipeChanged(_ card: TravelCardSnapshot, translation: CGFloat) {
