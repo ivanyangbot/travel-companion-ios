@@ -46,12 +46,12 @@ final class AgentV2RequestFactoryTests: XCTestCase {
                 category: .food,
                 occurredOn: "2026-10-04",
                 spentAt: Date(timeIntervalSince1970: 1_760_000_000),
+                paidAt: Date(timeIntervalSince1970: 1_760_000_050),
                 purchaseChannel: "大众点评",
                 paymentMethod: ExpensePaymentMethod.alipay.rawValue,
                 consumerUserID: 42,
                 consumerName: "小林",
                 note: "客户报销；参考汇率仅供参考",
-                paidAt: Date(timeIntervalSince1970: 1_760_000_050),
                 cardIDs: [11, 12]
             ),
             ExpenseSnapshot(amountMinor: 999, currency: "JPY", category: .other, occurredOn: "2026-10-01"),  // 离线记录：无 serverID，不下发

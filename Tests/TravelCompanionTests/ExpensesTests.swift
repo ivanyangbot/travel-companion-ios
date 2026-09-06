@@ -114,8 +114,8 @@ final class ExpensesTests: XCTestCase {
     }
 
     func testSettlementSaturatesInsteadOfOverflowing() {
-        let first = ExpenseSnapshot(amountMinor: Int64.max, currency: "CNY", category: .other, paidBy: .personA, splitMode: .self, occurredOn: "2026-10-01")
-        let second = ExpenseSnapshot(amountMinor: Int64.max, currency: "CNY", category: .other, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-02")
+        let first = ExpenseSnapshot(amountMinor: Int64.max, currency: "CNY", category: .other, paidBy: .personA, splitMode: .self, occurredOn: "2026-10-01", paidAt: .distantPast)
+        let second = ExpenseSnapshot(amountMinor: Int64.max, currency: "CNY", category: .other, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-02", paidAt: .distantPast)
         let settlement = ExpenseSettlementCalculator.calculate([first, second])
         XCTAssertTrue(settlement.overflowed)
         XCTAssertEqual(settlement.total, Int64.max)
@@ -223,11 +223,11 @@ final class ExpensesTests: XCTestCase {
 
     func testListFilterFiltersByConsumerStatusCategoryAndSorts() {
         let now = Date()
-        let minaPaid = ExpenseSnapshot(amountMinor: 1_000, currency: "CNY", category: .food, occurredOn: "2026-10-03", paidAt: now.addingTimeInterval(-60))
+        var minaPaid = ExpenseSnapshot(amountMinor: 1_000, currency: "CNY", category: .food, occurredOn: "2026-10-03", paidAt: now.addingTimeInterval(-60))
         minaPaid.consumerUserID = 1
-        let ivanUnpaid = ExpenseSnapshot(amountMinor: 500, currency: "CNY", category: .lodging, occurredOn: "2026-10-01", paidAt: now.addingTimeInterval(600))
+        var ivanUnpaid = ExpenseSnapshot(amountMinor: 500, currency: "CNY", category: .lodging, occurredOn: "2026-10-01", paidAt: now.addingTimeInterval(600))
         ivanUnpaid.consumerUserID = 2
-        let freeNamePaid = ExpenseSnapshot(amountMinor: 300, currency: "CNY", category: .transport, occurredOn: "2026-10-02", paidAt: now.addingTimeInterval(-60))
+        var freeNamePaid = ExpenseSnapshot(amountMinor: 300, currency: "CNY", category: .transport, occurredOn: "2026-10-02", paidAt: now.addingTimeInterval(-60))
         freeNamePaid.consumerName = "阿猫"
         let expenses = [minaPaid, ivanUnpaid, freeNamePaid]
 
@@ -247,7 +247,7 @@ final class ExpensesTests: XCTestCase {
     }
 
     func testLegacyConsumerNameMergesWithMatchingMemberIdentity() {
-        let expense = ExpenseSnapshot(
+        var expense = ExpenseSnapshot(
             amountMinor: 300,
             currency: "CNY",
             category: .lodging,

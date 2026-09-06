@@ -1995,7 +1995,7 @@ struct ItineraryView: View {
     private func linkedActualExpense(for card: TravelCardSnapshot) -> ExpenseSnapshot? {
         guard let cardID = card.serverID else { return nil }
         return syncEngine.trip?.expenses
-            .filter { $0.cardID == cardID }
+            .filter { $0.cardIDs.contains(cardID) }
             .max { $0.updatedAt < $1.updatedAt }
     }
 

@@ -346,6 +346,7 @@ extension ExpenseListFilter.ConsumerOption {
     }
 }
 
+enum ExpenseMemberNames {
     static func name(for person: ExpensePaidBy) -> String {
         let key = person == .personA ? "expense.memberA.name" : "expense.memberB.name"
         let fallback = person == .personA ? String(localized: "expense.memberA") : String(localized: "expense.memberB")
