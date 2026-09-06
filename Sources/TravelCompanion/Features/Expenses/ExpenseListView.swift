@@ -225,7 +225,7 @@ struct ExpenseListView: View {
     }
 
     private func visibleExpenses(in trip: SharedTripSnapshot) -> [ExpenseSnapshot] {
-        listFilter.apply(to: trip.expenses)
+        listFilter.apply(to: trip.expenses, members: members)
     }
 
     private func filterBar(trip: SharedTripSnapshot) -> some View {

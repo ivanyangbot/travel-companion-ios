@@ -253,9 +253,10 @@ struct ExpenseListFilter: Equatable, Sendable {
         consumer != nil || paymentStatus != .all || category != nil
     }
 
-    func apply(to expenses: [ExpenseSnapshot]) -> [ExpenseSnapshot] {
+    func apply(to expenses: [ExpenseSnapshot], members: [TripMemberSummary] = []) -> [ExpenseSnapshot] {
         let filtered = expenses.filter { expense in
-            if let consumer, consumerID(of: expense) != consumer.id { return false }
+            if let consumer,
+               ConsumerOption.key(of: expense, members: members) != consumer.id { return false }
             switch paymentStatus {
             case .all: break
             case .paid: if !expense.isPaid() { return false }
@@ -300,7 +301,7 @@ struct ExpenseListFilter: Equatable, Sendable {
             record(ConsumerOption(id: "member:\(member.userId)", name: member.visibleName))
         }
         for expense in expenses {
-            let id = ConsumerOption.key(of: expense)
+            let id = ConsumerOption.key(of: expense, members: members)
             if byID[id] != nil { continue }
             if let userID = expense.consumerUserID {
                 let name = members.first { $0.userId == userID }?.visibleName
@@ -325,6 +326,23 @@ extension ExpenseListFilter.ConsumerOption {
             return "name:\(name)"
         }
         return ExpenseListFilter.ConsumerOption.unspecified.id
+    }
+
+    /// Old records can contain a member name without its user ID. Resolve an
+    /// unambiguous name match to the member key so summaries do not split one
+    /// traveler into an ID row and a legacy free-text row.
+    static func key(of expense: ExpenseSnapshot, members: [TripMemberSummary]) -> String {
+        if let userID = expense.consumerUserID { return "member:\(userID)" }
+        guard let name = expense.consumerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return unspecified.id }
+        let matches = members.filter {
+            $0.visibleName.trimmingCharacters(in: .whitespacesAndNewlines)
+                .compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }
+        if matches.count == 1, let member = matches.first {
+            return "member:\(member.userId)"
+        }
+        return "name:\(name)"
     }
 }
 

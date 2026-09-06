@@ -253,7 +253,9 @@ struct ExpenseEditorView: View {
         if existingExpense != nil && normalizedNote.isEmpty { clears.insert("note") }
         if existingExpense != nil && normalizedPurchaseChannel.isEmpty { clears.insert("purchaseChannel") }
         if existingExpense != nil && paymentMethod.isEmpty { clears.insert("paymentMethod") }
-        if existingExpense?.consumerUserID != nil && consumerUserID == nil {
+        let hadSavedConsumer = existingExpense?.consumerUserID != nil
+            || !(existingExpense?.consumerName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if hadSavedConsumer && consumerUserID == nil {
             clears.formUnion(["consumerUserId", "consumerName"])
         }
         if existingExpense?.paidAt != nil && resolvedPaidAt == nil { clears.insert("paidAt") }
@@ -267,7 +269,7 @@ struct ExpenseEditorView: View {
             purchaseChannel: normalizedPurchaseChannel.isEmpty ? nil : normalizedPurchaseChannel,
             paymentMethod: paymentMethod.isEmpty ? nil : paymentMethod,
             consumerUserID: consumerUserID,
-            consumerName: selectedConsumer?.visibleName ?? existingExpense?.consumerName,
+            consumerName: selectedConsumer?.visibleName,
             note: normalizedNote.isEmpty ? nil : normalizedNote,
             // 整组替换：空数组即为清空全部关联。
             cardIDs: cardIDs,

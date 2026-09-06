@@ -57,18 +57,16 @@ struct ExpenseSummaryView: View {
 
         for expense in expenses {
             guard let amount = expense.amountForSettlement else { continue }
-            let key: String
+            let key = ExpenseListFilter.ConsumerOption.key(of: expense, members: members)
             let name: String
-            if let userID = expense.consumerUserID {
-                key = "member:\(userID)"
-                name = members.first { $0.userId == userID }?.visibleName
-                    ?? expense.consumerName
-                    ?? String(localized: "expensesummary.formerMember")
+            if key.hasPrefix("member:"),
+               let member = members.first(where: { key == "member:\($0.userId)" }) {
+                name = member.visibleName
+            } else if expense.consumerUserID != nil {
+                name = expense.consumerName ?? String(localized: "expensesummary.formerMember")
             } else if let savedName = expense.consumerName, !savedName.isEmpty {
-                key = "name:\(savedName)"
                 name = savedName
             } else {
-                key = "unspecified"
                 name = String(localized: "expensesummary.unspecifiedConsumer")
             }
             names[key] = name

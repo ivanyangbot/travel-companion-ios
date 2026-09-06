@@ -246,6 +246,35 @@ final class ExpensesTests: XCTestCase {
         XCTAssertEqual(options.map(\.id), ["member:2", "member:1", "name:阿猫"])
     }
 
+    func testLegacyConsumerNameMergesWithMatchingMemberIdentity() {
+        let expense = ExpenseSnapshot(
+            amountMinor: 300,
+            currency: "CNY",
+            category: .lodging,
+            occurredOn: "2026-10-01"
+        )
+        expense.consumerName = "  sanx 4 "
+        let members = [
+            TripMemberSummary(
+                userId: 4,
+                displayName: "sanx 4",
+                email: nil,
+                role: "editor",
+                joinedAt: .now
+            )
+        ]
+
+        XCTAssertEqual(
+            ExpenseListFilter.ConsumerOption.key(of: expense, members: members),
+            "member:4"
+        )
+        let memberOption = ExpenseListFilter.ConsumerOption(id: "member:4", name: "sanx 4")
+        XCTAssertEqual(
+            ExpenseListFilter(consumer: memberOption).apply(to: [expense], members: members).count,
+            1
+        )
+    }
+
     @MainActor
     func testSyncEngineEditsAndCancelsAnOfflineExpenseBeforeItHasServerID() async throws {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
