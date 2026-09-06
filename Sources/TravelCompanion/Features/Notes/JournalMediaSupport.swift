@@ -1,5 +1,6 @@
 import AVKit
 import CoreTransferable
+import ImageIO
 import Photos
 import PhotosUI
 import SwiftUI
@@ -71,7 +72,9 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
     }
 
     static func load(from item: PhotosPickerItem) async throws -> JournalAttachment {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        // PhotosPicker 本身不需要整库授权。只在用户已经授权时走 PHAsset，避免
+        // 选完照片后又出现一层权限弹窗；未授权时从原始文件的 EXIF 读取位置。
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if (status == .authorized || status == .limited),
            let identifier = item.itemIdentifier,
            let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject {
@@ -99,11 +102,35 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
         } else {
             kind = "file"
         }
+        let metadata = kind == "photo" ? imageMetadata(at: destination) : nil
         return try JournalAttachment(
             kind: kind,
             primary: resource,
-            previewImage: kind == "photo" ? UIImage(contentsOfFile: destination.path) : nil
+            previewImage: kind == "photo" ? UIImage(contentsOfFile: destination.path) : nil,
+            latitude: metadata?.latitude,
+            longitude: metadata?.longitude,
+            capturedAt: metadata?.capturedAt
         )
+    }
+
+    private static func imageMetadata(at url: URL) -> (latitude: Double?, longitude: Double?, capturedAt: Date?) {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else { return (nil, nil, nil) }
+
+        let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any]
+        var latitude = (gps?[kCGImagePropertyGPSLatitude] as? NSNumber)?.doubleValue
+        var longitude = (gps?[kCGImagePropertyGPSLongitude] as? NSNumber)?.doubleValue
+        if (gps?[kCGImagePropertyGPSLatitudeRef] as? String)?.uppercased() == "S" { latitude = latitude.map { -$0 } }
+        if (gps?[kCGImagePropertyGPSLongitudeRef] as? String)?.uppercased() == "W" { longitude = longitude.map { -$0 } }
+
+        let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        let dateString = (exif?[kCGImagePropertyExifDateTimeOriginal] as? String)
+            ?? ((properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any])?[kCGImagePropertyTIFFDateTime] as? String)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        return (latitude, longitude, dateString.flatMap(formatter.date(from:)))
     }
 
     private static func load(from asset: PHAsset) async throws -> JournalAttachment {

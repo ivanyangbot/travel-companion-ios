@@ -657,10 +657,10 @@
 "journal.emptyDesc" = "Snap moments along the way and write them into your own journal.";
 "journal.incompleteTitle" = "Not Finished";
 "journal.headerTitle" = "Journal";
-"journal.allEntries" = "All Journals";
+"journal.allEntries" = "All Entries";
 "journal.manageGroups" = "Manage Groups";
 "journal.groupMenuA11y" = "Choose or manage journal groups";
-"journal.newA11y" = "New journal";
+"journal.newA11y" = "Add photos";
 "journal.allGroups" = "All";
 "journal.countFormat" = "%lld entries";
 "journal.syncingTitle" = "Syncing local journals";

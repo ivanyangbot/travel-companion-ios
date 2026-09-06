@@ -1,7 +1,6 @@
 import Network
 import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
 
 enum JournalNetworkAccess: Equatable, Sendable {
@@ -303,6 +302,8 @@ struct NotesView: View {
     @State private var isLoading = false
     @State private var displayMode: JournalDisplayMode = .list
     @State private var mapViewer: MapViewerContext?
+    @State private var quickPickerItems: [PhotosPickerItem] = []
+    @State private var isQuickImporting = false
     private let api = APIClient()
 
     init(syncEngine: SyncEngine, journalSync: JournalSyncCoordinator) {
@@ -370,6 +371,9 @@ struct NotesView: View {
             }
             .onChange(of: syncEngine.selectedTripID) { _, tripID in
                 journalSync.updateSession(isAuthenticated: syncEngine.isUserAuthenticated, tripID: tripID)
+                // 行程切换时先移除上一行程的画面，避免并发请求把两份手书短暂混在一起。
+                snapshot = JournalSnapshot(groups: [], entries: [])
+                selectedGroupID = nil
                 Task { await reload() }
             }
             .onChange(of: journalSync.revision) { _, _ in Task { await reload() } }
@@ -377,6 +381,9 @@ struct NotesView: View {
             // 收到广播后重拉，避免返回手书 tab 时短暂显示旧列表。
             .onReceive(NotificationCenter.default.publisher(for: .agentJournalEntriesDidChange)) { _ in
                 Task { await reload() }
+            }
+            .onChange(of: quickPickerItems) { _, values in
+                Task { await importQuickPhotos(values) }
             }
             .sheet(item: $editor) { entry in
                 JournalEditor(
@@ -448,12 +455,16 @@ struct NotesView: View {
             .padding(.bottom, 112)
         } else {
             ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(visibleEntries) { entry in
-                        journalCard(entry)
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(0..<2, id: \.self) { column in
+                        LazyVStack(spacing: 10) {
+                            ForEach(Array(visibleEntries.enumerated()).filter { $0.offset % 2 == column }, id: \.element.id) { indexedEntry in
+                                journalCard(indexedEntry.element)
+                            }
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.bottom, 128)
             }
             .scrollIndicators(.hidden)
@@ -513,14 +524,25 @@ struct NotesView: View {
                 .primaryTabHeaderButtonStyle()
                 .accessibilityLabel(Text(displayMode == .list ? "journal.mapModeA11y" : "journal.listModeA11y"))
 
-                Button {
-                    createEntry()
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 20, weight: .medium))
-                        .frame(width: 40, height: 40)
+                PhotosPicker(
+                    selection: $quickPickerItems,
+                    maxSelectionCount: 9,
+                    matching: .images,
+                    preferredItemEncoding: .current,
+                    photoLibrary: .shared()
+                ) {
+                    Group {
+                        if isQuickImporting {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 20, weight: .medium))
+                        }
+                    }
+                    .frame(width: 40, height: 40)
                 }
                 .primaryTabHeaderButtonStyle()
+                .disabled(isQuickImporting)
                 .accessibilityLabel(Text("journal.newA11y"))
             }
         }
@@ -650,12 +672,27 @@ struct NotesView: View {
     private func journalCard(_ entry: JournalEntry) -> some View {
         // 点卡片进只读详情页；编辑只从明确的编辑入口（详情页铅笔 / 长按菜单）进。
         NavigationLink(value: entry) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 9) {
                 if let first = entry.images.first {
-                    JournalMediaView(media: first)
-                        .frame(height: 180)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    ZStack(alignment: .bottomLeading) {
+                        JournalMediaView(media: first)
+                            .frame(height: waterfallImageHeight(for: entry))
+                            .frame(maxWidth: .infinity)
+                            .clipped()
+                        if let description = cardDescription(for: entry) {
+                            LinearGradient(
+                                colors: [.clear, .black.opacity(0.82)],
+                                startPoint: .center,
+                                endPoint: .bottom
+                            )
+                            Text(description)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.white)
+                                .lineLimit(3)
+                                .padding(10)
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     if entry.images.count > 1 {
                         Text(String(format: String(localized: "journal.attachmentCount"), entry.images.count))
                             .font(.caption)
@@ -663,13 +700,14 @@ struct NotesView: View {
                     }
                 }
                 Text(entry.title)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
-                if let content = entry.content, !content.isEmpty {
+                    .lineLimit(2)
+                if entry.images.isEmpty, let content = entry.content, !content.isEmpty {
                     Text(content)
-                        .font(.subheadline)
+                        .font(.system(size: 13))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
-                        .lineLimit(3)
+                        .lineLimit(5)
                 }
                 HStack {
                     if let group = snapshot.groups.first(where: { $0.id == entry.groupId }) {
@@ -682,7 +720,7 @@ struct NotesView: View {
                 }
                 .font(.caption)
             }
-            .padding(12)
+            .padding(9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .primaryTabCardStyle(
                 color: entry.images.isEmpty
@@ -700,16 +738,50 @@ struct NotesView: View {
         }
     }
 
-    private func createEntry() {
-        editor = JournalEntry(
-            id: 0,
-            groupId: selectedGroupID,
-            title: "",
-            content: nil,
-            images: [],
-            createdAt: .now,
-            updatedAt: .now
-        )
+    private func waterfallImageHeight(for entry: JournalEntry) -> CGFloat {
+        let variants: [CGFloat] = [168, 196, 224]
+        return variants[abs(entry.id) % variants.count]
+    }
+
+    private func cardDescription(for entry: JournalEntry) -> String? {
+        let value = (entry.images.first?.description ?? entry.content ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    /// 顶部“添加照片”只有一个系统选择步骤；点系统对勾后立即创建手书记录。
+    private func importQuickPhotos(_ values: [PhotosPickerItem]) async {
+        guard !values.isEmpty else { return }
+        isQuickImporting = true
+        defer {
+            isQuickImporting = false
+            quickPickerItems = []
+        }
+        do {
+            var attachments: [JournalAttachment] = []
+            for item in values.prefix(9) {
+                attachments.append(try await JournalAttachment.load(from: item))
+            }
+            guard !attachments.isEmpty else { return }
+            let capturedAt = attachments.compactMap(\.capturedAt).min() ?? .now
+            let title = capturedAt.formatted(.dateTime.year().month().day())
+            let entry = JournalEntry(
+                id: 0,
+                groupId: selectedGroupID,
+                title: title,
+                content: nil,
+                images: [],
+                createdAt: capturedAt,
+                updatedAt: .now
+            )
+            await save(
+                entry: entry,
+                request: JournalEntryRequest(groupId: selectedGroupID, title: title, content: nil, imageKeys: []),
+                attachments: attachments
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func deleteEntry(_ entry: JournalEntry) {
@@ -719,19 +791,26 @@ struct NotesView: View {
 
     private func reload() async {
         guard let tripID = remoteTripID else {
+            isLoading = false
             snapshot = localStore.snapshot
             return
         }
-        guard !isLoading else { return }
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if remoteTripID == tripID { isLoading = false }
+        }
         do {
             let remote = try await api.fetchJournal(tripID: tripID)
+            // 用户可能在请求途中切换行程；旧响应绝不能覆盖当前行程的手书。
+            guard remoteTripID == tripID else { return }
             snapshot = merge(remote: remote, local: localStore.snapshot)
             if let selectedGroupID, !snapshot.groups.contains(where: { $0.id == selectedGroupID }) {
                 self.selectedGroupID = nil
             }
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard remoteTripID == tripID else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func merge(remote: JournalSnapshot, local: JournalSnapshot) -> JournalSnapshot {
@@ -1118,15 +1197,7 @@ private struct JournalEditor: View {
     @State private var title = ""
     @State private var content = ""
     @State private var groupID: Int?
-    @State private var attachments: [JournalAttachment] = []
-    @State private var pickerItems: [PhotosPickerItem] = []
     @State private var isSaving = false
-    @State private var isImporting = false
-    @State private var mediaError: String?
-
-    private var availableAttachmentSlots: Int {
-        max(0, 9 - (entry?.images.count ?? 0) - attachments.count)
-    }
 
     var body: some View {
         NavigationStack {
@@ -1138,43 +1209,6 @@ private struct JournalEditor: View {
                         ForEach(groups) { Text($0.name).tag(Optional($0.id)) }
                     }
                     TextEditor(text: $content).frame(minHeight: 150)
-                }
-                Section("journal.attachmentsSection") {
-                    if !attachments.isEmpty {
-                        ScrollView(.horizontal) {
-                            HStack {
-                                ForEach(attachments) { item in
-                                    ZStack(alignment: .topTrailing) {
-                                        attachmentPreview(item)
-                                        Button {
-                                            attachments.removeAll { $0.id == item.id }
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .symbolRenderingMode(.hierarchical)
-                                        }
-                                        .padding(4)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if availableAttachmentSlots > 0 {
-                        PhotosPicker(
-                            selection: $pickerItems,
-                            maxSelectionCount: availableAttachmentSlots,
-                            matching: .any(of: [.images, .videos]),
-                            preferredItemEncoding: .current,
-                            photoLibrary: .shared()
-                        ) {
-                            Label("journal.addPhotos", systemImage: "photo.on.rectangle")
-                        }
-                    }
-                    Text("journal.mediaCaption")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if isImporting {
-                        ProgressView("journal.preparingFile")
-                    }
                 }
             }
             .navigationTitle(entry == nil ? "journal.newTitle" : "journal.editTitle")
@@ -1192,77 +1226,15 @@ private struct JournalEditor: View {
                                     content: content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : content,
                                     imageKeys: entry?.images.map(\.uploadReference) ?? []
                                 ),
-                                attachments
+                                []
                             )
                             isSaving = false
                         }
                     }
-                    .disabled(isSaving || isImporting)
+                    .disabled(isSaving)
                 }
             }
             .onAppear { title = entry?.title ?? ""; content = entry?.content ?? ""; groupID = entry?.groupId ?? defaultGroupID }
-            .onChange(of: pickerItems) { _, values in
-                Task {
-                    await importPhotoItems(values)
-                }
-            }
-            .alert(
-                "journal.cannotAttachTitle",
-                isPresented: Binding(
-                    get: { mediaError != nil },
-                    set: { if !$0 { mediaError = nil } }
-                )
-            ) {
-                Button("common.ok", role: .cancel) {}
-            } message: {
-                Text(mediaError ?? "")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func attachmentPreview(_ attachment: JournalAttachment) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            if let image = attachment.previewImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .allowedDynamicRange(.high)
-                    .scaledToFill()
-            } else {
-                Rectangle()
-                    .fill(.quaternary)
-                    .overlay {
-                        Image(systemName: attachment.kind == "video" ? "play.rectangle.fill" : "doc.fill")
-                            .font(.system(size: 34))
-                            .foregroundStyle(.secondary)
-                    }
-            }
-            Text(attachment.kind == "livePhoto" ? String(localized: "journal.liveBadge") : attachment.primary.fileName)
-                .font(.caption2.bold())
-                .lineLimit(1)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(.black.opacity(0.58), in: Capsule())
-                .foregroundStyle(.white)
-                .padding(6)
-        }
-        .frame(width: 110, height: 110)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func importPhotoItems(_ values: [PhotosPickerItem]) async {
-        guard !values.isEmpty else { return }
-        isImporting = true
-        defer {
-            isImporting = false
-            pickerItems = []
-        }
-        do {
-            for item in values.prefix(availableAttachmentSlots) {
-                attachments.append(try await JournalAttachment.load(from: item))
-            }
-        } catch {
-            mediaError = error.localizedDescription
         }
     }
 }

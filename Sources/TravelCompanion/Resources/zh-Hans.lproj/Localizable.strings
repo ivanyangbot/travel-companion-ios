@@ -657,10 +657,10 @@
 "journal.emptyDesc" = "拍下旅途片段，写成属于你的手书。";
 "journal.incompleteTitle" = "操作未完成";
 "journal.headerTitle" = "手书";
-"journal.allEntries" = "全部手书";
+"journal.allEntries" = "全部记录";
 "journal.manageGroups" = "管理分组";
 "journal.groupMenuA11y" = "选择或管理手书分组";
-"journal.newA11y" = "新建手书";
+"journal.newA11y" = "添加照片";
 "journal.allGroups" = "全部";
 "journal.countFormat" = "%lld 篇记录";
 "journal.syncingTitle" = "正在同步本地手书";
