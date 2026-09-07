@@ -391,7 +391,8 @@ private struct JournalLivePhotoView: View {
     private static func load(photoURL: URL, videoURL: URL) async throws -> PHLivePhoto {
         async let photo = localResource(from: photoURL)
         async let video = localResource(from: videoURL)
-        let resources = try await [photo, video]
+        let (photoResource, videoResource) = try await (photo, video)
+        let resources = [photoResource, videoResource]
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<PHLivePhoto, Error>) in
             let gate = JournalLivePhotoRequestGate()
             PHLivePhoto.request(
