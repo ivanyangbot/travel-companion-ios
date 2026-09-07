@@ -394,22 +394,59 @@ struct ExpenseListView: View {
                 )
 
             VStack(alignment: .leading, spacing: 5) {
-                // 标题行：项目名 + 分类·时间副标题（本地化短格式）。
-                Text(copy.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        // 标题最多占两行，避免在仍有纵向空间时过早省略。
+                        Text(copy.title)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .layoutPriority(1)
 
-                HStack(spacing: 5) {
-                    Text(expense.category.title)
-                    Text("·")
-                    Text(expenseTimeText(expense))
+                        HStack(spacing: 5) {
+                            Text(expense.category.title)
+                            Text("·")
+                            Text(expenseTimeText(expense))
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    // 金额只占顶部右侧，让下面的属性标签尽量吃满整行宽度。
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(ExpenseMoney.formatted(expense.amountMinor, currency: expense.currency))
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !expense.isPaid() {
+                            Text(expense.paidAt.map { String(format: String(localized: "expense.unpaidWithDateBadge"), Self.badgeDateFormatter.string(from: $0)) }
+                                ?? String(localized: "expense.unpaidBadge"))
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.16), in: Capsule())
+                                .fixedSize()
+                        } else if expense.currency != currency, let settled = expense.amountForSettlement {
+                            Text("≈ " + ExpenseMoney.formatted(settled, currency: currency))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
+                        }
+                    }
                 }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(PrimaryTabPalette.secondaryText)
-                .lineLimit(1)
 
-                // 属性 chips：小图标消歧字段（消费人/渠道/支付方式），流式换行。
+                // 属性 chips：金额块不再占整列宽度后，这里会先尽量排成一行；
+                // 只有真的放不下时才换行。绑定行程 tag 仍单独占一行。
                 let attributeChips = attributeChipModels(expense)
                 if !attributeChips.isEmpty {
                     FlowLayout(spacing: 6, lineSpacing: 6) {
@@ -446,33 +483,6 @@ struct ExpenseListView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                         .lineLimit(2)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            // 右列：金额 + 折算 + 支付状态徽标，垂直堆叠右对齐。
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(ExpenseMoney.formatted(expense.amountMinor, currency: expense.currency))
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                if !expense.isPaid() {
-                    Text(expense.paidAt.map { String(format: String(localized: "expense.unpaidWithDateBadge"), Self.badgeDateFormatter.string(from: $0)) }
-                        ?? String(localized: "expense.unpaidBadge"))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.orange.opacity(0.16), in: Capsule())
-                        .fixedSize()
-                } else if expense.currency != currency, let settled = expense.amountForSettlement {
-                    Text("≈ " + ExpenseMoney.formatted(settled, currency: currency))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                        .monospacedDigit()
-                        .lineLimit(1)
                 }
             }
         }
