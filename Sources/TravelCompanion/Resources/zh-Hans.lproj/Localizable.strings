@@ -495,8 +495,7 @@
 "expenseeditor.chooseCardTitle" = "关联行程";
 "expenseeditor.searchCards" = "搜索名称、地点或类型";
 "expenseeditor.unlinkCard" = "解除关联";
-"expenseeditor.linkHelp" = "关联后，这笔实际支出会替代该卡片的预估价计入行程合计。每张卡片只能关联一笔支出。";
-"expenseeditor.alreadyLinked" = "已关联";
+"expenseeditor.linkHelp" = "关联后，这笔实际支出会替代该卡片的预估价计入行程合计。同一张卡片可被多笔支出关联（如押金与到店付尾款）。";
 "expenseeditor.noLinkableCards" = "没有可关联的卡片";
 "expenseeditor.noLinkableCardsHint" = "请先在行程中添加活动、酒店或机票，并等待卡片完成同步。";
 "expenseeditor.noMatchingCards" = "没有匹配的卡片";
@@ -708,6 +707,7 @@
 "journal.photoPinA11y" = "照片";
 "journal.photoLongPressHint" = "轻点放大，长按编辑描述和位置";
 "journal.editPhotoTitle" = "编辑照片";
+"journal.photoViewAction" = "放大查看";
 "journal.descriptionSection" = "描述";
 "journal.locationSection" = "位置";
 "journal.hasLocation" = "记录位置";

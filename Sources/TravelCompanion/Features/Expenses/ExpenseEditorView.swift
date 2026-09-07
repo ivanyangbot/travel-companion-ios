@@ -226,8 +226,7 @@ struct ExpenseEditorView: View {
             .sheet(isPresented: $showsCardPicker) {
                 ExpenseCardLinkPicker(
                     trip: trip,
-                    selectedCardIDs: cardIDs,
-                    unavailableCardIDs: unavailableCardIDs
+                    selectedCardIDs: cardIDs
                 ) { toggledID in
                     if let index = cardIDs.firstIndex(of: toggledID) {
                         cardIDs.remove(at: index)
@@ -241,15 +240,6 @@ struct ExpenseEditorView: View {
 
     private var allCards: [TravelCardSnapshot] {
         trip.days.flatMap(\.cards).filter { $0.serverID != nil }.sorted { $0.title < $1.title }
-    }
-
-    /// 每张卡片仍只能被一笔支出关联；他笔已占用的卡在本选择器中禁用。
-    private var unavailableCardIDs: Set<Int> {
-        Set(
-            trip.expenses
-                .filter { $0.id != existingExpense?.id }
-                .flatMap(\.cardIDs)
-        )
     }
 
     private func save() {
@@ -327,7 +317,6 @@ struct ExpenseEditorView: View {
 private struct ExpenseCardLinkPicker: View {
     let trip: SharedTripSnapshot
     let selectedCardIDs: [Int]
-    let unavailableCardIDs: Set<Int>
     let onToggle: (Int) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -389,25 +378,23 @@ private struct ExpenseCardLinkPicker: View {
     private func cardRow(_ card: TravelCardSnapshot) -> some View {
         let cardID = card.serverID!
         let isSelected = selectedCardIDs.contains(cardID)
-        let isUnavailable = unavailableCardIDs.contains(cardID) && !isSelected
 
         return Button {
-            guard !isUnavailable else { return }
             onToggle(cardID)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: card.kind.systemImage)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isUnavailable ? Color.secondary : PrimaryTabPalette.accent)
+                    .foregroundStyle(PrimaryTabPalette.accent)
                     .frame(width: 36, height: 36)
                     .background(
-                        (isUnavailable ? Color.secondary : PrimaryTabPalette.accent).opacity(0.12),
+                        PrimaryTabPalette.accent.opacity(0.12),
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                     )
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(card.title)
-                        .foregroundStyle(isUnavailable ? .secondary : .primary)
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                     HStack(spacing: 5) {
                         Text(card.kind.title)
@@ -426,21 +413,12 @@ private struct ExpenseCardLinkPicker: View {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(PrimaryTabPalette.accent)
-                } else if isUnavailable {
-                    Text("expenseeditor.alreadyLinked")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isUnavailable)
-        .accessibilityValue(
-            isSelected
-                ? Text("common.selected")
-                : isUnavailable ? Text("expenseeditor.alreadyLinked") : Text("")
-        )
+        .accessibilityValue(isSelected ? Text("common.selected") : Text(""))
     }
 }
 

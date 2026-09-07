@@ -4,6 +4,29 @@ import SwiftData
 @testable import TravelCompanion
 
 final class MapsTests: XCTestCase {
+    func testJournalPhotoPinFallsBackToTripCoordinateWhenPhotoGPSIsUnavailable() throws {
+        let image = JournalImage(
+            key: "photo-without-exif",
+            url: "https://example.test/photo.jpg",
+            kind: "photo"
+        )
+        let entry = JournalEntry(
+            id: 7,
+            groupId: nil,
+            title: "Trip photo",
+            content: nil,
+            images: [image],
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let fallback = CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737)
+
+        let pin = try XCTUnwrap(JournalPhotoPin(entry: entry, image: image, fallbackCoordinate: fallback))
+
+        XCTAssertEqual(pin.latitude, fallback.latitude)
+        XCTAssertEqual(pin.longitude, fallback.longitude)
+    }
+
     func testFlightArcIsCurvedAndKeepsExactEndpoints() throws {
         let origin = CLLocationCoordinate2D(latitude: 39.941, longitude: 116.455)
         let destination = CLLocationCoordinate2D(latitude: 35.549, longitude: 139.779)

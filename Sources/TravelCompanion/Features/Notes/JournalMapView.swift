@@ -15,10 +15,10 @@ struct JournalPhotoPin: Identifiable, Hashable, Sendable {
     let capturedAt: Date?
     let description: String?
 
-    init?(entry: JournalEntry, image: JournalImage) {
+    init?(entry: JournalEntry, image: JournalImage, fallbackCoordinate: CLLocationCoordinate2D? = nil) {
         guard image.kind == nil || image.kind == "photo" || image.kind == "livePhoto" else { return nil }
-        guard let latitude = image.latitude,
-              let longitude = image.longitude,
+        guard let latitude = image.latitude ?? fallbackCoordinate?.latitude,
+              let longitude = image.longitude ?? fallbackCoordinate?.longitude,
               (-90.0 ... 90.0).contains(latitude),
               (-180.0 ... 180.0).contains(longitude) else { return nil }
         id = image.key

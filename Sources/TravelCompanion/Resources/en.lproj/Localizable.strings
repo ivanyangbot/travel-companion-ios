@@ -495,8 +495,7 @@
 "expenseeditor.chooseCardTitle" = "Link to Itinerary";
 "expenseeditor.searchCards" = "Search name, place, or type";
 "expenseeditor.unlinkCard" = "Remove link";
-"expenseeditor.linkHelp" = "Once linked, this actual expense replaces the card's estimate in the trip total. Each card can link to one expense.";
-"expenseeditor.alreadyLinked" = "Linked";
+"expenseeditor.linkHelp" = "Once linked, this actual expense replaces the card's estimate in the trip total. A card can be linked by multiple expenses (e.g. a deposit plus a pay-on-arrival balance).";
 "expenseeditor.noLinkableCards" = "No cards available";
 "expenseeditor.noLinkableCardsHint" = "Add an activity, hotel, or flight to the itinerary and wait for it to finish syncing.";
 "expenseeditor.noMatchingCards" = "No matching cards";
@@ -708,6 +707,7 @@
 "journal.photoPinA11y" = "Photo";
 "journal.photoLongPressHint" = "Tap to enlarge; touch and hold to edit description and location";
 "journal.editPhotoTitle" = "Edit Photo";
+"journal.photoViewAction" = "View Larger";
 "journal.descriptionSection" = "Description";
 "journal.locationSection" = "Location";
 "journal.hasLocation" = "Save location";

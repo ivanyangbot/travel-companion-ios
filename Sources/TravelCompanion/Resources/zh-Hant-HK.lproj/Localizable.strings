@@ -495,8 +495,7 @@
 "expenseeditor.chooseCardTitle" = "關聯行程";
 "expenseeditor.searchCards" = "搜尋名稱、地點或類型";
 "expenseeditor.unlinkCard" = "解除關聯";
-"expenseeditor.linkHelp" = "關聯後，呢筆實際支出會取代該卡片嘅預估價計入行程合計。每張卡片只可以關聯一筆支出。";
-"expenseeditor.alreadyLinked" = "已關聯";
+"expenseeditor.linkHelp" = "關聯後，呢筆實際支出會取代該卡片嘅預估價計入行程合計。同一張卡片可以被多筆支出關聯（如訂金與到店付尾數）。";
 "expenseeditor.noLinkableCards" = "冇可關聯嘅卡片";
 "expenseeditor.noLinkableCardsHint" = "請先喺行程加入活動、酒店或機票，並等卡片完成同步。";
 "expenseeditor.noMatchingCards" = "冇符合條件嘅卡片";
@@ -708,6 +707,7 @@
 "journal.photoPinA11y" = "相片";
 "journal.photoLongPressHint" = "撳一下放大，長按編輯描述同位置";
 "journal.editPhotoTitle" = "編輯相片";
+"journal.photoViewAction" = "放大查看";
 "journal.descriptionSection" = "描述";
 "journal.locationSection" = "位置";
 "journal.hasLocation" = "記錄位置";

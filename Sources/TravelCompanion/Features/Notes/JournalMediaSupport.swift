@@ -528,3 +528,41 @@ private struct JournalPhotoThumbnailCore: View {
         }
     }
 }
+
+/// 手书照片长按预览（context menu preview）：复用瀑布流同规格的 1000px 缩略图缓存，
+/// 按原始宽高比放大显示；lift-and-zoom 过场由系统 context menu 动画提供。
+struct JournalPhotoPreview: View {
+    let url: URL?
+
+    var body: some View {
+        Group {
+            if let url {
+                JournalPhotoPreviewCore(url: url)
+            } else {
+                Rectangle().fill(.quaternary)
+            }
+        }
+        .frame(maxWidth: 340, maxHeight: 480)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct JournalPhotoPreviewCore: View {
+    let url: URL
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Rectangle().fill(PrimaryTabPalette.elevatedSurface)
+            }
+        }
+        .task(id: url) {
+            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 1000)
+        }
+    }
+}

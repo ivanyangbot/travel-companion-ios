@@ -185,16 +185,10 @@ struct ExpenseSummaryView: View {
         .background {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(Color(red: 0.075, green: 0.075, blue: 0.085))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(RadialGradient(colors: [paidColor.opacity(0.12), .clear],
-                                             center: .top, startRadius: 0, endRadius: 270))
-                }
         }
         .overlay {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.025)],
-                                              startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                .strokeBorder(.white.opacity(0.10), lineWidth: 1)
         }
     }
 
@@ -242,7 +236,7 @@ struct ExpenseSummaryView: View {
         if share > 0 {
             let gap = min(0.009, share * 0.2)
             ExpenseSummaryArc(start: start + gap, end: start + share - gap)
-                .stroke(color.gradient, style: StrokeStyle(lineWidth: 9, lineCap: .butt))
+                .stroke(color, style: StrokeStyle(lineWidth: 9, lineCap: .butt))
         }
     }
 

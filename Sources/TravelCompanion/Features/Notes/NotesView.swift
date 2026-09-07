@@ -1,3 +1,4 @@
+import CoreLocation
 import Network
 import PhotosUI
 import SwiftUI
@@ -512,9 +513,23 @@ struct NotesView: View {
     private var photoPins: [JournalPhotoPin] {
         visibleEntries.flatMap { entry in
             entry.images.compactMap { image in
-                JournalPhotoPin(entry: entry, image: image)
+                JournalPhotoPin(entry: entry, image: image, fallbackCoordinate: fallbackTripCoordinate)
             }
         }
+    }
+
+    private var fallbackTripCoordinate: CLLocationCoordinate2D? {
+        for day in syncEngine.trip?.sortedDaysInDateRange ?? [] {
+            for card in day.cards {
+                guard let latitude = card.place?.latitude,
+                      let longitude = card.place?.longitude,
+                      (-90.0 ... 90.0).contains(latitude),
+                      (-180.0 ... 180.0).contains(longitude),
+                      latitude != 0 || longitude != 0 else { continue }
+                return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            }
+        }
+        return nil
     }
 
     private var journalHeader: some View {
@@ -679,8 +694,15 @@ struct NotesView: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture { presentPhotoViewer(startingAt: item.image.key) }
-        .onLongPressGesture(minimumDuration: 0.4) {
-            photoEditor = JournalPhotoEditorContext(entryID: item.entry.id, image: item.image)
+        .contextMenu {
+            Button("journal.editPhotoTitle", systemImage: "square.and.pencil") {
+                photoEditor = JournalPhotoEditorContext(entryID: item.entry.id, image: item.image)
+            }
+            Button("journal.photoViewAction", systemImage: "arrow.up.left.and.arrow.down.right") {
+                presentPhotoViewer(startingAt: item.image.key)
+            }
+        } preview: {
+            JournalPhotoPreview(url: item.image.url.flatMap(URL.init(string:)))
         }
         .accessibilityLabel(item.image.description ?? String(localized: "journal.photoPinA11y"))
         .accessibilityHint(Text("journal.photoLongPressHint"))
@@ -723,6 +745,14 @@ struct NotesView: View {
                 attachments.append(try await JournalAttachment.load(from: item))
             }
             guard !attachments.isEmpty else { return }
+            if attachments.contains(where: { $0.latitude == nil || $0.longitude == nil }),
+               let fallback = await resolvedJournalLocation() {
+                for index in attachments.indices
+                where attachments[index].latitude == nil || attachments[index].longitude == nil {
+                    attachments[index].latitude = fallback.latitude
+                    attachments[index].longitude = fallback.longitude
+                }
+            }
             let capturedAt = attachments.compactMap(\.capturedAt).min() ?? .now
             let title = capturedAt.formatted(.dateTime.year().month().day())
             let entry = JournalEntry(
@@ -742,6 +772,13 @@ struct NotesView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// PHPicker 在无完整照片库权限时可能移除 EXIF GPS。此时优先记录用户
+    /// 已授权的当前位置；仍不可用时用当前行程首个有效地点，保证照片可进入地图。
+    private func resolvedJournalLocation() async -> CLLocationCoordinate2D? {
+        if let current = await JournalOneShotLocationProvider.resolve() { return current }
+        return fallbackTripCoordinate
     }
 
     private func deleteEntry(_ entry: JournalEntry) {
@@ -1237,6 +1274,7 @@ private struct JournalPhotoMetadataEditor: View {
             }
         }
     }
+
 }
 
 private struct JournalPhotoPickerSheet: UIViewControllerRepresentable {
@@ -1269,6 +1307,51 @@ private struct JournalPhotoPickerSheet: UIViewControllerRepresentable {
                 parent.onComplete(results.map { JournalPhotoPickerResult(value: $0) })
             }
         }
+    }
+}
+
+@MainActor
+private final class JournalOneShotLocationProvider: NSObject, @preconcurrency CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var continuation: CheckedContinuation<CLLocationCoordinate2D?, Never>?
+    private var timeoutTask: Task<Void, Never>?
+
+    static func resolve() async -> CLLocationCoordinate2D? {
+        let provider = JournalOneShotLocationProvider()
+        return await provider.resolveLocation()
+    }
+
+    private func resolveLocation() async -> CLLocationCoordinate2D? {
+        guard [.authorizedAlways, .authorizedWhenInUse].contains(manager.authorizationStatus) else {
+            return nil
+        }
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            manager.requestLocation()
+            timeoutTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                self?.finish(nil)
+            }
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        finish(locations.last?.coordinate)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        finish(nil)
+    }
+
+    private func finish(_ coordinate: CLLocationCoordinate2D?) {
+        guard let continuation else { return }
+        self.continuation = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        manager.delegate = nil
+        continuation.resume(returning: coordinate)
     }
 }
 
