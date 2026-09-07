@@ -19,20 +19,6 @@ struct MemoSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("memo.title")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Text("memo.subtitle")
-                        .font(.caption)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
 
             if visibleLists.isEmpty {
                 ScrollView {

@@ -239,6 +239,7 @@ struct ExpenseListView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
                 .padding(.bottom, 128)
+                .background(PrimaryTabPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
             .scrollIndicators(.hidden)
             .refreshable { await syncEngine.refresh() }

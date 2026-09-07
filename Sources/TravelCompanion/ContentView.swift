@@ -13,7 +13,7 @@ struct ContentView: View {
     @StateObject private var agentSessionStore = AgentV2SessionStore(startsFreshOnLaunch: true)
     @StateObject private var agentRunState = AgentV2RunState()
     @StateObject private var journalSync = JournalSyncCoordinator()
-    @State private var showsAgent = false
+    @State private var agentPresentation: AgentPresentation?
     /// 首页 Agent 进入「拈签定缘」/展开输入条时收起底部悬浮导航（含 Agent
     /// 按钮），退出流程回到双方块入口后恢复。
     @State private var agentHomeHidesTabBar = false
@@ -23,7 +23,10 @@ struct ContentView: View {
     @State private var agentInitialMessage: String?
     /// 当前 sheet 将打开的分 tab agent：悬浮按钮打开时随当前 tab；小红书
     /// 深链固定 itinerary。与 `selectedSection` 分开存，深链不被当前 tab 污染。
-    @State private var agentSheetKind: AgentKind = .itinerary
+    private struct AgentPresentation: Identifiable {
+        let id = UUID()
+        let kind: AgentKind
+    }
     @State private var selectedSection: MainSection = .journey
     @State private var navigationDragTranslation: CGFloat = 0
     @State private var navigationDragHasStarted = false
@@ -105,7 +108,7 @@ struct ContentView: View {
         .onPreferenceChange(AgentHomeActiveKey.self) { active in
             withAnimation(.easeInOut(duration: 0.25)) { agentHomeActive = active }
         }
-        .sheet(isPresented: $showsAgent, onDismiss: { agentInitialMessage = nil }) {
+        .sheet(item: $agentPresentation, onDismiss: { agentInitialMessage = nil }) { presentation in
             Group {
                 if let syncEngine {
                     AgentWorkbenchView(
@@ -116,7 +119,7 @@ struct ContentView: View {
                             sharedLinkStore.markDelivered()
                             agentInitialMessage = nil
                         },
-                        agent: agentSheetKind
+                        agent: presentation.kind
                     )
                 } else {
                     ProgressView("root.agentIncoming")
@@ -184,8 +187,7 @@ struct ContentView: View {
     private var agentButton: some View {
         Button {
             agentInitialMessage = nil
-            agentSheetKind = selectedSection.agentKind
-            showsAgent = true
+            agentPresentation = AgentPresentation(kind: selectedSection.agentKind)
         } label: {
             AnimatedAgentIcon()
                 .frame(width: 40, height: 40)
@@ -198,12 +200,11 @@ struct ContentView: View {
     }
 
     private func presentSharedLinkInAgentIfPossible() {
-        guard let url = sharedLinkStore.pendingURL,
+        guard agentPresentation == nil, let url = sharedLinkStore.pendingURL,
               syncEngine?.trip?.isConfigured == true else { return }
         agentInitialMessage = String(format: String(localized: "root.agentXhsPrompt"), url.absoluteString)
         // 小红书深链固定使用行程 agent，不受当前所在 tab 影响。
-        agentSheetKind = .itinerary
-        showsAgent = true
+        agentPresentation = AgentPresentation(kind: .itinerary)
     }
 
     @ViewBuilder

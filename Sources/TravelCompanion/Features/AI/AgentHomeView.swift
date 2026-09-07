@@ -1131,7 +1131,7 @@ struct AgentHomeView: View {
 
             if !runState.streamingReply.isEmpty {
                 AssistantMessageContainer {
-                    Text(runState.streamingReply)
+                    AgentMarkdownView(content: runState.streamingReply)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1682,9 +1682,9 @@ struct AgentHomeView: View {
         HStack(alignment: .center, spacing: 8) {
             addPhotoButton
 
-            TextField("agent.inputPlaceholder", text: $message, axis: .vertical)
-                .lineLimit(1...6)
-                .focused($isComposerFocused)
+            AgentComposerTextView(text: $message, isFocused: Binding(
+                get: { isComposerFocused }, set: { isComposerFocused = $0 }
+            ), onSubmit: { if canSend { send() } })
                 .foregroundStyle(.white)
                 .padding(.horizontal, 13)
                 .padding(.vertical, 10)
@@ -1693,7 +1693,6 @@ struct AgentHomeView: View {
                         .fill(PrimaryTabPalette.elevatedSurface)
                         .matchedGeometryEffect(id: "composer-field", in: composerMotion)
                 }
-                .onSubmit { if canSend { send() } }
 
             Button { runState.isGenerating ? cancelGeneration() : send() } label: {
                 Image(systemName: runState.isGenerating ? "stop.fill" : "arrow.up")
@@ -3123,6 +3122,189 @@ enum AgentHistoryRelativeTime {
     }
 }
 
+/// Keep UIKit's marked text intact: publishing provisional pinyin back through
+/// SwiftUI can replace the editor's storage and commit its first Latin letter.
+private struct AgentComposerTextView: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    var onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.delegate = context.coordinator
+        view.backgroundColor = .clear
+        view.textColor = .white
+        view.font = .preferredFont(forTextStyle: .body)
+        view.adjustsFontForContentSizeCategory = true
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.returnKeyType = .send
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.accessibilityLabel = String(localized: "agent.inputPlaceholder")
+        let placeholder = UILabel()
+        placeholder.text = view.accessibilityLabel
+        placeholder.font = view.font
+        placeholder.textColor = .placeholderText
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        placeholder.isUserInteractionEnabled = false
+        placeholder.isAccessibilityElement = false
+        view.addSubview(placeholder)
+        NSLayoutConstraint.activate([
+            placeholder.leadingAnchor.constraint(equalTo: view.frameLayoutGuide.leadingAnchor),
+            placeholder.topAnchor.constraint(equalTo: view.frameLayoutGuide.topAnchor),
+            placeholder.trailingAnchor.constraint(lessThanOrEqualTo: view.frameLayoutGuide.trailingAnchor)
+        ])
+        context.coordinator.placeholder = placeholder
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
+        if view.markedTextRange == nil, view.text != text { view.text = text }
+        context.coordinator.placeholder?.isHidden = !view.text.isEmpty
+        if isFocused, !view.isFirstResponder {
+            view.becomeFirstResponder()
+        } else if !isFocused, view.isFirstResponder {
+            view.resignFirstResponder()
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0 else { return nil }
+        let line = uiView.font?.lineHeight ?? 22
+        let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: width, height: min(max(line, height), line * 6))
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: AgentComposerTextView
+        weak var placeholder: UILabel?
+        init(_ parent: AgentComposerTextView) { self.parent = parent }
+        func textViewDidChange(_ view: UITextView) {
+            placeholder?.isHidden = !view.text.isEmpty
+            view.invalidateIntrinsicContentSize()
+            guard view.markedTextRange == nil else { return }
+            parent.text = view.text
+        }
+        func textViewDidBeginEditing(_ view: UITextView) { parent.isFocused = true }
+        func textViewDidEndEditing(_ view: UITextView) {
+            parent.text = view.text
+            parent.isFocused = false
+        }
+        func textView(_ view: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            if text == "\n", view.markedTextRange == nil {
+                parent.onSubmit()
+                return false
+            }
+            return true
+        }
+    }
+}
+
+/// Block layout plus native inline Markdown (emphasis, code and links).
+struct AgentMarkdownView: View {
+    private let blocks: [Block]
+
+    init(content: String) { blocks = Self.parse(content) }
+
+    struct Block: Equatable {
+        var text: String
+        var code: Bool
+        var rows: [[String]] = []
+    }
+
+    static func parse(_ content: String) -> [Block] {
+        var result: [Block] = []
+        var inCode = false
+        var code = ""
+        var table: [[String]] = []
+        func flushTable() {
+            if !table.isEmpty {
+                result.append(Block(text: "", code: false, rows: table))
+                table = []
+            }
+        }
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !inCode, trimmed.hasPrefix("|"), trimmed.filter({ $0 == "|" }).count >= 2 {
+                let cells = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "|"))
+                    .components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+                let separator = cells.allSatisfy { !$0.isEmpty && $0.allSatisfy { "-: ".contains($0) } }
+                if !separator { table.append(cells) }
+                continue
+            }
+            flushTable()
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                if inCode { result.append(Block(text: code, code: true)); code = "" }
+                inCode.toggle()
+            } else if inCode {
+                code += (code.isEmpty ? "" : "\n") + line
+            } else {
+                result.append(Block(text: line, code: false))
+            }
+        }
+        flushTable()
+        if inCode { result.append(Block(text: code, code: true)) }
+        return result
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                if !block.rows.isEmpty {
+                    ScrollView(.horizontal) {
+                        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+                            ForEach(Array(block.rows.enumerated()), id: \.offset) { index, row in
+                                GridRow {
+                                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                                        Text(inline(cell)).fontWeight(index == 0 ? .semibold : .regular)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(12)
+                    }
+                    .background(PrimaryTabPalette.insetSurface, in: RoundedRectangle(cornerRadius: 10))
+                } else if block.code {
+                    ScrollView(.horizontal) {
+                        Text(block.text).font(.system(.footnote, design: .monospaced))
+                            .padding(10)
+                    }
+                    .background(PrimaryTabPalette.insetSurface, in: RoundedRectangle(cornerRadius: 10))
+                } else if block.text.isEmpty {
+                    Color.clear.frame(height: 5)
+                } else {
+                    markdownLine(block.text)
+                }
+            }
+        }
+        .textSelection(.enabled)
+        .tint(PrimaryTabPalette.accent)
+    }
+
+    private func markdownLine(_ line: String) -> some View {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let hashes = trimmed.prefix(while: { $0 == "#" }).count
+        let heading = (1...6).contains(hashes) && trimmed.dropFirst(hashes).hasPrefix(" ")
+        let quote = trimmed.hasPrefix("> ")
+        let bullet = trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ")
+        let value = heading ? String(trimmed.dropFirst(hashes + 1)) :
+            quote ? String(trimmed.dropFirst(2)) : bullet ? "• " + trimmed.dropFirst(2) : line
+        return Text(inline(value))
+            .font(heading ? .headline : .body)
+            .foregroundStyle(quote ? PrimaryTabPalette.secondaryText : .white)
+            .padding(.leading, quote ? 12 : 0)
+            .padding(.top, heading ? 6 : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func inline(_ value: String) -> AttributedString {
+        (try? AttributedString(markdown: value, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)
+    }
+}
+
 private struct ChatMessageView: View {
     let message: AgentV2TurnRequest.Message
     let attachments: [AgentV2TurnRequest.Attachment]
@@ -3146,7 +3328,7 @@ private struct ChatMessageView: View {
             }
         } else {
             AssistantMessageContainer {
-                Text(message.content)
+                AgentMarkdownView(content: message.content)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -4057,7 +4239,7 @@ private struct AgentFlightCandidateCard: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        .background(PrimaryTabPalette.insetSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }

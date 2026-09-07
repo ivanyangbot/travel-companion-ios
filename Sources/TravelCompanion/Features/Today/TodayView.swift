@@ -306,6 +306,9 @@ struct TodayView: View {
                 )
                 Spacer()
                 VStack(spacing: 8) {
+                    if isTripOverview {
+                        flightPassengerLegend(cards: allFlights)
+                    }
                     HStack {
                         overviewButton(isActive: isTripOverview) {
                             let willShowOverview = !isTripOverview
@@ -917,8 +920,33 @@ struct TodayView: View {
         min(max(0, selectedPOIIndex), max(0, pois.count - 1))
     }
 
+    private func flightPassengerLegend(cards: [TravelCardSnapshot]) -> some View {
+        let names = Array(Set(cards.flatMap { TodayFlightPassengerStyle.names($0.passengers) })).sorted()
+        return Group {
+            if !names.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 14) {
+                        ForEach(Array(names.enumerated()), id: \.element) { index, name in
+                            HStack(spacing: 6) {
+                                Capsule().fill(Color(uiColor: TodayFlightPassengerStyle.color(index)))
+                                    .frame(width: 18, height: 2)
+                                Text(name).font(.caption2.weight(.medium)).foregroundStyle(.white)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.7), in: Capsule())
+                }
+                .scrollIndicators(.hidden)
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
     private func cardsKey(_ cards: [TravelCardSnapshot]) -> String {
-        cards.map { "\($0.id.uuidString)-\($0.updatedAt.timeIntervalSince1970)" }.joined(separator: "|")
+        cards.map { "\($0.id.uuidString)-\($0.updatedAt.timeIntervalSince1970)-\($0.passengers ?? "")" }.joined(separator: "|")
     }
 
     private func dayLabel(for day: TripDaySnapshot) -> String? {

@@ -79,7 +79,7 @@ struct JournalMapCanvas: UIViewRepresentable {
         mapView.showsUserLocation = false
         mapView.showsLogoView = false
         mapView.attributionButtonPosition = .bottomLeft
-        mapView.attributionButtonMargins = CGPoint(x: 12, y: 24)
+        mapView.attributionButtonMargins = CGPoint(x: 12, y: 110)
         context.coordinator.updateContent(on: mapView, pins: pins, onPhotosSelected: onPhotosSelected)
         return mapView
     }
@@ -223,7 +223,7 @@ struct JournalMapCanvas: UIViewRepresentable {
             )
             mapView.setVisibleCoordinateBounds(
                 bounds,
-                edgePadding: UIEdgeInsets(top: 90, left: 36, bottom: 120, right: 36),
+                edgePadding: UIEdgeInsets(top: 150, left: 36, bottom: 150, right: 36),
                 animated: true
             )
         }

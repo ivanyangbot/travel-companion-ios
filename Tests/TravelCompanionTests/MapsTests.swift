@@ -4,6 +4,24 @@ import SwiftData
 @testable import TravelCompanion
 
 final class MapsTests: XCTestCase {
+    @MainActor
+    func testFlightPassengerNamesPreserveTicketNameSlashAndRemoveDuplicates() {
+        XCTAssertEqual(TodayFlightPassengerStyle.names(" Chan/Tai Man 、李四，CHAN/TAI MAN; 王五\n"),
+                       ["CHAN/TAI MAN", "李四", "王五"])
+        XCTAssertEqual(TodayFlightPassengerStyle.names(nil), [])
+    }
+
+    @MainActor
+    func testSharedFlightLinesAreThinSymmetricAndCloselySpaced() {
+        XCTAssertEqual(TodayFlightPassengerStyle.offset(index: 0, count: 1), 0)
+        let left = TodayFlightPassengerStyle.offset(index: 0, count: 2)
+        let right = TodayFlightPassengerStyle.offset(index: 1, count: 2)
+        XCTAssertEqual(left, -right)
+        XCTAssertEqual(right - left - TodayFlightPassengerStyle.lineWidth, 0.3, accuracy: 0.001)
+        XCTAssertLessThan(TodayFlightPassengerStyle.lineWidth, 3.5)
+        XCTAssertNotEqual(TodayFlightPassengerStyle.color(0), TodayFlightPassengerStyle.color(1))
+    }
+
     func testJournalPhotoPinFallsBackToTripCoordinateWhenPhotoGPSIsUnavailable() throws {
         let image = JournalImage(
             key: "photo-without-exif",
@@ -119,9 +137,12 @@ final class MapsTests: XCTestCase {
             toAirport: nil
         )
 
-        let routes = await AppleMapService.resolveFlightRoutes(cards: [flight]) { _ in
-            XCTFail("Incomplete flight must not start a map search")
-            return nil
+        let routes = await AppleMapService.resolveFlightRoutes(cards: [flight]) { airport in
+            // Endpoint resolution intentionally preserves the known airport;
+            // a route still requires both endpoints before it can be drawn.
+            XCTAssertEqual(airport, "PEK")
+            return PlaceSearchResult(id: "pek", name: "PEK", address: nil,
+                                     latitude: 40.0799, longitude: 116.6031, placeId: nil)
         }
 
         XCTAssertTrue(routes.isEmpty)
@@ -271,6 +292,21 @@ final class MapsTests: XCTestCase {
         let route = try XCTUnwrap(routes.first)
         XCTAssertEqual(route.originLocation, origin)
         XCTAssertEqual(route.destinationLocation, destination)
+        XCTAssertEqual(route.passengerColorIndices, [-1])
+
+        var shared = card
+        shared.passengers = "Alice、Bob、Alice"
+        let sharedRoutes = await AppleMapService.resolveFlightRoutes(cards: [shared]) { _ in nil }
+        XCTAssertEqual(sharedRoutes.first?.passengerColorIndices, [0, 1])
+        let bobOnly = TravelCardSnapshot(
+            dayID: 2, kind: .flight, title: "Bob flight", startAt: .now,
+            fromAirport: "CGK", toAirport: "DPS",
+            fromAirportLocation: origin, toAirportLocation: destination,
+            passengers: "Bob"
+        )
+        let combined = await AppleMapService.resolveFlightRoutes(cards: [bobOnly, shared]) { _ in nil }
+        XCTAssertEqual(combined.first { $0.cardID == bobOnly.id }?.passengerColorIndices, [1])
+        XCTAssertEqual(combined.first { $0.cardID == shared.id }?.passengerColorIndices, [0, 1])
     }
 
     func testAirportResultPrefersExactIATACodeOverDomesticFirstResult() throws {

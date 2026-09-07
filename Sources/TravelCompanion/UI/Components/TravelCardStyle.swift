@@ -5,6 +5,7 @@ enum PrimaryTabPalette {
     static let background = Color.black
     static let surface = Color(red: 23 / 255, green: 23 / 255, blue: 23 / 255)
     static let elevatedSurface = Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
+    static let insetSurface = Color(red: 26 / 255, green: 26 / 255, blue: 26 / 255)
     static let secondaryText = Color.white.opacity(0.62)
     static let tertiaryText = Color.white.opacity(0.38)
     static let divider = Color.white.opacity(0.055)

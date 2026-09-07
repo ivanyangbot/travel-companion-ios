@@ -560,7 +560,7 @@ struct FlightTicketPopup: View {
                         ticketDetail(detail)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(14)
-                            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .background(PrimaryTabPalette.insetSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                 }
                 .padding(20)

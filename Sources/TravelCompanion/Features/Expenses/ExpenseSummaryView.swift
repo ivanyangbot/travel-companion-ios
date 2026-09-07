@@ -303,7 +303,7 @@ struct ExpenseSummaryView: View {
 
         }
         .padding(18)
-        .background(Color(red: 0.065, green: 0.065, blue: 0.075),
+        .background(PrimaryTabPalette.elevatedSurface,
                     in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
