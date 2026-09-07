@@ -1409,6 +1409,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
     /// The card occupies the lower map area only while the POI swiper is visible.
     let overviewBottomInset: CGFloat
     let routeRefreshID: Int
+    let onPointSelected: (UUID) -> Void
     let onFlightSelected: (UUID) -> Void
     let onRouteLoadingChanged: (Bool) -> Void
     /// Reports whether the viewport is actively moving and whether a real
@@ -1437,6 +1438,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         mapView.showsLogoView = false
         mapView.attributionButtonPosition = .bottomLeft
         mapView.attributionButtonMargins = CGPoint(x: 12, y: 136)
+        context.coordinator.setPointSelectionHandler(onPointSelected)
 
         context.coordinator.updateContent(
             on: mapView,
@@ -1456,6 +1458,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
 
     func updateUIView(_ mapView: MLNMapView, context: Context) {
         mapView.showsUserLocation = showsUserLocation
+        context.coordinator.setPointSelectionHandler(onPointSelected)
         context.coordinator.updateContent(
             on: mapView,
             points: points,
@@ -1545,6 +1548,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var pendingContentUpdate: PendingContentUpdate?
         private var pendingCameraUpdate: PendingCameraUpdate?
         private var onViewportStateChanged: ((Bool, Bool) -> Void)?
+        private var onPointSelected: ((UUID) -> Void)?
         private var onFlightSelected: ((UUID) -> Void)?
         private var lastReportedViewportIsMoving: Bool?
         private var lastReportedHasVisiblePOI: Bool?
@@ -1568,6 +1572,10 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         /// Keep enough surrounding roads and nearby POIs in view while a
         /// bottom swiper card is selected; 16 was too close for this screen.
         private let poiSwiperFocusZoomLevel: Double = 13.8
+
+        fileprivate func setPointSelectionHandler(_ handler: @escaping (UUID) -> Void) {
+            onPointSelected = handler
+        }
 
         fileprivate func viewportGeometryDidChange(
             _ geometry: MapLibreEdgePinViewportGeometry,
@@ -2421,6 +2429,18 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, didSelect annotation: any MLNAnnotation) {
+            if let point = annotation as? MapLibreNumberedAnnotation {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                let representedIDs = pinPlacements[point.pointID]?.representedMemberIDs ?? [point.pointID]
+                if representedIDs.count > 1 {
+                    expandCluster(representedBy: point, on: mapView)
+                } else {
+                    onPointSelected?(point.pointID)
+                }
+                mapView.deselectAnnotation(annotation, animated: false)
+                return
+            }
+
             let routeID: UUID?
             if let plane = annotation as? MapLibreFlightAnnotation {
                 routeID = plane.routeID
@@ -2435,6 +2455,22 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             onFlightSelected?(routeID)
             mapView.deselectAnnotation(annotation, animated: false)
+        }
+
+        /// Reuse the existing stepwise focus policy so a merged numeric pin
+        /// keeps zooming until its representative becomes an independent pin.
+        private func expandCluster(
+            representedBy annotation: MapLibreNumberedAnnotation,
+            on mapView: MLNMapView
+        ) {
+            cancelAutoFocusRefinement()
+            pendingAutoFocusPointID = annotation.pointID
+            pendingAutoFocusCoordinate = MapLibreCoordinateTransform.displayCoordinate(
+                for: annotation.sourceCoordinate
+            )
+            if !continueAutoFocusRefinementIfNeeded(on: mapView) {
+                cancelAutoFocusRefinement()
+            }
         }
 
         func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {

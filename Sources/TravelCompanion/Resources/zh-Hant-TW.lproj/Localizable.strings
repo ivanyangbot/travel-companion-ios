@@ -1232,6 +1232,7 @@
 "expense.payment.bankTransfer" = "銀行轉帳";
 "expense.payment.other" = "其他";
 "expensesummary.byConsumer" = "按消費人";
+"expensesummary.consumerTotal" = "消費合計";
 "expensesummary.formerMember" = "已離開成員";
 "expensesummary.unspecifiedConsumer" = "未指定消費人";
 

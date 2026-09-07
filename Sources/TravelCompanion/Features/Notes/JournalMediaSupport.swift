@@ -357,11 +357,15 @@ private struct JournalLivePhotoView: View {
     let photoURL: URL
     let videoURL: URL
     @State private var livePhoto: PHLivePhoto?
+    @State private var loadFailed = false
 
     var body: some View {
         Group {
             if let livePhoto {
                 LivePhotoRepresentable(livePhoto: livePhoto)
+            } else if loadFailed {
+                // A malformed or expired pair still opens safely as its still image.
+                JournalHDRImage(url: photoURL)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -369,7 +373,18 @@ private struct JournalLivePhotoView: View {
             }
         }
         .task(id: "\(photoURL.absoluteString)|\(videoURL.absoluteString)") {
-            livePhoto = try? await Self.load(photoURL: photoURL, videoURL: videoURL)
+            livePhoto = nil
+            loadFailed = false
+            do {
+                let loaded = try await Self.load(photoURL: photoURL, videoURL: videoURL)
+                guard !Task.isCancelled else { return }
+                livePhoto = loaded
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                loadFailed = true
+            }
         }
     }
 
@@ -377,28 +392,61 @@ private struct JournalLivePhotoView: View {
         async let photo = localResource(from: photoURL)
         async let video = localResource(from: videoURL)
         let resources = try await [photo, video]
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<PHLivePhoto, Error>) in
+            let gate = JournalLivePhotoRequestGate()
             PHLivePhoto.request(
                 withResourceFileURLs: resources,
-                placeholderImage: nil,
+                placeholderImage: UIImage(contentsOfFile: photo.path),
                 targetSize: CGSize(width: 1_200, height: 1_200),
                 contentMode: .aspectFit
             ) { livePhoto, info in
-                if let livePhoto { continuation.resume(returning: livePhoto) }
-                else {
-                    continuation.resume(throwing: (info[PHLivePhotoInfoErrorKey] as? Error) ?? JournalMediaError.unreadable)
+                // PhotoKit can first return a degraded placeholder and then the
+                // full Live Photo. Resuming a checked continuation for both
+                // callbacks terminates the process, so only finish on a final result.
+                let isDegraded = (info[PHLivePhotoInfoIsDegradedKey] as? NSNumber)?.boolValue ?? false
+                guard !isDegraded else { return }
+                gate.runOnce {
+                    if let livePhoto {
+                        continuation.resume(returning: livePhoto)
+                    } else {
+                        continuation.resume(throwing: (info[PHLivePhotoInfoErrorKey] as? Error) ?? JournalMediaError.unreadable)
+                    }
                 }
             }
         }
     }
 
     private static func localResource(from url: URL) async throws -> URL {
-        if url.isFileURL { return url }
-        let (downloaded, _) = try await URLSession.shared.download(from: url)
+        if url.isFileURL {
+            guard FileManager.default.fileExists(atPath: url.path) else { throw JournalMediaError.unreadable }
+            return url
+        }
+        let (downloaded, response) = try await URLSession.shared.download(from: url)
+        guard let http = response as? HTTPURLResponse,
+              (200 ..< 300).contains(http.statusCode) else { throw JournalMediaError.unreadable }
+        let fileName = url.lastPathComponent.isEmpty ? UUID().uuidString : url.lastPathComponent
         let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("journal-live-\(UUID().uuidString)-\(url.lastPathComponent)")
+            .appendingPathComponent("journal-live-\(UUID().uuidString)-\(fileName)")
         try FileManager.default.moveItem(at: downloaded, to: destination)
         return destination
+    }
+}
+
+/// PhotoKit may invoke its result callback more than once. This gate guarantees
+/// that the Swift continuation is completed exactly once even for unusual errors.
+private final class JournalLivePhotoRequestGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+
+    func runOnce(_ action: () -> Void) {
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            return
+        }
+        completed = true
+        lock.unlock()
+        action()
     }
 }
 
@@ -416,6 +464,11 @@ private struct LivePhotoRepresentable: UIViewRepresentable {
         guard view.livePhoto !== livePhoto else { return }
         view.livePhoto = livePhoto
         view.startPlayback(with: .hint)
+    }
+
+    static func dismantleUIView(_ view: PHLivePhotoView, coordinator: ()) {
+        view.stopPlayback()
+        view.livePhoto = nil
     }
 }
 

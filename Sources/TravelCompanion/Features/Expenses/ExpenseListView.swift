@@ -168,71 +168,85 @@ struct ExpenseListView: View {
     @ViewBuilder
     private var expenseContent: some View {
         if let trip = syncEngine.trip, let currency = trip.currency {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    // 同步状态不再展示提示条：本地先落库，登录后由前台
-                    // 轮询/场景回前台静默重试上传（SyncEngine.startForegroundSync）。
-                    ExpenseSummaryView(trip: trip, currency: currency, members: members)
-
-                    HStack {
-                        Text("expense.section")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(.white)
-                        Spacer()
-                        Text(String(format: String(localized: "expense.filteredCountFormat"), visibleExpenses(in: trip).count, trip.expenses.count))
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    }
-                    .padding(.top, 4)
-
-                    Button {
-                        withAnimation(.snappy(duration: 0.2)) { showsEstimatedDetails.toggle() }
-                    } label: {
-                        Label(
-                            showsEstimatedDetails ? String(localized: "expense.hideEstimates") : String(localized: "expense.showEstimates"),
-                            systemImage: showsEstimatedDetails ? "eye.slash" : "eye"
-                        )
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    }
-                    .buttonStyle(.plain)
-
-                    if !trip.expenses.isEmpty {
-                        filterBar(trip: trip)
-                    }
-
-                    if trip.expenses.isEmpty && (!showsEstimatedDetails || visibleEstimateCards(in: trip).isEmpty) {
-                        ContentUnavailableView(
-                            "expense.emptyTitle",
-                            systemImage: "receipt",
-                            description: Text("expense.emptyDesc")
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 36)
-                    } else if visibleExpenses(in: trip).isEmpty && (!showsEstimatedDetails || visibleEstimateCards(in: trip).isEmpty) {
-                        ContentUnavailableView(
-                            "expense.noMatchTitle",
-                            systemImage: "line.3.horizontal.decrease.circle",
-                            description: Text("expense.noMatchDesc")
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 36)
-                    } else {
-                        ForEach(visibleExpenses(in: trip)) { expense in
-                            expenseRow(expense, currency: currency)
-                        }
-                    }
-                    if showsEstimatedDetails {
-                        ForEach(visibleEstimateCards(in: trip)) { card in
-                            estimateRow(card, currency: currency)
-                        }
+            List {
+                // 同步状态不再展示提示条：本地先落库，登录后由前台
+                // 轮询/场景回前台静默重试上传（SyncEngine.startForegroundSync）。
+                ExpenseSummaryView(
+                    trip: trip,
+                    currency: currency,
+                    members: members,
+                    selectedConsumerID: listFilter.consumer?.id,
+                    selectedPaymentStatus: listFilter.paymentStatus
+                ) { consumer, status in
+                    withAnimation(.snappy(duration: 0.22)) {
+                        listFilter.consumer = consumer
+                        listFilter.paymentStatus = status
+                        listFilter.category = nil
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-                .padding(.bottom, 128)
-                .background(PrimaryTabPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .expenseLedgerListRow(top: 4)
+
+                HStack {
+                    Text("expense.section")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text(String(format: String(localized: "expense.filteredCountFormat"), visibleExpenses(in: trip).count, trip.expenses.count))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+                .expenseLedgerListRow(top: 10, bottom: 4)
+
+                filterBar(trip: trip)
+                    .expenseLedgerListRow(top: 4, bottom: 6)
+
+                if trip.expenses.isEmpty && (!showsEstimatedDetails || visibleEstimateCards(in: trip).isEmpty) {
+                    ContentUnavailableView(
+                        "expense.emptyTitle",
+                        systemImage: "receipt",
+                        description: Text("expense.emptyDesc")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 36)
+                    .expenseLedgerListRow()
+                } else if visibleExpenses(in: trip).isEmpty && (!showsEstimatedDetails || visibleEstimateCards(in: trip).isEmpty) {
+                    ContentUnavailableView(
+                        "expense.noMatchTitle",
+                        systemImage: "line.3.horizontal.decrease.circle",
+                        description: Text("expense.noMatchDesc")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 36)
+                    .expenseLedgerListRow()
+                } else {
+                    ForEach(visibleExpenses(in: trip)) { expense in
+                        expenseRow(expense, currency: currency)
+                            .expenseLedgerListRow()
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    pendingDeletion = expense
+                                } label: {
+                                    Label("common.delete", systemImage: "trash")
+                                }
+                            }
+                    }
+                }
+                if showsEstimatedDetails {
+                    ForEach(visibleEstimateCards(in: trip)) { card in
+                        estimateRow(card, currency: currency)
+                            .expenseLedgerListRow()
+                    }
+                }
+
+                Color.clear
+                    .frame(height: 116)
+                    .expenseLedgerListRow(top: 0, bottom: 0)
+                    .accessibilityHidden(true)
             }
+            .listStyle(.plain)
+            .environment(\.defaultMinListRowHeight, 0)
+            .scrollContentBackground(.hidden)
+            .background(PrimaryTabPalette.background)
             .scrollIndicators(.hidden)
             .refreshable { await syncEngine.refresh() }
         } else {
@@ -252,7 +266,8 @@ struct ExpenseListView: View {
 
     private func filterBar(trip: SharedTripSnapshot) -> some View {
         let consumerOptions = ExpenseListFilter.consumerOptions(from: trip.expenses, members: members)
-        return HStack(spacing: 8) {
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
             Menu {
                 Button("expense.filter.all") { listFilter.consumer = nil }
                 ForEach(consumerOptions) { option in
@@ -304,6 +319,21 @@ struct ExpenseListView: View {
                 )
             }
 
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { showsEstimatedDetails.toggle() }
+            } label: {
+                toggleFilterChipLabel(
+                    title: String(localized: "expensesummary.estimateShort"),
+                    active: showsEstimatedDetails
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(
+                showsEstimatedDetails
+                    ? String(localized: "expense.hideEstimates")
+                    : String(localized: "expense.showEstimates")
+            ))
+
             Menu {
                 ForEach(ExpenseListFilter.SortOrder.allCases) { order in
                     Button {
@@ -330,17 +360,17 @@ struct ExpenseListView: View {
                 .background(PrimaryTabPalette.surface, in: Capsule())
             }
 
-            if listFilter.isActive {
+            if listFilter.isActive || showsEstimatedDetails {
                 Button("expense.filter.clear") {
                     listFilter.consumer = nil
                     listFilter.paymentStatus = .all
                     listFilter.category = nil
+                    showsEstimatedDetails = false
                 }
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(PrimaryTabPalette.accent)
             }
-
-            Spacer(minLength: 0)
+            }
         }
     }
 
@@ -368,6 +398,23 @@ struct ExpenseListView: View {
                 .lineLimit(1)
             Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .bold))
+        }
+        .foregroundStyle(active ? .black : PrimaryTabPalette.secondaryText)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 32)
+        .background(
+            active ? PrimaryTabPalette.accent.opacity(0.85) : PrimaryTabPalette.surface,
+            in: Capsule()
+        )
+    }
+
+    private func toggleFilterChipLabel(title: String, active: Bool) -> some View {
+        HStack(spacing: 5) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+            Image(systemName: active ? "checkmark" : "eye")
+                .font(.system(size: 10, weight: .bold))
         }
         .foregroundStyle(active ? .black : PrimaryTabPalette.secondaryText)
         .padding(.horizontal, 10)
@@ -517,7 +564,6 @@ struct ExpenseListView: View {
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
         .contentShape(Rectangle())
         .onTapGesture { editorTarget = expense }
-        .modifier(ExpenseSwipeToDeleteModifier { pendingDeletion = expense })
         .contextMenu {
             Button("common.edit", systemImage: "pencil") { editorTarget = expense }
             Button("common.delete", systemImage: "trash", role: .destructive) { pendingDeletion = expense }
@@ -654,36 +700,12 @@ struct ExpenseListView: View {
     }
 }
 
-private struct ExpenseSwipeToDeleteModifier: ViewModifier {
-    let delete: () -> Void
-    @State private var offset: CGFloat = 0
-
-    func body(content: Content) -> some View {
-        ZStack(alignment: .trailing) {
-            Button(role: .destructive, action: delete) {
-                Image(systemName: "trash.fill")
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 76)
-                    .frame(maxHeight: .infinity)
-                    .background(Color.red, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            content
-                .offset(x: offset)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 12)
-                        .onChanged { value in
-                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                            offset = min(0, max(-76, value.translation.width))
-                        }
-                        .onEnded { value in
-                            withAnimation(.snappy(duration: 0.2)) {
-                                offset = value.translation.width < -38 ? -76 : 0
-                            }
-                        }
-                )
-        }
+private extension View {
+    /// Keeps native List behavior while preserving the ledger's card spacing and black canvas.
+    func expenseLedgerListRow(top: CGFloat = 6, bottom: CGFloat = 6) -> some View {
+        listRowInsets(EdgeInsets(top: top, leading: 16, bottom: bottom, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 }
 

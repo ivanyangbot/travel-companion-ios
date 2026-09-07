@@ -1230,6 +1230,7 @@
 "expense.payment.bankTransfer" = "Bank transfer";
 "expense.payment.other" = "Other";
 "expensesummary.byConsumer" = "By traveler";
+"expensesummary.consumerTotal" = "Traveler total";
 "expensesummary.formerMember" = "Former member";
 "expensesummary.unspecifiedConsumer" = "Not assigned";
 

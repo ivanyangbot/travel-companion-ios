@@ -270,6 +270,9 @@ struct TodayView: View {
                 timelineTopInGlobal: showsTimeline ? lastTimelineTopInGlobal : nil,
                 overviewBottomInset: isTripOverview ? 112 : (isPOIOverlayExpanded ? 240 : 112),
                 routeRefreshID: 0,
+                onPointSelected: { cardID in
+                    selectPOIFromMap(cardID, pois: pois)
+                },
                 onFlightSelected: { cardID in
                     guard let card = displayedFlights.first(where: { $0.id == cardID }) else { return }
                     selectedFlightCard = card
@@ -566,6 +569,19 @@ struct TodayView: View {
         expandedPOICardID = nil
         poiExpansionProgress = 0
         isTripOverview = false
+    }
+
+    private func selectPOIFromMap(_ cardID: UUID, pois: [TravelCardSnapshot]) {
+        guard let index = pois.firstIndex(where: { $0.id == cardID }) else { return }
+        withAnimation(.smooth(duration: 0.28)) {
+            isPOIOverlayExpanded = true
+            selectedPOIIndex = index
+            poiSwipeTranslation = 0
+            poiSwipeStartIndex = nil
+            poiSwipeStartExpansionProgress = nil
+            expandedPOICardID = nil
+            poiExpansionProgress = 0
+        }
     }
 
     private func mapHeaderTitle(for day: TripDaySnapshot, currentIndex: Int, baseIndex: Int) -> String {

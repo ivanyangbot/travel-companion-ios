@@ -4,6 +4,9 @@ struct ExpenseSummaryView: View {
     let trip: SharedTripSnapshot
     let currency: String
     let members: [TripMemberSummary]
+    let selectedConsumerID: String?
+    let selectedPaymentStatus: ExpenseListFilter.PaymentStatus
+    let onSelectConsumer: (ExpenseListFilter.ConsumerOption, ExpenseListFilter.PaymentStatus) -> Void
 
     private var expenses: [ExpenseSnapshot] { trip.expenses }
     private var cards: [TravelCardSnapshot] { trip.days.flatMap(\.cards) }
@@ -45,13 +48,13 @@ struct ExpenseSummaryView: View {
     }
 
     private var consumerTotals: [ExpenseConsumerTotal] {
-        var totals: [String: Int64] = [:]
+        var totals: [String: (paid: Int64, unpaid: Int64)] = [:]
         var names: [String: String] = [:]
 
         for member in members {
             let key = "member:\(member.userId)"
             names[key] = member.visibleName
-            totals[key] = 0
+            totals[key] = (0, 0)
         }
 
         for expense in expenses {
@@ -69,15 +72,23 @@ struct ExpenseSummaryView: View {
                 name = String(localized: "expensesummary.unspecifiedConsumer")
             }
             names[key] = name
-            totals[key, default: 0] += amount
+            var total = totals[key] ?? (0, 0)
+            if expense.isPaid() { total.paid += amount }
+            else { total.unpaid += amount }
+            totals[key] = total
         }
 
         return totals.map { key, amount in
-            ExpenseConsumerTotal(id: key, name: names[key] ?? key, amount: amount)
+            ExpenseConsumerTotal(
+                id: key,
+                name: names[key] ?? key,
+                paidAmount: amount.paid,
+                unpaidAmount: amount.unpaid
+            )
         }
-        .filter { $0.amount > 0 }
+        .filter { $0.totalAmount > 0 }
         .sorted { lhs, rhs in
-            if lhs.amount != rhs.amount { return lhs.amount > rhs.amount }
+            if lhs.totalAmount != rhs.totalAmount { return lhs.totalAmount > rhs.totalAmount }
             return lhs.name.localizedCompare(rhs.name) == .orderedAscending
         }
     }
@@ -92,9 +103,9 @@ struct ExpenseSummaryView: View {
     private let pendingColor = Color(red: 0.95, green: 0.74, blue: 0.48)
     private let estimateColor = Color(red: 0.38, green: 0.39, blue: 0.43)
     private let ink = Color(red: 0.97, green: 0.95, blue: 0.91)
-    /// 与首页列表卡一致的两级深灰：概览为外层，三项指标为更浅的内层卡。
-    private let overviewSurface = PrimaryTabPalette.elevatedSurface
-    private let metricSurface = Color(red: 48 / 255, green: 48 / 255, blue: 48 / 255)
+    /// 页面直接使用黑色背景；概览卡与行程列表底色一致，指标卡再浅一级。
+    private let overviewSurface = PrimaryTabPalette.surface
+    private let metricSurface = PrimaryTabPalette.elevatedSurface
     private var actualTotal: Int64 { paidTotal + unpaidTotal }
     private var sortedCategories: [ExpenseCategory] {
         ExpenseCategory.allCases.filter { (byCategory[$0] ?? 0) > 0 }
@@ -251,9 +262,9 @@ struct ExpenseSummaryView: View {
             .pickerStyle(.segmented)
 
             if showsTravelers {
-                VStack(spacing: 18) {
+                VStack(spacing: 10) {
                     ForEach(consumerTotals) { item in
-                        consumerRow(item)
+                        consumerCard(item)
                     }
                 }
             } else {
@@ -276,7 +287,7 @@ struct ExpenseSummaryView: View {
 
         }
         .padding(18)
-        .background(PrimaryTabPalette.elevatedSurface,
+        .background(overviewSurface,
                     in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -360,41 +371,141 @@ struct ExpenseSummaryView: View {
         .accessibilityAddTraits(category == focusedCategory ? .isSelected : [])
     }
 
-    private func consumerRow(_ item: ExpenseConsumerTotal) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().stroke(.white.opacity(0.06), lineWidth: 2)
-                Circle().trim(from: 0, to: fraction(item.amount, of: actualTotal))
-                    .stroke(pendingColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Text(String(item.name.prefix(1)).uppercased())
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(pendingColor)
-            }
-            .frame(width: 36, height: 36)
-            .accessibilityHidden(true)
-            let layout = dynamicTypeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
-                : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
-            layout {
-                Text(item.name)
-                    .font(.subheadline)
-                    .foregroundStyle(ink.opacity(0.85))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(amountNumber(item.amount))
-                        .font(.system(.callout, design: .rounded, weight: .semibold))
+    private func consumerCard(_ item: ExpenseConsumerTotal) -> some View {
+        let consumer = ExpenseListFilter.ConsumerOption(id: item.id, name: item.name)
+        let consumerSelected = selectedConsumerID == item.id
+        return VStack(spacing: 12) {
+            Button {
+                onSelectConsumer(consumer, .all)
+            } label: {
+                HStack(spacing: 11) {
+                    consumerAvatar(item)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(ink)
+                            .lineLimit(1)
+                        Text("expensesummary.consumerTotal")
+                            .font(.caption2)
+                            .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                    Spacer(minLength: 8)
+                    Text(amountNumber(item.totalAmount))
+                        .font(.system(.headline, design: .rounded, weight: .semibold))
                         .foregroundStyle(ink)
+                        .monospacedDigit()
                         .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                    Text(fraction(item.amount, of: actualTotal), format: .percent.precision(.fractionLength(0)))
-                        .font(.caption2)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .minimumScaleFactor(0.65)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(consumerSelected ? PrimaryTabPalette.accent : PrimaryTabPalette.secondaryText)
                 }
-                .monospacedDigit()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(item.name + ", " + String(localized: "expensesummary.consumerTotal")))
+            .accessibilityValue(Text(ExpenseMoney.formatted(item.totalAmount, currency: currency)))
+
+            consumerSplitBar(item)
+
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 8))
+                : AnyLayout(HStackLayout(spacing: 8))
+            layout {
+                consumerMetric(
+                    "expensesummary.paid",
+                    amount: item.paidAmount,
+                    color: paidColor,
+                    selected: consumerSelected && selectedPaymentStatus == .paid
+                ) { onSelectConsumer(consumer, .paid) }
+                consumerMetric(
+                    "expensesummary.unpaid",
+                    amount: item.unpaidAmount,
+                    color: pendingColor,
+                    selected: consumerSelected && selectedPaymentStatus == .unpaid
+                ) { onSelectConsumer(consumer, .unpaid) }
             }
         }
-        .accessibilityElement(children: .combine)
+        .padding(14)
+        .background(metricSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(consumerSelected ? PrimaryTabPalette.accent.opacity(0.55) : .white.opacity(0.045), lineWidth: 1)
+        }
+    }
+
+    private func consumerAvatar(_ item: ExpenseConsumerTotal) -> some View {
+        ZStack {
+            Circle().stroke(.white.opacity(0.07), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: fraction(item.paidAmount, of: item.totalAmount))
+                .stroke(paidColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            if item.unpaidAmount > 0 {
+                Circle()
+                    .trim(from: fraction(item.paidAmount, of: item.totalAmount), to: 1)
+                    .stroke(pendingColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            Text(String(item.name.prefix(1)).uppercased())
+                .font(.caption.weight(.bold))
+                .foregroundStyle(ink)
+        }
+        .frame(width: 40, height: 40)
+        .accessibilityHidden(true)
+    }
+
+    private func consumerSplitBar(_ item: ExpenseConsumerTotal) -> some View {
+        GeometryReader { proxy in
+            let paidWidth = proxy.size.width * fraction(item.paidAmount, of: item.totalAmount)
+            HStack(spacing: 2) {
+                if item.paidAmount > 0 {
+                    Capsule().fill(paidColor).frame(width: max(4, paidWidth - 1))
+                }
+                if item.unpaidAmount > 0 {
+                    Capsule().fill(pendingColor.opacity(0.78)).frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .frame(height: 5)
+        .accessibilityHidden(true)
+    }
+
+    private func consumerMetric(
+        _ title: LocalizedStringKey,
+        amount: Int64,
+        color: Color,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle().fill(color).frame(width: 6, height: 6)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    Text(amountNumber(amount))
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .foregroundStyle(amount == 0 ? PrimaryTabPalette.secondaryText : ink)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 11)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .background(color.opacity(selected ? 0.16 : 0.055), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(selected ? color.opacity(0.6) : .white.opacity(0.035), lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(amount == 0)
+        .accessibilityValue(Text(ExpenseMoney.formatted(amount, currency: currency)))
     }
 
     private func categoryStart(_ category: ExpenseCategory) -> Double {
@@ -452,5 +563,7 @@ private struct ExpenseSummaryArc: Shape {
 private struct ExpenseConsumerTotal: Identifiable {
     let id: String
     let name: String
-    let amount: Int64
+    let paidAmount: Int64
+    let unpaidAmount: Int64
+    var totalAmount: Int64 { paidAmount + unpaidAmount }
 }

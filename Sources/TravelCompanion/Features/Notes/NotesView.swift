@@ -624,7 +624,7 @@ struct NotesView: View {
     }
 
     private var journalSummary: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .center) {
             Text(visiblePhotoDateRange)
                 .font(.system(size: 23, weight: .semibold))
                 .foregroundStyle(.white)
@@ -649,29 +649,21 @@ struct NotesView: View {
             Text("journal.waitNetworkTitle")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
-        } else {
+        } else if case .syncing(let progress, _, _) = journalSync.state {
+            let displayedProgress = min(1, max(0.02, progress))
             ZStack {
                 Circle()
                     .stroke(.gray.opacity(0.65), lineWidth: 3)
-                if syncProgress > 0 {
-                    Circle()
-                        .trim(from: 0, to: syncProgress)
-                        .stroke(.orange, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                }
+                Circle()
+                    .trim(from: 0, to: displayedProgress)
+                    .stroke(.orange, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
             }
             .frame(width: 18, height: 18)
-            .animation(.easeInOut(duration: 0.2), value: syncProgress)
+            .animation(.easeInOut(duration: 0.2), value: displayedProgress)
             .accessibilityLabel(Text("journal.syncingTitle"))
-            .accessibilityValue(Text(syncProgress, format: .percent))
+            .accessibilityValue(Text(displayedProgress, format: .percent))
         }
-    }
-
-    private var syncProgress: Double {
-        if case .syncing(let progress, _, _) = journalSync.state {
-            return min(1, max(0.02, progress))
-        }
-        return 0
     }
 
     private var visiblePhotoDateRange: String {
