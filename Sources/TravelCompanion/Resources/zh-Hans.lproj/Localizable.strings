@@ -1275,3 +1275,5 @@
 "expense.a11y.paymentMethod" = "支付方式：%@";
 "expense.a11y.linkedCard" = "关联行程卡：%@";
 "expense.a11y.linkedCards" = "关联 %2$lld 张行程卡：%@";
+"expense.savedRefreshFailed" = "已保存，但刷新失败。请刷新账本后再操作，避免重复添加。";
+"agent.commitNothingSaved" = "本次没有成功保存任何项目。草稿已保留，请重试。";

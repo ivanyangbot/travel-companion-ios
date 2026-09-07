@@ -330,8 +330,8 @@ struct ItineraryView: View {
             }
             .sheet(isPresented: expenseEditorPresented) {
                 if let trip = syncEngine.trip, let date = expenseEditorDate {
-                    ExpenseEditorView(trip: trip, initialDate: date) { request in
-                        Task { await syncEngine.addExpense(request) }
+                    ExpenseEditorView(trip: trip, initialDate: date) { request, key in
+                        await syncEngine.saveExpenseFromEditor(request, existing: nil, idempotencyKey: key)
                     }
                 }
             }

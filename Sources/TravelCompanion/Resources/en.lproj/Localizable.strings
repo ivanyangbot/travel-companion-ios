@@ -1275,3 +1275,5 @@
 "expense.a11y.paymentMethod" = "Payment method: %@";
 "expense.a11y.linkedCard" = "Linked card: %@";
 "expense.a11y.linkedCards" = "Linked %2$lld cards: %@";
+"expense.savedRefreshFailed" = "Saved, but refreshing failed. Refresh before adding again.";
+"agent.commitNothingSaved" = "No items were saved. Your draft is retained; please retry.";

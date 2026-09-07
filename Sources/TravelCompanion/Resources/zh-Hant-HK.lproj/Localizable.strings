@@ -1277,3 +1277,5 @@
 "expense.a11y.paymentMethod" = "支付方式：%@";
 "expense.a11y.linkedCard" = "關聯行程卡：%@";
 "expense.a11y.linkedCards" = "關聯 %2$lld 張行程卡：%@";
+"expense.savedRefreshFailed" = "已儲存，但重新整理失敗。請重新整理帳本後再操作，避免重複新增。";
+"agent.commitNothingSaved" = "本次沒有成功儲存任何項目。草稿已保留，請重試。";

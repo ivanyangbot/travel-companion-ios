@@ -1207,6 +1207,60 @@ final class SyncEngine: ObservableObject {
         }
     }
 
+    func refreshCommittedTrip(id: Int, minimumVersion: Int) async throws {
+        guard let saved = try await apiClient.fetchTrip(id: id, afterVersion: nil),
+              saved.version >= minimumVersion else { throw URLError(.badServerResponse) }
+        try repository.save(saved)
+        if trip?.id == saved.id { trip = saved }
+    }
+
+    func saveExpenseFromEditor(_ request: ExpenseRequest, existing: ExpenseSnapshot?, idempotencyKey: UUID) async -> String? {
+        guard var current = trip else { return String(localized: "error.selectTripFirst") }
+        var serverConfirmed = false
+        do {
+            if localOnly {
+                if let existing, let index = current.expenses.firstIndex(where: { $0.id == existing.id }) {
+                    current.expenses[index] = ExpenseOptimisticMutation.applying(request, to: existing)
+                } else {
+                    guard let amount = request.amountMinor, let currency = request.currency,
+                          let category = request.category, let date = request.occurredOn else {
+                        return String(localized: "error.expensePreflight")
+                    }
+                    let expense = ExpenseSnapshot(amountMinor: amount, currency: currency, category: category, occurredOn: date)
+                    current.expenses.append(ExpenseOptimisticMutation.applying(request, to: expense))
+                }
+                try saveLocalSnapshot(current)
+                return nil
+            }
+            // Existing offline drafts retain their original queued identity.
+            if let existing, existing.serverID == nil {
+                await updatePendingExpense(existing, request: request)
+                if case .synced = status { return nil }
+                if case .failed(let message) = status { return message }
+                if case .offline(let message) = status { return message }
+                return String(localized: "error.expenseSaveFailed")
+            }
+            let body = try await apiClient.encode(request)
+            let operation = PendingOperationPayload(
+                method: existing == nil ? "POST" : "PATCH",
+                path: existing?.serverID.map { "/v1/expenses/\($0)" } ?? "/v1/expenses",
+                tripID: current.id, body: body, baseVersion: current.version,
+                idempotencyKey: idempotencyKey
+            )
+            _ = try await apiClient.send(operation, tripID: current.id)
+            serverConfirmed = true
+            guard let saved = try await apiClient.fetchTrip(id: current.id, afterVersion: nil) else {
+                return String(localized: "error.expenseSaveFailed")
+            }
+            try repository.save(saved)
+            if trip?.id == saved.id { trip = saved }
+            status = .synced
+            return nil
+        } catch {
+            return serverConfirmed ? String(localized: "expense.savedRefreshFailed") : error.localizedDescription
+        }
+    }
+
     func updateExpense(_ expense: ExpenseSnapshot, request: ExpenseRequest) async {
         guard let expenseID = expense.serverID else {
             await updatePendingExpense(expense, request: request)

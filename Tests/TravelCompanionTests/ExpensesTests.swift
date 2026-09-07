@@ -313,4 +313,21 @@ final class ExpensesTests: XCTestCase {
         XCTAssertNil(try repository.pendingOperation(for: cachedExpense.id))
         XCTAssertEqual(engine.status, .synced)
     }
+
+    @MainActor
+    func testManualSaveFailureReturnsErrorWithoutPublishingAnExpense() async throws {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: SharedTripMirror.self, PendingOperation.self, configurations: configuration)
+        let repository = SharedTripRepository(modelContext: ModelContext(container))
+        try repository.save(SharedTripSnapshot(id: 1, destination: "东京", startDate: "2026-10-01", endDate: "2026-10-02", currency: "CNY", version: 3, updatedAt: .now, days: [], expenses: []))
+        let engine = SyncEngine(repository: repository, apiClient: APIClient(baseURL: nil), authenticatedOverride: true)
+        await engine.bootstrap()
+        let error = await engine.saveExpenseFromEditor(
+            ExpenseRequest(amountMinor: 250, currency: "CNY", category: .food, occurredOn: "2026-10-01"),
+            existing: nil, idempotencyKey: UUID()
+        )
+        XCTAssertNotNil(error)
+        XCTAssertTrue(engine.trip?.expenses.isEmpty == true)
+        XCTAssertTrue(try repository.pendingOperations().isEmpty)
+    }
 }

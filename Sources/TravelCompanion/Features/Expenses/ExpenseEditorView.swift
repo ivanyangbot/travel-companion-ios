@@ -4,7 +4,7 @@ struct ExpenseEditorView: View {
     let trip: SharedTripSnapshot
     let existingExpense: ExpenseSnapshot?
     let members: [TripMemberSummary]
-    let onSave: (ExpenseRequest) -> Void
+    let onSave: (ExpenseRequest, UUID) async -> String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var amountText: String
@@ -23,8 +23,11 @@ struct ExpenseEditorView: View {
     @State private var hasExpectedPaidAt: Bool
     @State private var showsCardPicker = false
     @State private var validationMessage: String?
+    @State private var isSaving = false
+    @State private var saveKey = UUID()
+    @State private var lastSaveBody: Data?
 
-    init(trip: SharedTripSnapshot, existingExpense: ExpenseSnapshot? = nil, members: [TripMemberSummary] = [], initialDate: Date? = nil, onSave: @escaping (ExpenseRequest) -> Void) {
+    init(trip: SharedTripSnapshot, existingExpense: ExpenseSnapshot? = nil, members: [TripMemberSummary] = [], initialDate: Date? = nil, onSave: @escaping (ExpenseRequest, UUID) async -> String?) {
         self.trip = trip
         self.existingExpense = existingExpense
         self.members = members
@@ -204,12 +207,22 @@ struct ExpenseEditorView: View {
             }
             .navigationTitle(existingExpense == nil ? "expenseeditor.addTitle" : "expenseeditor.editTitle")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() }.disabled(isSaving) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("common.save") { save() }
-                        .disabled(trip.currency == nil)
+                    Button { save() } label: {
+                        if isSaving { ProgressView() } else { Text("common.save") }
+                    }
+                    .disabled(trip.currency == nil || isSaving)
                 }
             }
+            .disabled(isSaving)
+            .interactiveDismissDisabled(isSaving)
+            .alert("agent.cannotCompleteTitle", isPresented: Binding(
+                get: { validationMessage != nil },
+                set: { if !$0 { validationMessage = nil } }
+            )) {
+                Button("common.done") { validationMessage = nil }
+            } message: { Text(validationMessage ?? "") }
             .sheet(isPresented: $showsCardPicker) {
                 ExpenseCardLinkPicker(
                     trip: trip,
@@ -259,7 +272,7 @@ struct ExpenseEditorView: View {
             clears.formUnion(["consumerUserId", "consumerName"])
         }
         if existingExpense?.paidAt != nil && resolvedPaidAt == nil { clears.insert("paidAt") }
-        onSave(ExpenseRequest(
+        let request = ExpenseRequest(
             amountMinor: amountMinor,
             currency: currency,
             category: category,
@@ -274,8 +287,18 @@ struct ExpenseEditorView: View {
             // 整组替换：空数组即为清空全部关联。
             cardIDs: cardIDs,
             fieldsToClear: clears
-        ))
-        dismiss()
+        )
+        isSaving = true
+        Task {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .sortedKeys
+            encoder.dateEncodingStrategy = .iso8601
+            let body = try? encoder.encode(request)
+            if body != lastSaveBody { saveKey = UUID(); lastSaveBody = body }
+            let error = await onSave(request, saveKey)
+            isSaving = false
+            if let error { validationMessage = error } else { dismiss() }
+        }
     }
 
     private static func date(from value: String?) -> Date? {

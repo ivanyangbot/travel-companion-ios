@@ -83,6 +83,8 @@ struct AgentHomeView: View {
     /// 成功提交后短暂保留候选区，并在页面中央播放确认反馈；动画落稳后再
     /// 清理草稿，避免服务器成功时卡片毫无解释地瞬间消失。
     @State private var commitSuccess: AgentCommitSuccess?
+    @State private var commitKey = UUID()
+    @State private var commitBody: Data?
     /// Candidates stay unselected while the agent fills their schedule/place
     /// fields. They only become eligible for import after the repaired upsert
     /// passes the same validation used by commit.
@@ -2583,7 +2585,13 @@ struct AgentHomeView: View {
         let client = APIClient()
         let agent = agent
         Task {
+            var serverConfirmed = false
             do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .sortedKeys
+                encoder.dateEncodingStrategy = .iso8601
+                let body = try encoder.encode(snapshot.draft)
+                if commitBody != body { commitBody = body; commitKey = UUID() }
                 let result = try await client.commitAgentV2(
                     .init(
                         agent: agent == .itinerary ? nil : agent.wireValue,
@@ -2594,7 +2602,7 @@ struct AgentHomeView: View {
                         draft: snapshot.draft
                     ),
                     tripID: trip.id,
-                    idempotencyKey: UUID()
+                    idempotencyKey: commitKey
                 )
                 let removalCount: Int
                 if agent == .ledger {
@@ -2606,7 +2614,18 @@ struct AgentHomeView: View {
                         $0.operation == .remove && $0.targetCardId != nil
                     }.count
                 }
-                await syncEngine.refresh()
+                guard !result.committedCandidateIds.isEmpty || removalCount > 0 else {
+                    runState.error = String(localized: "agent.commitNothingSaved")
+                    runState.isCommitting = false
+                    return
+                }
+                // The server has committed these IDs even if refreshing fails.
+                // Retire them before refresh so retry cannot duplicate writes.
+                store.completeCommit(committedCandidateIDs: Set(result.committedCandidateIds))
+                serverConfirmed = true
+                if agent != .journal {
+                    try await syncEngine.refreshCommittedTrip(id: trip.id, minimumVersion: result.tripVersion)
+                }
                 let success = AgentCommitSuccess(
                     addedCount: result.committedCandidateIds.count,
                     removedCount: removalCount,
@@ -2624,11 +2643,9 @@ struct AgentHomeView: View {
                     UIAccessibility.post(notification: .announcement, argument: success.accessibilityText)
                     try? await Task.sleep(for: .milliseconds(720))
                 }
-                withAnimation(.snappy(duration: 0.42)) {
-                    store.completeCommit(committedCandidateIDs: Set(result.committedCandidateIds))
-                }
                 if !(result.retryCandidateIds ?? []).isEmpty {
                     runState.status = String(localized: "agent.commitRetryRetained")
+                    runState.error = String(localized: "agent.commitRetryRetained")
                 }
                 if agent == .journal {
                     // 手书不参与行程版本：广播给 NotesView 在下一次出现时重拉。
@@ -2645,7 +2662,7 @@ struct AgentHomeView: View {
                     }
                 }
             } catch {
-                runState.error = error.localizedDescription
+                runState.error = serverConfirmed ? String(localized: "expense.savedRefreshFailed") : error.localizedDescription
             }
             runState.isCommitting = false
         }

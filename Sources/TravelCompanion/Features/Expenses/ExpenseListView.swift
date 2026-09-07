@@ -37,15 +37,15 @@ struct ExpenseListView: View {
             .preferredColorScheme(.dark)
             .sheet(isPresented: $addingExpense) {
                 if let trip = syncEngine.trip {
-                    ExpenseEditorView(trip: trip, members: members) { request in
-                        Task { await syncEngine.addExpense(request) }
+                    ExpenseEditorView(trip: trip, members: members) { request, key in
+                        await syncEngine.saveExpenseFromEditor(request, existing: nil, idempotencyKey: key)
                     }
                 }
             }
             .sheet(item: $editorTarget) { expense in
                 if let trip = syncEngine.trip {
-                    ExpenseEditorView(trip: trip, existingExpense: expense, members: members) { request in
-                        Task { await syncEngine.updateExpense(expense, request: request) }
+                    ExpenseEditorView(trip: trip, existingExpense: expense, members: members) { request, key in
+                        await syncEngine.saveExpenseFromEditor(request, existing: expense, idempotencyKey: key)
                     }
                 }
             }
