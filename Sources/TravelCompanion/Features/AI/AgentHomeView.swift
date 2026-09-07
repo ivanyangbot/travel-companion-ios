@@ -1685,6 +1685,7 @@ struct AgentHomeView: View {
             AgentComposerTextView(text: $message, isFocused: Binding(
                 get: { isComposerFocused }, set: { isComposerFocused = $0 }
             ), onSubmit: { if canSend { send() } })
+                .frame(minHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 13)
                 .padding(.vertical, 10)
@@ -1693,6 +1694,8 @@ struct AgentHomeView: View {
                         .fill(PrimaryTabPalette.elevatedSurface)
                         .matchedGeometryEffect(id: "composer-field", in: composerMotion)
                 }
+                .contentShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                .onTapGesture { isComposerFocused = true }
 
             Button { runState.isGenerating ? cancelGeneration() : send() } label: {
                 Image(systemName: runState.isGenerating ? "stop.fill" : "arrow.up")
@@ -3138,6 +3141,9 @@ private struct AgentComposerTextView: UIViewRepresentable {
         view.textColor = .white
         view.font = .preferredFont(forTextStyle: .body)
         view.adjustsFontForContentSizeCategory = true
+        view.isEditable = true
+        view.isSelectable = true
+        view.isScrollEnabled = false
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.returnKeyType = .send
@@ -3164,10 +3170,17 @@ private struct AgentComposerTextView: UIViewRepresentable {
         context.coordinator.parent = self
         if view.markedTextRange == nil, view.text != text { view.text = text }
         context.coordinator.placeholder?.isHidden = !view.text.isEmpty
-        if isFocused, !view.isFirstResponder {
-            view.becomeFirstResponder()
-        } else if !isFocused, view.isFirstResponder {
-            view.resignFirstResponder()
+        // SwiftUI can update this representable between the touch-down and
+        // UITextView's begin-editing callback. Reapplying a stale `false` on
+        // every update immediately dismisses the keyboard, making the field
+        // appear read-only. Only act when the requested focus value changes.
+        if context.coordinator.appliedFocusRequest != isFocused {
+            context.coordinator.appliedFocusRequest = isFocused
+            if isFocused, !view.isFirstResponder {
+                view.becomeFirstResponder()
+            } else if !isFocused, view.isFirstResponder {
+                view.resignFirstResponder()
+            }
         }
     }
 
@@ -3181,6 +3194,7 @@ private struct AgentComposerTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: AgentComposerTextView
         weak var placeholder: UILabel?
+        var appliedFocusRequest: Bool?
         init(_ parent: AgentComposerTextView) { self.parent = parent }
         func textViewDidChange(_ view: UITextView) {
             placeholder?.isHidden = !view.text.isEmpty
