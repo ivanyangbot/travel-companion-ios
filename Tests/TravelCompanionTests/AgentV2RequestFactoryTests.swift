@@ -3,6 +3,14 @@ import XCTest
 @testable import TravelCompanion
 
 final class AgentV2RequestFactoryTests: XCTestCase {
+    func testLedgerAdvertisesInteractiveChecklistAndCarriesCurrentDraft() {
+        var session = makeSession()
+        session.checklist = AgentV2Checklist(title: "印尼行李", items: [.init(text: "护照", isChecked: true)])
+        let request = AgentV2TurnRequestFactory(agent: .ledger, session: session, trip: makeTrip()).makeRequest(message: "补充清单")
+        XCTAssertEqual(request.capabilities, ["interactive_checklist_v1"])
+        XCTAssertEqual(request.activeChecklist?.title, "印尼行李")
+        XCTAssertTrue(request.activeChecklist?.items.first?.isChecked == true)
+    }
     func testChecklistRequestPreservesUserIntentWithoutExpenseInstructions() {
         let factory = AgentV2TurnRequestFactory(agent: .ledger, session: makeSession(), trip: makeTrip())
         let request = factory.makeRequest(message: "生成印尼行前准备清单")

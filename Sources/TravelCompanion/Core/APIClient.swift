@@ -557,6 +557,7 @@ actor APIClient {
             return .cardFieldDelta(id: field.id, field: field.field, value: field.value)
         case "question": return .question(try decoder.decode(String.self, from: data))
         case "summary": return .summary(try decoder.decode(AgentV2Summary.self, from: data))
+        case "checklist": return .checklist(try decoder.decode(AgentV2Checklist.self, from: data))
         case "candidate_upsert": return .candidateUpsert(try decoder.decode(AgentV2Candidate.self, from: data))
         case "candidate_patch":
             struct Patch: Decodable { let id: UUID; let candidate: AgentV2Candidate }

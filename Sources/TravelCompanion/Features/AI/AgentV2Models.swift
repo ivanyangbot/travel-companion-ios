@@ -150,6 +150,8 @@ struct AgentV2TurnRequest: Codable, Sendable {
     var journal: JournalContext? = nil
     var memos: [ReferenceItem]? = nil
     var walletCards: [ReferenceItem]? = nil
+    var capabilities: [String]? = nil
+    var activeChecklist: AgentV2Checklist? = nil
 }
 
 struct AgentV2Draft: Codable, Sendable, Equatable {
@@ -615,6 +617,7 @@ struct AgentV2Summary: Codable, Sendable, Equatable {
 }
 
 enum AgentV2StreamEvent: Sendable {
+    case checklist(AgentV2Checklist)
     case status(String)
     case reasoningSummary(String)
     case assistantDelta(String)
@@ -761,6 +764,7 @@ struct AgentV2MessageAttachmentGroup: Codable, Identifiable {
 }
 
 struct AgentV2LocalSession: Codable, Identifiable {
+    var checklist: AgentV2Checklist? = nil
     var id: UUID
     var updatedAt: Date
     var preferences: AgentV2TurnRequest.Preferences
@@ -785,4 +789,57 @@ struct AgentV2LocalSession: Codable, Identifiable {
     }
 
     static let empty = AgentV2LocalSession(id: UUID(), updatedAt: .now, preferences: .init(pace: nil, companions: nil, budget: nil, interests: [], allowUnverifiedRecommendations: true), messages: [], attachments: [], draft: nil, summary: nil)
+}
+
+struct AgentV2Checklist: Codable, Sendable, Equatable, Identifiable {
+    struct Item: Codable, Sendable, Equatable, Identifiable {
+        var id: UUID = UUID()
+        var text: String
+        var note: String? = nil
+        var isChecked = false
+        var memoItemID: UUID? = nil
+
+        enum CodingKeys: String, CodingKey { case id, text, note, isChecked, memoItemID }
+        init(id: UUID = UUID(), text: String, note: String? = nil, isChecked: Bool = false) {
+            self.id = id; self.text = text; self.note = note; self.isChecked = isChecked
+        }
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+            text = try values.decode(String.self, forKey: .text)
+            note = try values.decodeIfPresent(String.self, forKey: .note)
+            isChecked = try values.decodeIfPresent(Bool.self, forKey: .isChecked) ?? false
+            memoItemID = try values.decodeIfPresent(UUID.self, forKey: .memoItemID)
+        }
+    }
+    var id: UUID = UUID()
+    var title: String
+    var items: [Item]
+    var savedListID: UUID? = nil
+    var savedContent: String? = nil
+
+    enum CodingKeys: String, CodingKey { case id, title, items, savedListID, savedContent }
+    init(id: UUID = UUID(), title: String, items: [Item]) {
+        self.id = id; self.title = title; self.items = items
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title = try values.decode(String.self, forKey: .title)
+        items = try values.decode([Item].self, forKey: .items)
+        savedListID = try values.decodeIfPresent(UUID.self, forKey: .savedListID)
+        savedContent = try values.decodeIfPresent(String.self, forKey: .savedContent)
+    }
+    var contentSignature: String {
+        struct Content: Encodable { let title: String; let items: [Item] }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(Content(title: title, items: items)).base64EncodedString()) ?? ""
+    }
+    var isSaved: Bool { savedListID != nil && savedContent == contentSignature }
+    var isValid: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && title.count <= 160
+            && !items.isEmpty && items.count <= 50
+            && items.allSatisfy { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.text.count <= 160 && ($0.note?.count ?? 0) <= 300 }
+    }
 }

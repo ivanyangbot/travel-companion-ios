@@ -51,6 +51,10 @@ struct AgentV2TurnRequestFactory {
         case .itinerary:
             break
         case .ledger:
+            request.capabilities = ["interactive_checklist_v1"]
+            if let checklist = session.checklist, checklist.isValid {
+                request.activeChecklist = checklist
+            }
             request.expenses = Self.expenseSnapshot(from: trip)
             if !memoItems.isEmpty { request.memos = memoItems }
             if !walletItems.isEmpty { request.walletCards = walletItems }

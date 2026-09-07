@@ -2,6 +2,24 @@ import XCTest
 @testable import TravelCompanion
 
 final class AgentV2StreamParserTests: XCTestCase {
+    func testChecklistEventDecodesWithEditableState() throws {
+        let fixture = """
+        event: checklist
+        data: {"id":"cf896c65-8067-4b9d-9496-42da91df2b8a","title":"行李","items":[{"id":"2c9fd43e-d18e-45ca-a69b-f6d39bd02b59","text":"护照","note":"随身携带","isChecked":true}]}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var checklist: AgentV2Checklist?
+        for byte in fixture.utf8 {
+            guard let event = try parser.consume(byte) else { continue }
+            if case .checklist(let value) = event { checklist = value }
+        }
+        XCTAssertEqual(checklist?.title, "行李")
+        XCTAssertEqual(checklist?.items.first?.text, "护照")
+        XCTAssertTrue(checklist?.items.first?.isChecked == true)
+    }
+
     func testChecklistExtensionKeepsCompatibleTextAndNoExpenseCards() throws {
         let fixture = """
         event: assistant_delta

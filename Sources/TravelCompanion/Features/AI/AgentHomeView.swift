@@ -1167,6 +1167,16 @@ struct AgentHomeView: View {
                 }
             }
 
+            if let checklist = store.session.checklist {
+                AssistantMessageContainer {
+                    AgentChecklistConversationCard(checklist: checklist,
+                        onChange: { store.updateChecklist($0) },
+                        onDismiss: { store.dismissChecklist() })
+                        .id(checklist.id)
+                        .disabled(runState.isGenerating)
+                }
+            }
+
             if store.session.summary != nil || store.session.draft != nil {
                 AssistantMessageContainer {
                     workbenchView
@@ -2436,7 +2446,7 @@ struct AgentHomeView: View {
                         case .summary(let summary):
                             state.stagedSummaryText = summary.text
                             sessionStore.apply(event)
-                        case .candidateUpsert:
+                        case .candidateUpsert, .checklist:
                             sessionStore.apply(event)
                         case .fliggySearchStarted(let start):
                             state.fliggySearchStarted(start)
@@ -3662,6 +3672,130 @@ struct AgentMissingCandidateCard: View {
         .background(Color.orange.opacity(0.055), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.orange.opacity(0.28), lineWidth: 1) }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A checklist is intentionally separate from agent candidates: ticking or
+/// saving it must never become a ledger/itinerary commit.
+struct AgentChecklistConversationCard: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \LocalMemoList.updatedAt, order: .reverse) private var memoLists: [LocalMemoList]
+    let checklist: AgentV2Checklist
+    let onChange: (AgentV2Checklist) -> Void
+    let onDismiss: () -> Void
+    @State private var isSaving = false
+    @State private var saveError: String?
+    @State private var isEditingTitle = false
+    @State private var titleDraft = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Image(systemName: "checklist")
+                    .foregroundStyle(PrimaryTabPalette.accent)
+                if isEditingTitle {
+                    TextField("清单标题", text: $titleDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { update { $0.title = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines) } }
+                } else {
+                    Text(checklist.title).font(.headline).foregroundStyle(.white)
+                }
+                Spacer()
+                Button(isEditingTitle ? "完成" : "编辑") {
+                    if isEditingTitle { update { $0.title = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines) } }
+                    else { titleDraft = checklist.title }
+                    isEditingTitle.toggle()
+                }
+                .font(.caption.weight(.semibold)).foregroundStyle(PrimaryTabPalette.accent)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(checklist.items) { item in
+                    checklistItem(item)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button { addItem() } label: {
+                    Label("添加事项", systemImage: "plus")
+                }
+                .buttonStyle(.bordered).tint(PrimaryTabPalette.secondaryText)
+                Menu {
+                    Button("保存为新清单") { save(to: nil) }
+                    if !memoLists.isEmpty {
+                        Divider()
+                        ForEach(memoLists) { list in
+                            Button("合并到「\(list.title)」") { save(to: list.id) }
+                        }
+                    }
+                } label: {
+                    Label(checklist.isSaved ? "已保存" : "保存到备忘", systemImage: checklist.isSaved ? "checkmark.circle.fill" : "bookmark.fill")
+                }
+                .buttonStyle(.borderedProminent).tint(PrimaryTabPalette.accent)
+                .disabled(isSaving || !checklist.isValid)
+                Spacer()
+                Button(role: .destructive, action: onDismiss) {
+                    Image(systemName: "xmark")
+                }.buttonStyle(.plain).foregroundStyle(PrimaryTabPalette.tertiaryText)
+            }
+
+            if checklist.isSaved {
+                Label("已保存到本机备忘；继续编辑后可再次保存。", systemImage: "checkmark.seal.fill")
+                    .font(.caption).foregroundStyle(.green)
+            } else {
+                Text("勾选和编辑仅在本机保存，不会创建支出。")
+                    .font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+            if let saveError {
+                Label(saveError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .padding(14)
+        .background(PrimaryTabPalette.surface, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(PrimaryTabPalette.accent.opacity(0.22), lineWidth: 1) }
+    }
+
+    @ViewBuilder private func checklistItem(_ item: AgentV2Checklist.Item) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Button { updateItem(item.id) { $0.isChecked.toggle() } } label: {
+                Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
+                    .font(.title3).foregroundStyle(item.isChecked ? PrimaryTabPalette.accent : PrimaryTabPalette.secondaryText)
+            }.buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("事项", text: binding(item.id, \.text))
+                    .foregroundStyle(item.isChecked ? PrimaryTabPalette.secondaryText : .white)
+                    .strikethrough(item.isChecked, color: PrimaryTabPalette.secondaryText)
+                TextField("备注（可选）", text: binding(item.id, \.note, empty: ""))
+                    .font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+            Button { removeItem(item.id) } label: { Image(systemName: "minus.circle") }
+                .buttonStyle(.plain).foregroundStyle(PrimaryTabPalette.tertiaryText)
+                .accessibilityLabel("删除 \(item.text)")
+        }.padding(.vertical, 4)
+    }
+
+    private func binding(_ id: UUID, _ keyPath: WritableKeyPath<AgentV2Checklist.Item, String>) -> Binding<String> {
+        Binding(get: { checklist.items.first(where: { $0.id == id })?[keyPath: keyPath] ?? "" },
+                set: { value in updateItem(id) { $0[keyPath: keyPath] = String(value.prefix(160)) } })
+    }
+    private func binding(_ id: UUID, _ keyPath: WritableKeyPath<AgentV2Checklist.Item, String?>, empty: String) -> Binding<String> {
+        Binding(get: { checklist.items.first(where: { $0.id == id })?[keyPath: keyPath] ?? empty },
+                set: { value in updateItem(id) { $0[keyPath: keyPath] = value.isEmpty ? nil : String(value.prefix(300)) } })
+    }
+    private func update(_ body: (inout AgentV2Checklist) -> Void) {
+        var draft = checklist; body(&draft); draft.savedContent = nil; onChange(draft)
+    }
+    private func updateItem(_ id: UUID, _ body: (inout AgentV2Checklist.Item) -> Void) {
+        update { draft in guard let index = draft.items.firstIndex(where: { $0.id == id }) else { return }; body(&draft.items[index]) }
+    }
+    private func addItem() { update { $0.items.append(.init(text: "")) } }
+    private func removeItem(_ id: UUID) { update { $0.items.removeAll { $0.id == id } } }
+    private func save(to listID: UUID?) {
+        isSaving = true; saveError = nil
+        do { onChange(try AgentChecklistPersistence.save(checklist, to: listID, context: modelContext)) }
+        catch { saveError = error.localizedDescription }
+        isSaving = false
     }
 }
 

@@ -295,6 +295,7 @@ final class AgentV2SessionStore: ObservableObject {
     private var stagedSummary: AgentV2Summary?
     private var stagedDraft: AgentV2Draft?
     private var stagedProposal: AgentV2TripProposal?
+    private var stagedChecklist: AgentV2Checklist?
 
     /// - Parameter startsFreshOnLaunch: 每次冷启动都从全新会话开始——上次
     ///   有内容的对话自动归档进「历史对话」，主界面（首页 Agent 与工作台）
@@ -464,6 +465,7 @@ final class AgentV2SessionStore: ObservableObject {
     /// Starts an in-memory transaction for a streamed turn. Durable session
     /// state is left untouched until the server emits `done`.
     func beginTurn() {
+        stagedChecklist = nil
         isReceivingNewTurn = true
         hasStagedResult = false
         stagedSummary = nil
@@ -480,6 +482,13 @@ final class AgentV2SessionStore: ObservableObject {
         guard isReceivingNewTurn else { return }
         if hasStagedResult {
             var completed = session
+            if var checklist = stagedChecklist {
+                if let previous = completed.checklist, previous.id == checklist.id {
+                    checklist.savedListID = previous.savedListID
+                    checklist.savedContent = previous.savedContent
+                }
+                completed.checklist = checklist
+            }
             completed.summary = stagedSummary
             if let stagedDraft {
                 let previous = completed.draft
@@ -560,6 +569,10 @@ final class AgentV2SessionStore: ObservableObject {
     func apply(_ event: AgentV2StreamEvent) {
         guard isReceivingNewTurn else { return }
         switch event {
+        case .checklist(let checklist):
+            guard checklist.isValid else { return }
+            hasStagedResult = true
+            stagedChecklist = checklist
         case .summary(let summary):
             hasStagedResult = true
             stagedSummary = summary
@@ -602,6 +615,7 @@ final class AgentV2SessionStore: ObservableObject {
     }
 
     private func resetStaging() {
+        stagedChecklist = nil
         isReceivingNewTurn = false
         hasStagedResult = false
         stagedSummary = nil
@@ -612,6 +626,17 @@ final class AgentV2SessionStore: ObservableObject {
     private func normalized(_ draft: AgentV2Draft) -> AgentV2Draft? {
         let sanitized = draft.sanitizedForPersistence()
         return sanitized.candidates.isEmpty && sanitized.changes.isEmpty ? nil : sanitized
+    }
+
+    func updateChecklist(_ checklist: AgentV2Checklist) {
+        guard session.checklist?.id == checklist.id else { return }
+        session.checklist = checklist
+        save()
+    }
+
+    func dismissChecklist() {
+        session.checklist = nil
+        save()
     }
 
     /// A direct user tap may promote an informational suggestion to an add.

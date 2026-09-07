@@ -60,3 +60,81 @@ enum MemoListSeed {
         try? context.save()
     }
 }
+
+@MainActor
+enum AgentChecklistPersistence {
+    enum SaveError: LocalizedError {
+        case invalid, missingList
+        var errorDescription: String? {
+            switch self {
+            case .invalid: "请填写清单标题和事项，每份清单最多 50 项。"
+            case .missingList: "目标清单已被删除，请重新选择保存位置。"
+            }
+        }
+    }
+
+    static func key(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// Merge only the proposed items; never delete unrelated existing memo entries.
+    static func save(_ draft: AgentV2Checklist, to targetID: UUID?, context: ModelContext) throws -> AgentV2Checklist {
+        guard draft.isValid else { throw SaveError.invalid }
+        let lists = try context.fetch(FetchDescriptor<LocalMemoList>())
+        let list: LocalMemoList
+        if let targetID {
+            guard let existing = lists.first(where: { $0.id == targetID }) else { throw SaveError.missingList }
+            list = existing
+        } else if let existing = lists.first(where: { $0.id == draft.id }) {
+            list = existing
+        } else {
+            list = LocalMemoList(id: draft.id, title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines))
+            context.insert(list)
+        }
+        var result = draft
+        var byName: [String: LocalMemoItem] = [:]
+        for item in list.items.sorted(by: { $0.position < $1.position }) where byName[key(item.name)] == nil {
+            byName[key(item.name)] = item
+        }
+        var nextPosition = (list.items.map(\.position).max() ?? -1) + 1
+        var seen = Set<String>()
+        result.items = []
+        for var item in draft.items {
+            let name = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalized = key(name)
+            guard seen.insert(normalized).inserted else { continue }
+            let linked = draft.savedListID == list.id ? list.items.first(where: { $0.id == item.memoItemID }) : nil
+            let stored: LocalMemoItem
+            if let existing = byName[normalized] ?? linked {
+                stored = existing
+                if linked?.id == stored.id {
+                    byName.removeValue(forKey: key(stored.name))
+                    stored.name = name
+                    stored.isChecked = item.isChecked
+                    stored.notes = item.note
+                } else {
+                    stored.isChecked = stored.isChecked || item.isChecked
+                    if let note = item.note, !note.isEmpty { stored.notes = note }
+                }
+            } else {
+                stored = LocalMemoItem(name: name, position: nextPosition, notes: item.note)
+                stored.isChecked = item.isChecked
+                nextPosition += 1
+                list.items.append(stored)
+            }
+            stored.updatedAt = .now
+            byName[normalized] = stored
+            item.memoItemID = stored.id
+            item.isChecked = stored.isChecked
+            item.note = stored.notes
+            result.items.append(item)
+        }
+        if list.id == draft.id { list.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines) }
+        list.updatedAt = .now
+        do { try context.save() } catch { context.rollback(); throw error }
+        result.savedListID = list.id
+        result.savedContent = result.contentSignature
+        return result
+    }
+}
