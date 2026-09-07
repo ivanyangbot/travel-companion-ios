@@ -289,6 +289,24 @@ private struct MapViewerContext: Identifiable {
     let pins: [JournalPhotoPin]
 }
 
+private struct JournalPhotoItem: Identifiable {
+    let entry: JournalEntry
+    let image: JournalImage
+    var id: String { image.key }
+}
+
+private struct JournalPhotoEditorContext: Identifiable {
+    let entryID: Int
+    let image: JournalImage
+    var id: String { image.key }
+}
+
+private struct JournalListViewerContext: Identifiable {
+    let id: String
+    let photos: [JournalPhotoViewer.Photo]
+    let initialIndex: Int
+}
+
 struct NotesView: View {
     @ObservedObject var syncEngine: SyncEngine
     @ObservedObject var journalSync: JournalSyncCoordinator
@@ -296,13 +314,14 @@ struct NotesView: View {
 
     @State private var snapshot = JournalSnapshot(groups: [], entries: [])
     @State private var selectedGroupID: Int?
-    @State private var editor: JournalEntry?
     @State private var showsGroupEditor = false
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var displayMode: JournalDisplayMode = .list
     @State private var mapViewer: MapViewerContext?
-    @State private var quickPickerItems: [PhotosPickerItem] = []
+    @State private var listViewer: JournalListViewerContext?
+    @State private var photoEditor: JournalPhotoEditorContext?
+    @State private var showsQuickPhotoPicker = false
     @State private var isQuickImporting = false
     private let api = APIClient()
 
@@ -316,6 +335,15 @@ struct NotesView: View {
         snapshot.entries.filter { selectedGroupID == nil || $0.groupId == selectedGroupID }
     }
 
+    private var visiblePhotos: [JournalPhotoItem] {
+        visibleEntries.flatMap { entry in
+            entry.images.compactMap { image in
+                guard image.kind == nil || image.kind == "photo" || image.kind == "livePhoto" else { return nil }
+                return JournalPhotoItem(entry: entry, image: image)
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -327,8 +355,6 @@ struct NotesView: View {
                     if displayMode == .list {
                         journalSummary
                     }
-                    journalSyncBanner
-
                     Group {
                         switch displayMode {
                         case .list:
@@ -347,23 +373,6 @@ struct NotesView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
-            .navigationDestination(for: JournalEntry.self) { pushed in
-                // 以 pushed.id 从最新 snapshot 取值，编辑/加照片保存后详情页自动刷新。
-                let latest = snapshot.entries.first(where: { $0.id == pushed.id }) ?? pushed
-                JournalEntryDetailView(
-                    entry: latest,
-                    groups: snapshot.groups,
-                    onEdit: {
-                        editor = latest
-                    },
-                    onAddPhotos: { attachments in
-                        await addPhotos(entry: latest, attachments: attachments)
-                    },
-                    onSaveDescription: { imageKey, description in
-                        await updateImageDescription(entryID: latest.id, imageKey: imageKey, description: description)
-                    }
-                )
-            }
             .task { await reload() }
             .onChange(of: syncEngine.isUserAuthenticated) { _, authenticated in
                 journalSync.updateSession(isAuthenticated: authenticated, tripID: syncEngine.selectedTripID)
@@ -377,22 +386,17 @@ struct NotesView: View {
                 Task { await reload() }
             }
             .onChange(of: journalSync.revision) { _, _ in Task { await reload() } }
+            .onChange(of: journalSync.networkAccess) { oldValue, newValue in
+                if newValue == .offline {
+                    errorMessage = nil
+                } else if oldValue == .offline {
+                    Task { await reload() }
+                }
+            }
             // 手书 agent 在工作台保存了新条目：手书数据不在 SyncEngine，
             // 收到广播后重拉，避免返回手书 tab 时短暂显示旧列表。
             .onReceive(NotificationCenter.default.publisher(for: .agentJournalEntriesDidChange)) { _ in
                 Task { await reload() }
-            }
-            .onChange(of: quickPickerItems) { _, values in
-                Task { await importQuickPhotos(values) }
-            }
-            .sheet(item: $editor) { entry in
-                JournalEditor(
-                    entry: entry.id == 0 ? nil : entry,
-                    groups: snapshot.groups,
-                    defaultGroupID: entry.groupId
-                ) { request, attachments in
-                    await save(entry: entry, request: request, attachments: attachments)
-                }
             }
             .fullScreenCover(item: $mapViewer) { context in
                 JournalPhotoViewer(
@@ -410,13 +414,45 @@ struct NotesView: View {
                         let pin = photoPins.first { $0.id == imageKey }
                             ?? context.pins.first { $0.id == imageKey }
                         guard let pin else { return }
-                        await updateImageDescription(
+                        await updateImageMetadata(
                             entryID: pin.entryID,
                             imageKey: imageKey,
-                            description: description
+                            description: description,
+                            latitude: pin.latitude,
+                            longitude: pin.longitude
                         )
                     }
                 )
+            }
+            .fullScreenCover(item: $listViewer) { context in
+                JournalPhotoViewer(
+                    photos: context.photos,
+                    initialIndex: context.initialIndex,
+                    onSaveDescription: nil
+                )
+            }
+            .sheet(item: $photoEditor) { context in
+                JournalPhotoMetadataEditor(image: context.image) { description, latitude, longitude in
+                    await updateImageMetadata(
+                        entryID: context.entryID,
+                        imageKey: context.image.key,
+                        description: description,
+                        latitude: latitude,
+                        longitude: longitude
+                    )
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showsQuickPhotoPicker) {
+                JournalPhotoPickerSheet { results in
+                    showsQuickPhotoPicker = false
+                    Task { await importQuickPhotos(results) }
+                } onCancel: {
+                    showsQuickPhotoPicker = false
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showsGroupEditor) {
                 JournalGroupsEditor(groups: snapshot.groups) {
@@ -445,7 +481,7 @@ struct NotesView: View {
             ProgressView("journal.loading")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.bottom, 112)
-        } else if visibleEntries.isEmpty {
+        } else if visiblePhotos.isEmpty {
             ContentUnavailableView(
                 "journal.emptyTitle",
                 systemImage: "book.closed",
@@ -458,8 +494,8 @@ struct NotesView: View {
                 HStack(alignment: .top, spacing: 10) {
                     ForEach(0..<2, id: \.self) { column in
                         LazyVStack(spacing: 10) {
-                            ForEach(Array(visibleEntries.enumerated()).filter { $0.offset % 2 == column }, id: \.element.id) { indexedEntry in
-                                journalCard(indexedEntry.element)
+                            ForEach(Array(visiblePhotos.enumerated()).filter { $0.offset % 2 == column }, id: \.element.id) { indexedPhoto in
+                                journalPhoto(indexedPhoto.element)
                             }
                         }
                     }
@@ -524,13 +560,9 @@ struct NotesView: View {
                 .primaryTabHeaderButtonStyle()
                 .accessibilityLabel(Text(displayMode == .list ? "journal.mapModeA11y" : "journal.listModeA11y"))
 
-                PhotosPicker(
-                    selection: $quickPickerItems,
-                    maxSelectionCount: 9,
-                    matching: .images,
-                    preferredItemEncoding: .current,
-                    photoLibrary: .shared()
-                ) {
+                Button {
+                    showsQuickPhotoPicker = true
+                } label: {
                     Group {
                         if isQuickImporting {
                             ProgressView().tint(.white)
@@ -560,7 +592,9 @@ struct NotesView: View {
 
             Spacer(minLength: 8)
 
-            Text(String(format: String(localized: "journal.countFormat"), visibleEntries.count))
+            journalSyncStatus
+
+            Text(String(format: String(localized: "journal.countFormat"), visiblePhotos.count))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
         }
@@ -569,97 +603,37 @@ struct NotesView: View {
         .padding(.bottom, 12)
     }
 
-    private var selectedGroupTitle: String { snapshot.groups.first(where: { $0.id == selectedGroupID })?.name ?? String(localized: "journal.allGroups") }
-
     @ViewBuilder
-    private var journalSyncBanner: some View {
-        if remoteTripID != nil, journalSync.hasPendingContent || isSyncingJournal {
-            HStack(spacing: 12) {
-                syncBannerIcon
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PrimaryTabPalette.accent)
-                    .frame(width: 28)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(syncBannerTitle)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                    if case .syncing(let progress, let completed, let total) = journalSync.state {
-                        ProgressView(value: progress)
-                            .tint(PrimaryTabPalette.accent)
-                        Text(String(format: String(localized: "journal.syncProgress"), completed, total, Int(progress * 100)))
-                            .font(.caption2)
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    } else {
-                        Text(syncBannerDetail)
-                            .font(.caption)
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                            .lineLimit(2)
-                    }
-                }
-
-                Spacer(minLength: 4)
-
-                if shouldShowManualSyncButton {
-                    Button("journal.syncNow") { journalSync.syncNow() }
-                        .font(.system(size: 13, weight: .semibold))
-                        .buttonStyle(.bordered)
-                        .tint(PrimaryTabPalette.accent)
-                        .disabled(journalSync.networkAccess == .offline)
-                }
+    private var journalSyncStatus: some View {
+        if journalSync.networkAccess == .offline {
+            Text("journal.waitNetworkTitle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+        } else {
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.18), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: syncProgress)
+                    .stroke(PrimaryTabPalette.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(PrimaryTabPalette.elevatedSurface, in: RoundedRectangle(cornerRadius: 13))
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
+            .frame(width: 11, height: 11)
+            .accessibilityLabel(Text("journal.syncingTitle"))
+            .accessibilityValue(Text(syncProgress, format: .percent))
         }
     }
+
+    private var syncProgress: Double {
+        if case .syncing(let progress, _, _) = journalSync.state { return max(0.03, progress) }
+        return journalSync.hasPendingContent ? 0.08 : 1
+    }
+
+    private var selectedGroupTitle: String { snapshot.groups.first(where: { $0.id == selectedGroupID })?.name ?? String(localized: "journal.allGroups") }
 
     private var isSyncingJournal: Bool {
         if case .syncing = journalSync.state { return true }
         return false
-    }
-
-    private var shouldShowManualSyncButton: Bool {
-        switch journalSync.state {
-        case .waitingForWiFi, .failed: true
-        case .idle, .syncing: false
-        }
-    }
-
-    @ViewBuilder
-    private var syncBannerIcon: some View {
-        switch journalSync.state {
-        case .syncing:
-            ProgressView().tint(PrimaryTabPalette.accent)
-        case .failed:
-            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
-        case .idle, .waitingForWiFi:
-            Image(systemName: journalSync.networkAccess == .offline ? "wifi.slash" : "icloud.and.arrow.up")
-        }
-    }
-
-    private var syncBannerTitle: String {
-        switch journalSync.state {
-        case .syncing: String(localized: "journal.syncingTitle")
-        case .failed: String(localized: "journal.pausedTitle")
-        case .idle, .waitingForWiFi:
-            journalSync.networkAccess == .offline ? String(localized: "journal.waitNetworkTitle") : String(localized: "journal.waitWifiTitle")
-        }
-    }
-
-    private var syncBannerDetail: String {
-        return switch journalSync.state {
-        case .failed(let message): message
-        case .idle, .waitingForWiFi:
-            if journalSync.networkAccess == .offline {
-                String(localized: "journal.syncSafeNote")
-            } else {
-                String(format: String(localized: "journal.pendingNote"), journalSync.pendingEntryCount)
-            }
-        case .syncing: ""
-        }
     }
 
     private var remoteTripID: Int? {
@@ -669,93 +643,79 @@ struct NotesView: View {
         return tripID
     }
 
-    private func journalCard(_ entry: JournalEntry) -> some View {
-        // 点卡片进只读详情页；编辑只从明确的编辑入口（详情页铅笔 / 长按菜单）进。
-        NavigationLink(value: entry) {
-            VStack(alignment: .leading, spacing: 9) {
-                if let first = entry.images.first {
-                    ZStack(alignment: .bottomLeading) {
-                        JournalMediaView(media: first)
-                            .frame(height: waterfallImageHeight(for: entry))
-                            .frame(maxWidth: .infinity)
-                            .clipped()
-                        if let description = cardDescription(for: entry) {
-                            LinearGradient(
-                                colors: [.clear, .black.opacity(0.82)],
-                                startPoint: .center,
-                                endPoint: .bottom
-                            )
-                            Text(description)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white)
-                                .lineLimit(3)
-                                .padding(10)
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    if entry.images.count > 1 {
-                        Text(String(format: String(localized: "journal.attachmentCount"), entry.images.count))
-                            .font(.caption)
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    }
-                }
-                Text(entry.title)
-                    .font(.system(size: 15, weight: .semibold))
+    private func presentErrorUnlessOffline(_ error: Error) {
+        let offlineCodes: Set<URLError.Code> = [
+            .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost,
+        ]
+        if let urlError = error as? URLError, offlineCodes.contains(urlError.code) {
+            return
+        }
+        errorMessage = error.localizedDescription
+    }
+
+    private func journalPhoto(_ item: JournalPhotoItem) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            JournalPhotoThumbnail(url: item.image.url.flatMap(URL.init(string:)), maxPixelSize: 1000)
+                .frame(height: waterfallImageHeight(for: item.image))
+                .frame(maxWidth: .infinity)
+                .clipped()
+            if let description = photoDescription(item.image) {
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.84)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+                Text(description)
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
-                    .lineLimit(2)
-                if entry.images.isEmpty, let content = entry.content, !content.isEmpty {
-                    Text(content)
-                        .font(.system(size: 13))
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                        .lineLimit(5)
-                }
-                HStack {
-                    if let group = snapshot.groups.first(where: { $0.id == entry.groupId }) {
-                        Label(group.name, systemImage: "folder.fill")
-                            .foregroundStyle(PrimaryTabPalette.accent)
-                    }
-                    Spacer()
-                    Text(entry.updatedAt, style: .date)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                }
-                .font(.caption)
-            }
-            .padding(9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .primaryTabCardStyle(
-                color: entry.images.isEmpty
-                    ? PrimaryTabPalette.elevatedSurface
-                    : PrimaryTabPalette.surface,
-                cornerRadius: 16
-            )
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button("common.edit", systemImage: "pencil") { editor = entry }
-            Button("common.delete", systemImage: "trash", role: .destructive) {
-                deleteEntry(entry)
+                    .lineLimit(3)
+                    .padding(10)
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.white.opacity(0.1), lineWidth: 0.5)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onTapGesture { presentPhotoViewer(startingAt: item.image.key) }
+        .onLongPressGesture(minimumDuration: 0.4) {
+            photoEditor = JournalPhotoEditorContext(entryID: item.entry.id, image: item.image)
+        }
+        .accessibilityLabel(item.image.description ?? String(localized: "journal.photoPinA11y"))
+        .accessibilityHint(Text("journal.photoLongPressHint"))
     }
 
-    private func waterfallImageHeight(for entry: JournalEntry) -> CGFloat {
+    private func waterfallImageHeight(for image: JournalImage) -> CGFloat {
         let variants: [CGFloat] = [168, 196, 224]
-        return variants[abs(entry.id) % variants.count]
+        let bucket = image.key.utf8.reduce(0) { ($0 + Int($1)) % variants.count }
+        return variants[bucket]
     }
 
-    private func cardDescription(for entry: JournalEntry) -> String? {
-        let value = (entry.images.first?.description ?? entry.content ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private func photoDescription(_ image: JournalImage) -> String? {
+        let value = (image.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
     }
 
+    private func presentPhotoViewer(startingAt imageKey: String) {
+        let photos = visiblePhotos.map {
+            JournalPhotoViewer.Photo(
+                id: $0.image.key,
+                url: $0.image.url.flatMap(URL.init(string:)),
+                description: $0.image.description,
+                capturedAt: $0.image.capturedAt
+            )
+        }
+        guard let index = photos.firstIndex(where: { $0.id == imageKey }) else { return }
+        listViewer = JournalListViewerContext(id: imageKey, photos: photos, initialIndex: index)
+    }
+
     /// 顶部“添加照片”只有一个系统选择步骤；点系统对勾后立即创建手书记录。
-    private func importQuickPhotos(_ values: [PhotosPickerItem]) async {
+    private func importQuickPhotos(_ values: [JournalPhotoPickerResult]) async {
         guard !values.isEmpty else { return }
         isQuickImporting = true
         defer {
             isQuickImporting = false
-            quickPickerItems = []
         }
         do {
             var attachments: [JournalAttachment] = []
@@ -809,7 +769,7 @@ struct NotesView: View {
             }
         } catch {
             guard remoteTripID == tripID else { return }
-            errorMessage = error.localizedDescription
+            presentErrorUnlessOffline(error)
         }
     }
 
@@ -821,11 +781,20 @@ struct NotesView: View {
     }
 
     private func save(entry: JournalEntry, request: JournalEntryRequest, attachments: [JournalAttachment]) async {
-        guard let tripID = remoteTripID else {
+        guard let tripID = remoteTripID, journalSync.networkAccess != .offline else {
             do {
                 try localStore.save(entryID: entry.id == 0 ? nil : entry.id, request: request, attachments: attachments)
-                snapshot = localStore.snapshot
-                self.editor = nil
+                if remoteTripID == nil {
+                    snapshot = localStore.snapshot
+                } else {
+                    snapshot = merge(
+                        remote: JournalSnapshot(
+                            groups: snapshot.groups.filter { $0.id > 0 },
+                            entries: snapshot.entries.filter { $0.id > 0 }
+                        ),
+                        local: localStore.snapshot
+                    )
+                }
             } catch { errorMessage = error.localizedDescription }
             return
         }
@@ -843,10 +812,9 @@ struct NotesView: View {
             _ = entry.id == 0
                 ? try await api.createJournalEntry(request, tripID: tripID)
                 : try await api.updateJournalEntry(id: entry.id, request, tripID: tripID)
-            self.editor = nil
             await reload()
         } catch {
-            errorMessage = error.localizedDescription
+            presentErrorUnlessOffline(error)
         }
     }
 
@@ -863,12 +831,24 @@ struct NotesView: View {
     }
 
     /// 查看器里保存照片描述：整条 PATCH（imageKeys 携带全部元数据）或本地更新。
-    private func updateImageDescription(entryID: Int, imageKey: String, description: String) async {
+    private func updateImageMetadata(
+        entryID: Int,
+        imageKey: String,
+        description: String,
+        latitude: Double?,
+        longitude: Double?
+    ) async {
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let latest = snapshot.entries.first(where: { $0.id == entryID }) else { return }
         guard let tripID = remoteTripID else {
             do {
-                try localStore.updateImage(entryID: latest.id, imageKey: imageKey, description: trimmed.isEmpty ? nil : trimmed)
+                try localStore.updateImage(
+                    entryID: latest.id,
+                    imageKey: imageKey,
+                    description: trimmed.isEmpty ? nil : trimmed,
+                    latitude: latitude,
+                    longitude: longitude
+                )
                 snapshot = localStore.snapshot
             } catch { errorMessage = error.localizedDescription }
             return
@@ -877,6 +857,8 @@ struct NotesView: View {
             var images = latest.images
             guard let index = images.firstIndex(where: { $0.key == imageKey }) else { return }
             images[index].description = trimmed.isEmpty ? nil : trimmed
+            images[index].latitude = latitude
+            images[index].longitude = longitude
             let request = JournalEntryRequest(
                 groupId: latest.groupId,
                 title: latest.title,
@@ -886,7 +868,7 @@ struct NotesView: View {
             _ = try await api.updateJournalEntry(id: latest.id, request, tripID: tripID)
             await reload()
         } catch {
-            errorMessage = error.localizedDescription
+            presentErrorUnlessOffline(error)
         }
     }
 
@@ -898,7 +880,7 @@ struct NotesView: View {
             } catch { errorMessage = error.localizedDescription }
             return
         }
-        for index in offsets { let entry = visibleEntries[index]; Task { do { try await api.deleteJournalEntry(id: entry.id, tripID: tripID); await reload() } catch { errorMessage = error.localizedDescription } } }
+        for index in offsets { let entry = visibleEntries[index]; Task { do { try await api.deleteJournalEntry(id: entry.id, tripID: tripID); await reload() } catch { presentErrorUnlessOffline(error) } } }
     }
 
     private func saveGroup(_ request: JournalGroupRequest) async {
@@ -909,7 +891,7 @@ struct NotesView: View {
             } catch { errorMessage = error.localizedDescription }
             return
         }
-        do { _ = try await api.createJournalGroup(request, tripID: tripID); await reload() } catch { errorMessage = error.localizedDescription }
+        do { _ = try await api.createJournalGroup(request, tripID: tripID); await reload() } catch { presentErrorUnlessOffline(error) }
     }
 
     private func deleteGroup(_ group: JournalGroup) async {
@@ -921,7 +903,7 @@ struct NotesView: View {
             } catch { errorMessage = error.localizedDescription }
             return
         }
-        do { try await api.deleteJournalGroup(id: group.id, tripID: tripID); if selectedGroupID == group.id { selectedGroupID = nil }; await reload() } catch { errorMessage = error.localizedDescription }
+        do { try await api.deleteJournalGroup(id: group.id, tripID: tripID); if selectedGroupID == group.id { selectedGroupID = nil }; await reload() } catch { presentErrorUnlessOffline(error) }
     }
 
     private func upload(_ attachment: JournalAttachment, tripID: Int) async throws -> JournalMediaReference {
@@ -1098,12 +1080,20 @@ final class LocalJournalStore: ObservableObject {
     }
 
     /// 更新单张照片的描述（游客/离线路径，查看器与地图弹窗共用）。
-    func updateImage(entryID: Int, imageKey: String, description: String?) throws {
+    func updateImage(
+        entryID: Int,
+        imageKey: String,
+        description: String?,
+        latitude: Double?,
+        longitude: Double?
+    ) throws {
         guard let entryIndex = snapshot.entries.firstIndex(where: { $0.id == entryID }),
               let imageIndex = snapshot.entries[entryIndex].images.firstIndex(where: { $0.key == imageKey })
         else { return }
         var entries = snapshot.entries
         entries[entryIndex].images[imageIndex].description = description
+        entries[entryIndex].images[imageIndex].latitude = latitude
+        entries[entryIndex].images[imageIndex].longitude = longitude
         entries[entryIndex] = JournalEntry(
             id: entries[entryIndex].id,
             groupId: entries[entryIndex].groupId,
@@ -1188,53 +1178,96 @@ private struct LocalJournalSyncCheckpoint: Codable {
     let groupIDs: [Int: Int]
 }
 
-private struct JournalEditor: View {
-    let entry: JournalEntry?
-    let groups: [JournalGroup]
-    let defaultGroupID: Int?
-    let onSave: (JournalEntryRequest, [JournalAttachment]) async -> Void
+private struct JournalPhotoMetadataEditor: View {
+    let onSave: (String, Double?, Double?) async -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var content = ""
-    @State private var groupID: Int?
+    @State private var description: String
+    @State private var hasLocation: Bool
+    @State private var latitude: String
+    @State private var longitude: String
     @State private var isSaving = false
+
+    init(image: JournalImage, onSave: @escaping (String, Double?, Double?) async -> Void) {
+        self.onSave = onSave
+        _description = State(initialValue: image.description ?? "")
+        _hasLocation = State(initialValue: image.latitude != nil && image.longitude != nil)
+        _latitude = State(initialValue: image.latitude.map { String(format: "%.6f", $0) } ?? "")
+        _longitude = State(initialValue: image.longitude.map { String(format: "%.6f", $0) } ?? "")
+    }
+
+    private var parsedLatitude: Double? { Double(latitude.replacingOccurrences(of: ",", with: ".")) }
+    private var parsedLongitude: Double? { Double(longitude.replacingOccurrences(of: ",", with: ".")) }
+    private var isLocationValid: Bool {
+        guard hasLocation else { return true }
+        guard let parsedLatitude, let parsedLongitude else { return false }
+        return (-90.0 ... 90.0).contains(parsedLatitude) && (-180.0 ... 180.0).contains(parsedLongitude)
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("journal.thisPageSection") {
-                    TextField("journal.titlePlaceholder", text: $title)
-                    Picker("journal.groupLabel", selection: $groupID) {
-                        Text("journal.ungrouped").tag(Int?.none)
-                        ForEach(groups) { Text($0.name).tag(Optional($0.id)) }
+                Section("journal.descriptionSection") {
+                    TextField("journal.descriptionPlaceholder", text: $description, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+                Section("journal.locationSection") {
+                    Toggle("journal.hasLocation", isOn: $hasLocation)
+                    if hasLocation {
+                        TextField("journal.latitude", text: $latitude)
+                            .keyboardType(.numbersAndPunctuation)
+                        TextField("journal.longitude", text: $longitude)
+                            .keyboardType(.numbersAndPunctuation)
                     }
-                    TextEditor(text: $content).frame(minHeight: 150)
                 }
             }
-            .navigationTitle(entry == nil ? "journal.newTitle" : "journal.editTitle")
+            .navigationTitle("journal.editPhotoTitle")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "journal.saving" : "common.save") {
-                        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         isSaving = true
                         Task {
-                            await onSave(
-                                JournalEntryRequest(
-                                    groupId: groupID,
-                                    title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    content: content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : content,
-                                    imageKeys: entry?.images.map(\.uploadReference) ?? []
-                                ),
-                                []
-                            )
+                            await onSave(description, hasLocation ? parsedLatitude : nil, hasLocation ? parsedLongitude : nil)
                             isSaving = false
+                            dismiss()
                         }
                     }
-                    .disabled(isSaving)
+                    .disabled(isSaving || !isLocationValid)
                 }
             }
-            .onAppear { title = entry?.title ?? ""; content = entry?.content ?? ""; groupID = entry?.groupId ?? defaultGroupID }
+        }
+    }
+}
+
+private struct JournalPhotoPickerSheet: UIViewControllerRepresentable {
+    let onComplete: ([JournalPhotoPickerResult]) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = 9
+        configuration.preferredAssetRepresentationMode = .current
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let parent: JournalPhotoPickerSheet
+
+        init(parent: JournalPhotoPickerSheet) { self.parent = parent }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            if results.isEmpty {
+                parent.onCancel()
+            } else {
+                parent.onComplete(results.map { JournalPhotoPickerResult(value: $0) })
+            }
         }
     }
 }

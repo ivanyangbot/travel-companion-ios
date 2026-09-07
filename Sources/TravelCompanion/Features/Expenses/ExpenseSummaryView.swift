@@ -83,122 +83,403 @@ struct ExpenseSummaryView: View {
         }
     }
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .largeTitle) private var totalFontSize = 44
+    @State private var showsTravelers = false
+    @State private var selectedCategory: ExpenseCategory?
+
+    private let paidColor = Color(red: 1, green: 0.46, blue: 0.20)
+    private let pendingColor = Color(red: 0.95, green: 0.74, blue: 0.48)
+    private let estimateColor = Color(red: 0.38, green: 0.39, blue: 0.43)
+    private let ink = Color(red: 0.97, green: 0.95, blue: 0.91)
+    private var actualTotal: Int64 { paidTotal + unpaidTotal }
+    private var sortedCategories: [ExpenseCategory] {
+        ExpenseCategory.allCases.filter { (byCategory[$0] ?? 0) > 0 }
+            .sorted {
+                let left = byCategory[$0] ?? 0
+                let right = byCategory[$1] ?? 0
+                return left == right ? $0.rawValue < $1.rawValue : left > right
+            }
+    }
+    private var focusedCategory: ExpenseCategory? {
+        if let selectedCategory, sortedCategories.contains(selectedCategory) { return selectedCategory }
+        return sortedCategories.first
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("expensesummary.title")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.white)
-                Spacer()
-                Text(String(format: String(localized: "expensesummary.count"), expenses.count))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+        VStack(alignment: .leading, spacing: 14) {
+            overviewCard
+            if showsConsumerTotals || !sortedCategories.isEmpty {
+                insightsCard
             }
-            HStack {
-                Text("expensesummary.primaryCurrency")
-                    .font(.subheadline)
-                    .foregroundStyle(PrimaryTabPalette.secondaryText)
-                Spacer()
-                Menu {
-                    ForEach(ExpenseCurrency.supported, id: \.self) { code in
-                        Button {
-                            onCurrencyChange(code)
-                        } label: {
-                            if code == currency {
-                                Label(code, systemImage: "checkmark")
-                            } else {
-                                Text(code)
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Text(currency)
-                            .font(.subheadline.weight(.semibold).monospaced())
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .foregroundStyle(PrimaryTabPalette.accent)
-                    .padding(.horizontal, 10)
-                    .frame(minHeight: 34)
-                    .background(PrimaryTabPalette.accent.opacity(0.12), in: Capsule())
-                }
-                .accessibilityLabel(Text("expensesummary.changePrimaryCurrencyA11y"))
-                .accessibilityValue(Text(currency))
-            }
-            totalRow(label: String(localized: "expensesummary.paid"), amount: paidTotal, prominent: false)
-            if unpaidTotal > 0 {
-                totalRow(label: String(localized: "expensesummary.unpaid"), amount: unpaidTotal, prominent: false)
-            }
-            totalRow(label: String(localized: "expensesummary.estimated"), amount: estimatedTotal, prominent: false)
-            Divider().overlay(PrimaryTabPalette.divider)
-            totalRow(label: String(localized: "expensesummary.total"), amount: grandTotal, prominent: true)
-            if showsConsumerTotals {
-                Divider().overlay(PrimaryTabPalette.divider)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("expensesummary.byConsumer")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    ForEach(consumerTotals) { item in
-                        HStack(spacing: 10) {
-                            Text(String(item.name.prefix(1)).uppercased())
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.black)
-                                .frame(width: 26, height: 26)
-                                .background(PrimaryTabPalette.accent, in: Circle())
-                            Text(item.name)
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.86))
-                                .lineLimit(1)
-                            Spacer()
-                            Text(ExpenseMoney.formatted(item.amount, currency: currency))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .monospacedDigit()
-                        }
-                    }
-                }
-            }
-            Divider().overlay(PrimaryTabPalette.divider)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("expensesummary.byCategory")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(PrimaryTabPalette.secondaryText)
-                ForEach(ExpenseCategory.allCases) { category in
-                    if let amount = byCategory[category], amount > 0 {
-                        HStack {
-                            Label(category.title, systemImage: category.systemImage)
-                            Spacer()
-                            Text(ExpenseMoney.formatted(amount, currency: currency)).monospacedDigit()
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.82))
-                    }
-                }
-            }
-        }
-        .padding(18)
-        .primaryTabCardStyle(color: PrimaryTabPalette.surface, cornerRadius: 18)
-        .overlay(alignment: .leading) {
-            Capsule()
-                .fill(PrimaryTabPalette.accent)
-                .frame(width: 4)
-                .padding(.vertical, 16)
-                .padding(.leading, 2)
         }
     }
 
-    private func totalRow(label: String, amount: Int64, prominent: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(prominent ? .subheadline.weight(.semibold) : .subheadline)
-                .foregroundStyle(prominent ? .white : PrimaryTabPalette.secondaryText)
-            Spacer()
-            Text(ExpenseMoney.formatted(amount, currency: currency))
-                .font(prominent ? .title2.bold() : .subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .monospacedDigit()
+    private var overviewCard: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chart.pie.fill")
+                        .foregroundStyle(paidColor)
+                    Text("expensesummary.title")
+                        .foregroundStyle(ink)
+                }
+                .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                currencyMenu
+            }
+
+            ZStack {
+                if !dynamicTypeSize.isAccessibilitySize {
+                    paymentArc
+                        .padding(.horizontal, 10)
+                        .accessibilityHidden(true)
+                }
+                VStack(spacing: 9) {
+                    Text("expensesummary.tripTotalShort")
+                        .font(.subheadline)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    Text(amountNumber(grandTotal))
+                        .font(.system(size: totalFontSize, weight: .semibold, design: .rounded))
+                        .tracking(-1.8)
+                        .monospacedDigit()
+                        .foregroundStyle(ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.4)
+                        .contentTransition(.numericText())
+                    Text("expensesummary.includesEstimates")
+                        .font(.caption2)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    Text(String(format: String(localized: "expensesummary.count"), expenses.count))
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(ink.opacity(0.8))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.white.opacity(0.055), in: Capsule())
+                        .padding(.top, 4)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, dynamicTypeSize.isAccessibilitySize ? 24 : 48)
+                .padding(.bottom, 12)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("expensesummary.total"))
+                .accessibilityValue(Text(ExpenseMoney.formatted(grandTotal, currency: currency)))
+            }
+            .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 232)
+
+            Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
+                .padding(.top, 8)
+                .padding(.bottom, 18)
+
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 18))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+            layout {
+                statusMetric("expensesummary.paid", amount: paidTotal, color: paidColor)
+                statusMetric("expensesummary.unpaid", amount: unpaidTotal, color: pendingColor)
+                statusMetric("expensesummary.estimateShort", amount: estimatedTotal, color: estimateColor)
+            }
         }
+        .padding(20)
+        .background {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(red: 0.075, green: 0.075, blue: 0.085))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(RadialGradient(colors: [paidColor.opacity(0.12), .clear],
+                                             center: .top, startRadius: 0, endRadius: 270))
+                }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.025)],
+                                              startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+        }
+    }
+
+    private var currencyMenu: some View {
+        Menu {
+            ForEach(ExpenseCurrency.supported, id: \.self) { code in
+                Button {
+                    onCurrencyChange(code)
+                } label: {
+                    if code == currency { Label(code, systemImage: "checkmark") }
+                    else { Text(code) }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(currency).font(.caption.weight(.semibold).monospaced())
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+            }
+            .foregroundStyle(ink.opacity(0.85))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(.white.opacity(0.045), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1))
+        }
+        .accessibilityLabel(Text("expensesummary.changePrimaryCurrencyA11y"))
+        .accessibilityValue(Text(currency))
+    }
+
+    private var paymentArc: some View {
+        ZStack {
+            ExpenseSummaryArc(start: 0, end: 1)
+                .stroke(.white.opacity(0.045), style: StrokeStyle(lineWidth: 9, lineCap: .butt))
+            arcSegment(start: 0, amount: paidTotal, color: paidColor)
+            arcSegment(start: fraction(paidTotal, of: grandTotal), amount: unpaidTotal, color: pendingColor)
+            arcSegment(start: fraction(paidTotal + unpaidTotal, of: grandTotal), amount: estimatedTotal, color: estimateColor)
+            ExpenseSummaryArc(start: 0, end: 1)
+                .stroke(.white.opacity(0.08), style: StrokeStyle(lineWidth: 1, dash: [1, 7]))
+                .padding(15)
+        }
+    }
+
+    @ViewBuilder
+    private func arcSegment(start: Double, amount: Int64, color: Color) -> some View {
+        let share = fraction(amount, of: grandTotal)
+        if share > 0 {
+            let gap = min(0.009, share * 0.2)
+            ExpenseSummaryArc(start: start + gap, end: start + share - gap)
+                .stroke(color.gradient, style: StrokeStyle(lineWidth: 9, lineCap: .butt))
+        }
+    }
+
+    private func statusMetric(_ key: LocalizedStringKey, amount: Int64, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 5) {
+                Circle().fill(color).frame(width: 5, height: 5).accessibilityHidden(true)
+                Text(key).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+            Text(amountNumber(amount))
+                .font(.system(.callout, design: .rounded, weight: .semibold))
+                .foregroundStyle(ink)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(fraction(amount, of: grandTotal), format: .percent.precision(.fractionLength(0)))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(key))
+        .accessibilityValue(Text(ExpenseMoney.formatted(amount, currency: currency)))
+    }
+
+    private var insightsCard: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Picker("expensesummary.distribution", selection: $showsTravelers) {
+                Text("expensesummary.byCategory").tag(false)
+                Text("expensesummary.byConsumer").tag(true)
+            }
+            .pickerStyle(.segmented)
+
+            if showsTravelers {
+                VStack(spacing: 18) {
+                    ForEach(consumerTotals) { item in
+                        consumerRow(item)
+                    }
+                }
+            } else {
+                let layout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 20))
+                    : AnyLayout(HStackLayout(alignment: .center, spacing: 20))
+                layout {
+                    categoryRing
+                        .frame(width: dynamicTypeSize.isAccessibilitySize ? 180 : 124,
+                               height: dynamicTypeSize.isAccessibilitySize ? 180 : 124)
+                        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil)
+                    VStack(spacing: 2) {
+                        ForEach(sortedCategories) { category in
+                            categoryButton(category)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            HStack(spacing: 5) {
+                Image(systemName: "info.circle").accessibilityHidden(true)
+                Text("expensesummary.actualBasis")
+                Spacer(minLength: 0)
+                Text(currency).monospaced()
+            }
+            .font(.caption2)
+            .foregroundStyle(PrimaryTabPalette.secondaryText)
+        }
+        .padding(18)
+        .background(Color(red: 0.065, green: 0.065, blue: 0.075),
+                    in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 1)
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: showsTravelers)
+    }
+
+    private var categoryRing: some View {
+        ZStack {
+            Circle().stroke(.white.opacity(0.04), lineWidth: 12)
+            ForEach(sortedCategories) { category in
+                let start = categoryStart(category)
+                let share = fraction(byCategory[category] ?? 0, of: actualTotal)
+                let gap = min(0.008, share * 0.18)
+                Circle()
+                    .trim(from: start + gap, to: start + share - gap)
+                    .stroke(categoryColor(category).opacity(category == focusedCategory ? 1 : 0.4),
+                            style: StrokeStyle(lineWidth: category == focusedCategory ? 13 : 9, lineCap: .butt))
+                    .rotationEffect(.degrees(-90))
+            }
+            Circle().stroke(.white.opacity(0.05), lineWidth: 1).padding(14)
+            if let category = focusedCategory {
+                VStack(spacing: 5) {
+                    Image(systemName: category.systemImage)
+                        .font(.subheadline)
+                        .foregroundStyle(categoryColor(category))
+                    Text(fraction(byCategory[category] ?? 0, of: actualTotal),
+                         format: .percent.precision(.fractionLength(0)))
+                        .font(.system(.title2, design: .rounded, weight: .semibold))
+                        .foregroundStyle(ink)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(category.title)
+                        .font(.caption2)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                        .lineLimit(1)
+                }
+                .padding(20)
+            }
+        }
+        .padding(7)
+        // The adjacent category buttons expose each amount and share to VoiceOver.
+        .accessibilityHidden(true)
+    }
+
+    private func categoryButton(_ category: ExpenseCategory) -> some View {
+        let amount = byCategory[category] ?? 0
+        return Button {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                selectedCategory = category
+            }
+        } label: {
+            HStack(alignment: .top, spacing: 7) {
+                Circle().fill(categoryColor(category)).frame(width: 5, height: 5).padding(.top, 5)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(category.title)
+                        .font(.caption)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    Text(amountNumber(amount))
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(category == focusedCategory ? .white.opacity(0.045) : .clear,
+                        in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(category.title))
+        .accessibilityValue(Text(ExpenseMoney.formatted(amount, currency: currency) + ", " +
+                                fraction(amount, of: actualTotal).formatted(.percent.precision(.fractionLength(0)))))
+        .accessibilityAddTraits(category == focusedCategory ? .isSelected : [])
+    }
+
+    private func consumerRow(_ item: ExpenseConsumerTotal) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().stroke(.white.opacity(0.06), lineWidth: 2)
+                Circle().trim(from: 0, to: fraction(item.amount, of: actualTotal))
+                    .stroke(pendingColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text(String(item.name.prefix(1)).uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(pendingColor)
+            }
+            .frame(width: 36, height: 36)
+            .accessibilityHidden(true)
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+            layout {
+                Text(item.name)
+                    .font(.subheadline)
+                    .foregroundStyle(ink.opacity(0.85))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(amountNumber(item.amount))
+                        .font(.system(.callout, design: .rounded, weight: .semibold))
+                        .foregroundStyle(ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(fraction(item.amount, of: actualTotal), format: .percent.precision(.fractionLength(0)))
+                        .font(.caption2)
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+                .monospacedDigit()
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func categoryStart(_ category: ExpenseCategory) -> Double {
+        sortedCategories.prefix { $0 != category }.reduce(0) {
+            $0 + fraction(byCategory[$1] ?? 0, of: actualTotal)
+        }
+    }
+
+    private func fraction(_ amount: Int64, of total: Int64) -> Double {
+        guard total > 0 else { return 0 }
+        return min(max(Double(amount) / Double(total), 0), 1)
+    }
+
+    /// The currency is displayed once per card; retain locale grouping and ISO precision.
+    private func amountNumber(_ minor: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let digits = ExpenseMoney.fractionDigits(for: currency)
+        formatter.minimumFractionDigits = digits
+        formatter.maximumFractionDigits = digits
+        var source = Decimal(minor)
+        var amount = Decimal()
+        NSDecimalMultiplyByPowerOf10(&amount, &source, -Int16(digits), .plain)
+        return formatter.string(from: NSDecimalNumber(decimal: amount)) ?? ExpenseMoney.formatted(minor, currency: currency)
+    }
+
+    private func categoryColor(_ category: ExpenseCategory) -> Color {
+        switch category {
+        case .lodging: paidColor
+        case .transport: pendingColor
+        case .food: Color(red: 0.77, green: 0.80, blue: 0.58)
+        case .tickets: Color(red: 0.63, green: 0.71, blue: 0.77)
+        case .shopping: Color(red: 0.77, green: 0.63, blue: 0.65)
+        case .other: Color(red: 0.59, green: 0.58, blue: 0.56)
+        }
+    }
+}
+
+/// A 240° composition arc, with an open lower edge for the summary's legend.
+private struct ExpenseSummaryArc: Shape {
+    let start: Double
+    let end: Double
+
+    func path(in rect: CGRect) -> Path {
+        let radius = max(0, min(rect.width / 2 - 6, rect.height / 1.6 - 6))
+        let center = CGPoint(x: rect.midX, y: radius + 6)
+        var path = Path()
+        path.addArc(center: center, radius: radius,
+                    startAngle: .degrees(150 + 240 * start),
+                    endAngle: .degrees(150 + 240 * end), clockwise: false)
+        return path
     }
 }
 

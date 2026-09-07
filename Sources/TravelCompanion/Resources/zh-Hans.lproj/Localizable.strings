@@ -662,10 +662,10 @@
 "journal.groupMenuA11y" = "选择或管理手书分组";
 "journal.newA11y" = "添加照片";
 "journal.allGroups" = "全部";
-"journal.countFormat" = "%lld 篇记录";
+"journal.countFormat" = "%lld 张照片";
 "journal.syncingTitle" = "正在同步本地手书";
 "journal.pausedTitle" = "手书同步已暂停";
-"journal.waitNetworkTitle" = "等待网络连接";
+"journal.waitNetworkTitle" = "等待网络同步";
 "journal.waitWifiTitle" = "等待 Wi-Fi 自动同步";
 "journal.syncProgress" = "%lld/%lld 项 · %lld%%";
 "journal.syncSafeNote" = "本地记录已安全保留，联网后可继续同步。";
@@ -706,6 +706,13 @@
 "journal.mapEmptyTitle" = "地图上还没有照片";
 "journal.mapEmptyDesc" = "添加带位置信息的照片后，会按拍摄地点钉在地图上。";
 "journal.photoPinA11y" = "照片";
+"journal.photoLongPressHint" = "轻点放大，长按编辑描述和位置";
+"journal.editPhotoTitle" = "编辑照片";
+"journal.descriptionSection" = "描述";
+"journal.locationSection" = "位置";
+"journal.hasLocation" = "记录位置";
+"journal.latitude" = "纬度";
+"journal.longitude" = "经度";
 "media.tooLarge" = "单个文件不能超过 5GB。";
 "media.unreadable" = "无法读取所选文件。";
 "media.unsupported" = "暂不支持这种媒体类型。";
@@ -1277,3 +1284,9 @@
 "expense.a11y.linkedCards" = "关联 %2$lld 张行程卡：%@";
 "expense.savedRefreshFailed" = "已保存，但刷新失败。请刷新账本后再操作，避免重复添加。";
 "agent.commitNothingSaved" = "本次没有成功保存任何项目。草稿已保留，请重试。";
+
+"expensesummary.actualBasis" = "实际账目 · 不含预估";
+"expensesummary.tripTotalShort" = "全行程支出";
+"expensesummary.includesEstimates" = "实际账目 + 待记预估";
+"expensesummary.estimateShort" = "预估";
+"expensesummary.distribution" = "支出分布";

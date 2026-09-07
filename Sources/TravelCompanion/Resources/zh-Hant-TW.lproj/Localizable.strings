@@ -662,10 +662,10 @@
 "journal.groupMenuA11y" = "選擇或管理手書群組";
 "journal.newA11y" = "加入照片";
 "journal.allGroups" = "全部";
-"journal.countFormat" = "%lld 篇記錄";
+"journal.countFormat" = "%lld 張照片";
 "journal.syncingTitle" = "正在同步本機手書";
 "journal.pausedTitle" = "手書同步已暫停";
-"journal.waitNetworkTitle" = "等待網路連線";
+"journal.waitNetworkTitle" = "等待網路同步";
 "journal.waitWifiTitle" = "等待 Wi-Fi 自動同步";
 "journal.syncProgress" = "%lld/%lld 項 · %lld%%";
 "journal.syncSafeNote" = "本機記錄已安全保留，連線後可繼續同步。";
@@ -706,6 +706,13 @@
 "journal.mapEmptyTitle" = "地圖上還沒有照片";
 "journal.mapEmptyDesc" = "加入帶位置資訊的照片後，會依拍攝地點釘在地圖上。";
 "journal.photoPinA11y" = "照片";
+"journal.photoLongPressHint" = "點一下放大，長按編輯描述和位置";
+"journal.editPhotoTitle" = "編輯照片";
+"journal.descriptionSection" = "描述";
+"journal.locationSection" = "位置";
+"journal.hasLocation" = "記錄位置";
+"journal.latitude" = "緯度";
+"journal.longitude" = "經度";
 
 /* ===== 媒體 ===== */
 "media.tooLarge" = "單一檔案不能超過 5GB。";
@@ -1279,3 +1286,9 @@
 "expense.a11y.linkedCards" = "關聯 %2$lld 張行程卡：%@";
 "expense.savedRefreshFailed" = "已儲存，但重新整理失敗。請重新整理帳本後再操作，避免重複新增。";
 "agent.commitNothingSaved" = "本次沒有成功儲存任何項目。草稿已保留，請重試。";
+
+"expensesummary.actualBasis" = "實際帳目 · 不含預估";
+"expensesummary.tripTotalShort" = "全行程支出";
+"expensesummary.includesEstimates" = "實際帳目 + 待記預估";
+"expensesummary.estimateShort" = "預估";
+"expensesummary.distribution" = "支出分布";

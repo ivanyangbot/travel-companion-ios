@@ -662,10 +662,10 @@
 "journal.groupMenuA11y" = "Choose or manage journal groups";
 "journal.newA11y" = "Add photos";
 "journal.allGroups" = "All";
-"journal.countFormat" = "%lld entries";
+"journal.countFormat" = "%lld photos";
 "journal.syncingTitle" = "Syncing local journals";
 "journal.pausedTitle" = "Journal sync paused";
-"journal.waitNetworkTitle" = "Waiting for network";
+"journal.waitNetworkTitle" = "Waiting to sync";
 "journal.waitWifiTitle" = "Waiting for Wi-Fi auto-sync";
 "journal.syncProgress" = "%lld/%lld items · %lld%%";
 "journal.syncSafeNote" = "Local entries are safely kept; syncing resumes once you're online.";
@@ -706,6 +706,13 @@
 "journal.mapEmptyTitle" = "No photos on the map yet";
 "journal.mapEmptyDesc" = "Photos taken with location will be pinned to the map.";
 "journal.photoPinA11y" = "Photo";
+"journal.photoLongPressHint" = "Tap to enlarge; touch and hold to edit description and location";
+"journal.editPhotoTitle" = "Edit Photo";
+"journal.descriptionSection" = "Description";
+"journal.locationSection" = "Location";
+"journal.hasLocation" = "Save location";
+"journal.latitude" = "Latitude";
+"journal.longitude" = "Longitude";
 "media.tooLarge" = "Files can be at most 5GB.";
 "media.unreadable" = "Couldn't read the selected file.";
 "media.unsupported" = "This media type isn't supported yet.";
@@ -1277,3 +1284,9 @@
 "expense.a11y.linkedCards" = "Linked %2$lld cards: %@";
 "expense.savedRefreshFailed" = "Saved, but refreshing failed. Refresh before adding again.";
 "agent.commitNothingSaved" = "No items were saved. Your draft is retained; please retry.";
+
+"expensesummary.actualBasis" = "Recorded · Excludes estimates";
+"expensesummary.tripTotalShort" = "Trip total";
+"expensesummary.includesEstimates" = "Recorded + estimated expenses";
+"expensesummary.estimateShort" = "Estimated";
+"expensesummary.distribution" = "Expense breakdown";

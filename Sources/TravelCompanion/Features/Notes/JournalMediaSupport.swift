@@ -87,6 +87,47 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
         return try await loadFile(at: imported.url)
     }
 
+    static func load(from wrappedResult: JournalPhotoPickerResult) async throws -> JournalAttachment {
+        let result = wrappedResult.value
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if (status == .authorized || status == .limited),
+           let identifier = result.assetIdentifier,
+           let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject {
+            return try await load(from: asset)
+        }
+
+        let provider = result.itemProvider
+        guard let typeIdentifier = provider.registeredTypeIdentifiers.first(where: {
+            UTType($0)?.conforms(to: .image) == true
+        }) else { throw JournalMediaError.unsupported }
+        let importedURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+            provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { url, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let url else {
+                    continuation.resume(throwing: JournalMediaError.unreadable)
+                    return
+                }
+                do {
+                    let type = UTType(typeIdentifier)
+                    let originalName = url.lastPathComponent
+                    let hasImageExtension = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+                    let fileName = hasImageExtension
+                        ? originalName
+                        : "photo.\(type?.preferredFilenameExtension ?? "jpg")"
+                    let destination = try temporaryURL(fileName: fileName)
+                    try FileManager.default.copyItem(at: url, to: destination)
+                    continuation.resume(returning: destination)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+        return try await loadFile(at: importedURL)
+    }
+
     static func loadFile(at sourceURL: URL) async throws -> JournalAttachment {
         let accessed = sourceURL.startAccessingSecurityScopedResource()
         defer { if accessed { sourceURL.stopAccessingSecurityScopedResource() } }
@@ -227,6 +268,12 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
         let safeName = fileName.isEmpty ? "attachment.bin" : fileName
         return directory.appendingPathComponent(safeName)
     }
+}
+
+/// PHPickerResult carries an NSItemProvider and has no SDK Sendable conformance.
+/// Selection is immutable after the delegate callback, so it is safe to hand to the import task.
+struct JournalPhotoPickerResult: @unchecked Sendable {
+    let value: PHPickerResult
 }
 
 private struct JournalPickedFile: Transferable, Sendable {
