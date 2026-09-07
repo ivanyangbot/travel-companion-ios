@@ -13,6 +13,7 @@ struct ExpenseListView: View {
     @State private var listFilter = ExpenseListFilter()
     @State private var linkedCardDetail: TravelCardSnapshot?
     @State private var linkedFlightDetail: TravelCardSnapshot?
+    @AppStorage("ledger.showsEstimatedExpenseDetails") private var showsEstimatedDetails = false
 
     var body: some View {
         NavigationStack {
@@ -31,7 +32,7 @@ struct ExpenseListView: View {
                     case .wallet:
                         WalletSection(syncEngine: syncEngine, isAddingItem: $addingWalletItem)
                     case .memo:
-                        MemoSection(creatingList: $creatingMemoList)
+                        MemoSection(syncEngine: syncEngine, creatingList: $creatingMemoList)
                     }
                 }
             }
@@ -192,11 +193,23 @@ struct ExpenseListView: View {
                     }
                     .padding(.top, 4)
 
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) { showsEstimatedDetails.toggle() }
+                    } label: {
+                        Label(
+                            showsEstimatedDetails ? String(localized: "expense.hideEstimates") : String(localized: "expense.showEstimates"),
+                            systemImage: showsEstimatedDetails ? "eye.slash" : "eye"
+                        )
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+
                     if !trip.expenses.isEmpty {
                         filterBar(trip: trip)
                     }
 
-                    if trip.expenses.isEmpty {
+                    if trip.expenses.isEmpty && (!showsEstimatedDetails || visibleEstimateCards(in: trip).isEmpty) {
                         ContentUnavailableView(
                             "expense.emptyTitle",
                             systemImage: "receipt",
@@ -204,7 +217,7 @@ struct ExpenseListView: View {
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 36)
-                    } else if visibleExpenses(in: trip).isEmpty {
+                    } else if visibleExpenses(in: trip).isEmpty && (!showsEstimatedDetails || visibleEstimateCards(in: trip).isEmpty) {
                         ContentUnavailableView(
                             "expense.noMatchTitle",
                             systemImage: "line.3.horizontal.decrease.circle",
@@ -217,12 +230,18 @@ struct ExpenseListView: View {
                             expenseRow(expense, currency: currency)
                         }
                     }
+                    if showsEstimatedDetails {
+                        ForEach(visibleEstimateCards(in: trip)) { card in
+                            estimateRow(card, currency: currency)
+                        }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
                 .padding(.bottom, 128)
             }
             .scrollIndicators(.hidden)
+            .refreshable { await syncEngine.refresh() }
             .disabled(currencyBeingUpdated != nil)
             .overlay {
                 if let target = currencyBeingUpdated {
@@ -522,6 +541,7 @@ struct ExpenseListView: View {
         .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
         .contentShape(Rectangle())
         .onTapGesture { editorTarget = expense }
+        .modifier(ExpenseSwipeToDeleteModifier { pendingDeletion = expense })
         .contextMenu {
             Button("common.edit", systemImage: "pencil") { editorTarget = expense }
             Button("common.delete", systemImage: "trash", role: .destructive) { pendingDeletion = expense }
@@ -612,11 +632,81 @@ struct ExpenseListView: View {
         return formatter
     }()
 
+    private func visibleEstimateCards(in trip: SharedTripSnapshot) -> [TravelCardSnapshot] {
+        let linked = Set(trip.expenses.flatMap(\.cardIDs))
+        return trip.days.flatMap(\.cards).filter { card in
+            guard let id = card.serverID, !linked.contains(id), card.actualPriceMinor == nil,
+                  card.priceMinor != nil else { return false }
+            return card.priceCurrency == nil || card.priceCurrency == trip.currency
+        }
+        .sorted { $0.startAt < $1.startAt }
+    }
+
+    private func estimateRow(_ card: TravelCardSnapshot, currency: String) -> some View {
+        HStack(spacing: 11) {
+            Image(systemName: card.kind.systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                .frame(width: 34, height: 34)
+                .background(PrimaryTabPalette.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(card.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                Text("expensesummary.estimateShort")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+            }
+            Spacer(minLength: 8)
+            if let amount = card.priceMinor {
+                Text(ExpenseMoney.formatted(amount, currency: card.priceCurrency ?? currency))
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .monospacedDigit()
+            }
+        }
+        .padding(12)
+        .primaryTabCardStyle(color: PrimaryTabPalette.elevatedSurface, cornerRadius: 15)
+        .contentShape(Rectangle())
+        .onTapGesture { presentLinkedCardDetail(card) }
+    }
+
     private func addManualEntry() {
         switch section {
         case .expenses: addingExpense = true
         case .wallet: addingWalletItem = true
         case .memo: creatingMemoList = true
+        }
+    }
+}
+
+private struct ExpenseSwipeToDeleteModifier: ViewModifier {
+    let delete: () -> Void
+    @State private var offset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        ZStack(alignment: .trailing) {
+            Button(role: .destructive, action: delete) {
+                Image(systemName: "trash.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 76)
+                    .frame(maxHeight: .infinity)
+                    .background(Color.red, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            content
+                .offset(x: offset)
+                .gesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { value in
+                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                            offset = min(0, max(-76, value.translation.width))
+                        }
+                        .onEnded { value in
+                            withAnimation(.snappy(duration: 0.2)) {
+                                offset = value.translation.width < -38 ? -76 : 0
+                            }
+                        }
+                )
         }
     }
 }

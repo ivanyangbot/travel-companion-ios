@@ -36,7 +36,8 @@ struct JournalEntryDetailView: View {
                     id: image.key,
                     url: image.url.flatMap(URL.init(string:)),
                     description: image.description,
-                    capturedAt: image.capturedAt
+                    capturedAt: image.capturedAt,
+                    media: image
                 )
             }
     }

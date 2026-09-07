@@ -26,6 +26,7 @@ struct JournalImage: Codable, Identifiable, Sendable, Hashable {
     var longitude: Double?
     var capturedAt: Date?
     var description: String?
+    var isHDR: Bool?
     var id: String { key }
 
     init(
@@ -39,7 +40,8 @@ struct JournalImage: Codable, Identifiable, Sendable, Hashable {
         latitude: Double? = nil,
         longitude: Double? = nil,
         capturedAt: Date? = nil,
-        description: String? = nil
+        description: String? = nil,
+        isHDR: Bool? = nil
     ) {
         self.key = key
         self.url = url
@@ -52,6 +54,7 @@ struct JournalImage: Codable, Identifiable, Sendable, Hashable {
         self.longitude = longitude
         self.capturedAt = capturedAt
         self.description = description
+        self.isHDR = isHDR
     }
 
     var uploadReference: JournalMediaReference {
@@ -68,6 +71,7 @@ struct JournalImage: Codable, Identifiable, Sendable, Hashable {
             longitude: longitude,
             capturedAt: capturedAt,
             description: description,
+            isHDR: isHDR,
             pairedVideo: pairedVideo.map {
                 JournalMediaUploadResource(
                     key: $0.key,
@@ -105,6 +109,7 @@ struct JournalMediaUpload: Codable, Sendable, Hashable {
     var longitude: Double?
     var capturedAt: Date?
     var description: String?
+    var isHDR: Bool?
     let pairedVideo: JournalMediaUploadResource?
 }
 

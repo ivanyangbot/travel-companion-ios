@@ -8,12 +8,14 @@ struct JournalPhotoViewer: View {
         let url: URL?
         let description: String?
         let capturedAt: Date?
+        let media: JournalImage?
 
-        init(id: String, url: URL?, description: String?, capturedAt: Date?) {
+        init(id: String, url: URL?, description: String?, capturedAt: Date?, media: JournalImage? = nil) {
             self.id = id
             self.url = url
             self.description = description
             self.capturedAt = capturedAt
+            self.media = media
         }
     }
 
@@ -51,11 +53,12 @@ struct JournalPhotoViewer: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+                .onTapGesture { dismiss() }
 
             if photos.count > 1 {
                 TabView(selection: $currentIndex) {
                     ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
-                        JournalZoomablePhoto(id: photo.id, url: photo.url)
+                        JournalZoomablePhoto(photo: photo)
                             .tag(index)
                     }
                 }
@@ -65,7 +68,7 @@ struct JournalPhotoViewer: View {
                     descriptionFieldFocused = false
                 }
             } else if let photo = currentPhoto {
-                JournalZoomablePhoto(id: photo.id, url: photo.url)
+                JournalZoomablePhoto(photo: photo)
             }
 
             // 顶部：关闭 + 页码
@@ -102,9 +105,11 @@ struct JournalPhotoViewer: View {
             // 底部：拍摄时间 + 描述（可编辑）
             VStack(spacing: 10) {
                 Spacer()
-                descriptionBar
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 18)
+                if hasDescription || isEditingDescription {
+                    descriptionBar
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 18)
+                }
             }
         }
         .presentationBackground(.black)
@@ -112,6 +117,13 @@ struct JournalPhotoViewer: View {
         .onAppear {
             draftDescription = currentPhoto?.description ?? ""
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24).onEnded { value in
+                if value.translation.height > 120 && abs(value.translation.width) < value.translation.height {
+                    dismiss()
+                }
+            }
+        )
     }
 
     private var descriptionBar: some View {
@@ -211,8 +223,7 @@ struct JournalPhotoViewer: View {
 
 /// 单张可缩放照片页：缩放/拖拽状态页内独立，翻页自动复位。
 private struct JournalZoomablePhoto: View {
-    let id: String
-    let url: URL?
+    let photo: JournalPhotoViewer.Photo
 
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1
@@ -222,9 +233,13 @@ private struct JournalZoomablePhoto: View {
 
     var body: some View {
         Group {
-            if let image {
+            if let media = photo.media, media.kind == "livePhoto" {
+                JournalMediaView(media: media)
+                    .scaledToFit()
+            } else if let image {
                 Image(uiImage: image)
                     .resizable()
+                    .allowedDynamicRange(.high)
                     .scaledToFit()
                     .scaleEffect(scale)
                     .offset(offset)
@@ -240,10 +255,10 @@ private struct JournalZoomablePhoto: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: url) {
-            guard let url else { return }
+        .task(id: photo.url) {
+            guard photo.media?.kind != "livePhoto", let url = photo.url else { return }
             // 全尺寸查看用较大像素上限，兼顾内存与清晰度；命中 NSCache 时零开销。
-            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 2400, cacheKey: id)
+            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 2400, cacheKey: photo.id)
         }
     }
 

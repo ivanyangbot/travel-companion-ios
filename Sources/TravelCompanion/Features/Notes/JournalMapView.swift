@@ -14,6 +14,7 @@ struct JournalPhotoPin: Identifiable, Hashable, Sendable {
     let longitude: Double
     let capturedAt: Date?
     let description: String?
+    let image: JournalImage
 
     init?(entry: JournalEntry, image: JournalImage, fallbackCoordinate: CLLocationCoordinate2D? = nil) {
         guard image.kind == nil || image.kind == "photo" || image.kind == "livePhoto" else { return nil }
@@ -29,6 +30,7 @@ struct JournalPhotoPin: Identifiable, Hashable, Sendable {
         self.longitude = longitude
         capturedAt = image.capturedAt
         description = image.description
+        self.image = image
     }
 }
 
@@ -375,6 +377,19 @@ final class JournalPhotoAnnotationView: MLNAnnotationView {
         nil
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let side = Self.photoSide
+        let photoFrame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+        photoBack1.bounds = CGRect(origin: .zero, size: photoFrame.insetBy(dx: 2, dy: 2).size)
+        photoBack1.center = CGPoint(x: photoFrame.midX - 5, y: photoFrame.midY + 5)
+        photoBack2.bounds = CGRect(origin: .zero, size: photoFrame.insetBy(dx: 2, dy: 2).size)
+        photoBack2.center = CGPoint(x: photoFrame.midX + 5, y: photoFrame.midY - 5)
+        photoBacking.frame = photoFrame
+        imageView.frame = photoFrame.insetBy(dx: 2.5, dy: 2.5)
+        countBadge.center = CGPoint(x: photoFrame.maxX - 3, y: photoFrame.maxY + 1)
+    }
+
     func configure(pin: JournalPhotoPin, memberCount: Int) {
         let countChanged = memberCount != self.memberCount
         let pinChanged = pin.id != currentPinID
@@ -392,6 +407,7 @@ final class JournalPhotoAnnotationView: MLNAnnotationView {
             frame.size.height = 18
             countBadge.frame = frame
             countBadge.center = center
+            setNeedsLayout()
             accessibilityValue = "\(memberCount)"
         }
         if countChanged, memberCount > 1 {

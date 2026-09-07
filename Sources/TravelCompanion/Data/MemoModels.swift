@@ -1,21 +1,23 @@
 import Foundation
 import SwiftData
 
-/// 本机物品清单：可承载多条清单（如「行李」「待办」「采购」），每条含若干可勾选项。
-/// 仅保存在本设备，不与服务器同步，与卡包一致保持本机私有。
+/// Shared memo cache. Signed-in trips synchronize these stable UUIDs with the server;
+/// SwiftData keeps the checklist usable while offline.
 @Model
 final class LocalMemoList {
     @Attribute(.unique) var id: UUID
     var title: String
     var symbol: String
+    var tripID: Int?
     var createdAt: Date
     var updatedAt: Date
     @Relationship(deleteRule: .cascade, inverse: \LocalMemoItem.list) var items: [LocalMemoItem]
 
-    init(id: UUID = UUID(), title: String, symbol: String = "checklist") {
+    init(id: UUID = UUID(), title: String, symbol: String = "checklist", tripID: Int? = nil) {
         self.id = id
         self.title = title
         self.symbol = symbol
+        self.tripID = tripID
         self.createdAt = .now
         self.updatedAt = .now
         self.items = []
@@ -58,6 +60,94 @@ enum MemoListSeed {
         }
         context.insert(list)
         try? context.save()
+    }
+}
+
+struct SharedMemoListSnapshot: Codable, Sendable {
+    let id: UUID
+    let title: String
+    let symbol: String
+    let createdAt: Date
+    let updatedAt: Date
+    let items: [SharedMemoItemSnapshot]
+}
+
+struct SharedMemoItemSnapshot: Codable, Sendable {
+    let id: UUID
+    let name: String
+    let isChecked: Bool
+    let position: Int
+    let category: String?
+    let notes: String?
+    let createdAt: Date
+    let updatedAt: Date
+}
+
+struct SharedMemoListRequest: Codable, Sendable {
+    let title: String
+    let symbol: String
+    let items: [SharedMemoItemRequest]
+
+    init(_ list: LocalMemoList) {
+        title = list.title
+        symbol = list.symbol
+        items = list.items.sorted { $0.position < $1.position }.map(SharedMemoItemRequest.init)
+    }
+}
+
+struct SharedMemoItemRequest: Codable, Sendable {
+    let id: UUID
+    let name: String
+    let isChecked: Bool
+    let position: Int
+    let category: String?
+    let notes: String?
+
+    init(_ item: LocalMemoItem) {
+        id = item.id
+        name = item.name
+        isChecked = item.isChecked
+        position = item.position
+        category = item.category
+        notes = item.notes
+    }
+}
+
+struct DeletedMemoItem: Decodable, Sendable {
+    let deleted: Bool
+    let id: UUID
+}
+
+@MainActor
+enum SharedMemoCache {
+    static func replace(with remote: [SharedMemoListSnapshot], tripID: Int, context: ModelContext) throws {
+        let local = try context.fetch(FetchDescriptor<LocalMemoList>())
+        let remoteIDs = Set(remote.map(\.id))
+        for stale in local where stale.tripID == tripID && !remoteIDs.contains(stale.id) { context.delete(stale) }
+        for snapshot in remote {
+            let list = local.first { $0.id == snapshot.id } ?? LocalMemoList(id: snapshot.id, title: snapshot.title, symbol: snapshot.symbol, tripID: tripID)
+            if list.modelContext == nil { context.insert(list) }
+            list.tripID = tripID
+            list.title = snapshot.title
+            list.symbol = snapshot.symbol
+            list.createdAt = snapshot.createdAt
+            list.updatedAt = snapshot.updatedAt
+            let existing = Dictionary(uniqueKeysWithValues: list.items.map { ($0.id, $0) })
+            let itemIDs = Set(snapshot.items.map(\.id))
+            for stale in list.items where !itemIDs.contains(stale.id) { context.delete(stale) }
+            for value in snapshot.items {
+                let item = existing[value.id] ?? LocalMemoItem(id: value.id, name: value.name)
+                item.name = value.name
+                item.isChecked = value.isChecked
+                item.position = value.position
+                item.category = value.category
+                item.notes = value.notes
+                item.createdAt = value.createdAt
+                item.updatedAt = value.updatedAt
+                if item.list == nil { list.items.append(item) }
+            }
+        }
+        try context.save()
     }
 }
 

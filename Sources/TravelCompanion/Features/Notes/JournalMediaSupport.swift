@@ -27,6 +27,7 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
     var latitude: Double?
     var longitude: Double?
     var capturedAt: Date?
+    var isHDR: Bool
 
     init?(_ image: UIImage) {
         guard let data = image.jpegData(compressionQuality: 0.92) else { return nil }
@@ -48,6 +49,7 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
         latitude = nil
         longitude = nil
         capturedAt = nil
+        isHDR = false
     }
 
     init(
@@ -57,7 +59,8 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
         previewImage: UIImage? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        capturedAt: Date? = nil
+        capturedAt: Date? = nil,
+        isHDR: Bool = false
     ) throws {
         guard primary.sizeBytes <= Self.maximumResourceBytes,
               pairedVideo.map({ $0.sizeBytes <= Self.maximumResourceBytes }) ?? true else {
@@ -70,6 +73,7 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
         self.latitude = latitude
         self.longitude = longitude
         self.capturedAt = capturedAt
+        self.isHDR = isHDR
     }
 
     static func load(from item: PhotosPickerItem) async throws -> JournalAttachment {
@@ -201,7 +205,8 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
                 previewImage: UIImage(contentsOfFile: primary.url.path),
                 latitude: asset.location?.coordinate.latitude,
                 longitude: asset.location?.coordinate.longitude,
-                capturedAt: asset.creationDate
+                capturedAt: asset.creationDate,
+                isHDR: asset.mediaSubtypes.contains(.photoHDR)
             )
         case .video:
             guard let video = preferredResource(in: resources, types: [.video, .fullSizeVideo]) else {
@@ -474,6 +479,17 @@ final class JournalPhotoLoader: @unchecked Sendable {
         } else {
             // 网络同步只传输尚未同步的本地附件；这里是展示路径，不能回源拉图。
             return nil
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if media.isHDR == true {
+                Text("HDR")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .foregroundStyle(.white)
+                    .padding(8)
+            }
         }
 
         guard let image = Self.downsampledImage(from: data, maxPixelSize: maxPixelSize) else { return nil }

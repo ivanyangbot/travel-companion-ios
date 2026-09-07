@@ -94,7 +94,7 @@ struct ExpenseSummaryView: View {
     private let estimateColor = Color(red: 0.38, green: 0.39, blue: 0.43)
     private let ink = Color(red: 0.97, green: 0.95, blue: 0.91)
     /// 与首页列表卡一致的两级深灰：概览为外层，三项指标为更浅的内层卡。
-    private let overviewSurface = Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
+    private let overviewSurface = PrimaryTabPalette.elevatedSurface
     private let metricSurface = Color(red: 48 / 255, green: 48 / 255, blue: 48 / 255)
     private var actualTotal: Int64 { paidTotal + unpaidTotal }
     private var sortedCategories: [ExpenseCategory] {
@@ -171,10 +171,6 @@ struct ExpenseSummaryView: View {
                 .accessibilityValue(Text(ExpenseMoney.formatted(grandTotal, currency: currency)))
             }
             .frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 232)
-
-            Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
-                .padding(.top, 8)
-                .padding(.bottom, 18)
 
             let layout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
@@ -305,14 +301,6 @@ struct ExpenseSummaryView: View {
                 }
             }
 
-            HStack(spacing: 5) {
-                Image(systemName: "info.circle").accessibilityHidden(true)
-                Text("expensesummary.actualBasis")
-                Spacer(minLength: 0)
-                Text(currency).monospaced()
-            }
-            .font(.caption2)
-            .foregroundStyle(PrimaryTabPalette.secondaryText)
         }
         .padding(18)
         .background(Color(red: 0.065, green: 0.065, blue: 0.075),

@@ -577,6 +577,30 @@ actor APIClient {
         try await journalRequest(path: "/v1/journal", method: "GET", body: nil, tripID: tripID)
     }
 
+    func fetchMemos(tripID: Int) async throws -> [SharedMemoListSnapshot] {
+        try await memoRequest(path: "/v1/memos", method: "GET", body: nil, tripID: tripID)
+    }
+
+    func saveMemo(id: UUID, value: SharedMemoListRequest, tripID: Int) async throws -> SharedMemoListSnapshot {
+        try await memoRequest(path: "/v1/memos/\(id.uuidString.lowercased())", method: "PUT", body: encoder.encode(value), tripID: tripID)
+    }
+
+    func deleteMemo(id: UUID, tripID: Int) async throws {
+        let _: DeletedMemoItem = try await memoRequest(path: "/v1/memos/\(id.uuidString.lowercased())", method: "DELETE", body: nil, tripID: tripID)
+    }
+
+    private func memoRequest<Value: Decodable>(path: String, method: String, body: Data?, tripID: Int) async throws -> Value {
+        guard let baseURL else { throw APIConfigurationError.missingBaseURL }
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = method
+        if let body { request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = body }
+        authorize(&request, tripID: tripID)
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try validate(response: httpResponse, data: data)
+        return try decoder.decode(APIEnvelope<Value>.self, from: data).data
+    }
+
     func createJournalGroup(_ value: JournalGroupRequest, tripID: Int) async throws -> JournalGroup {
         try await journalRequest(path: "/v1/journal/groups", method: "POST", body: encoder.encode(value), tripID: tripID)
     }

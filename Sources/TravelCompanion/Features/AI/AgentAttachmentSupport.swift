@@ -238,6 +238,7 @@ private struct AgentSentImagePreview: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
+                .onTapGesture { dismiss() }
 
             if let data = attachment.decodedData,
                let image = UIImage(data: data) {
@@ -268,6 +269,14 @@ private struct AgentSentImagePreview: View {
         }
         .presentationBackground(.black)
         .statusBarHidden()
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24).onEnded { value in
+                if scale == 1, value.translation.height > 120,
+                   abs(value.translation.width) < value.translation.height {
+                    dismiss()
+                }
+            }
+        )
     }
 
     private var zoomGesture: some Gesture {

@@ -1169,7 +1169,7 @@ struct AgentHomeView: View {
 
             if let checklist = store.session.checklist {
                 AssistantMessageContainer {
-                    AgentChecklistConversationCard(checklist: checklist,
+                    AgentChecklistConversationCard(syncEngine: syncEngine, checklist: checklist,
                         onChange: { store.updateChecklist($0) },
                         onDismiss: { store.dismissChecklist() })
                         .id(checklist.id)
@@ -3678,6 +3678,7 @@ struct AgentMissingCandidateCard: View {
 /// A checklist is intentionally separate from agent candidates: ticking or
 /// saving it must never become a ledger/itinerary commit.
 struct AgentChecklistConversationCard: View {
+    @ObservedObject var syncEngine: SyncEngine
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \LocalMemoList.updatedAt, order: .reverse) private var memoLists: [LocalMemoList]
     let checklist: AgentV2Checklist
@@ -3740,10 +3741,10 @@ struct AgentChecklistConversationCard: View {
             }
 
             if checklist.isSaved {
-                Label("已保存到本机备忘；继续编辑后可再次保存。", systemImage: "checkmark.seal.fill")
+                Label("已保存到备忘，并同步给共享行程成员。", systemImage: "checkmark.seal.fill")
                     .font(.caption).foregroundStyle(.green)
             } else {
-                Text("勾选和编辑仅在本机保存，不会创建支出。")
+                Text("保存后会同步到共享备忘，不会创建支出。")
                     .font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
             }
             if let saveError {
@@ -3793,7 +3794,21 @@ struct AgentChecklistConversationCard: View {
     private func removeItem(_ id: UUID) { update { $0.items.removeAll { $0.id == id } } }
     private func save(to listID: UUID?) {
         isSaving = true; saveError = nil
-        do { onChange(try AgentChecklistPersistence.save(checklist, to: listID, context: modelContext)) }
+        do {
+            let saved = try AgentChecklistPersistence.save(checklist, to: listID, context: modelContext)
+            onChange(saved)
+            if let savedListID = saved.savedListID,
+               let list = memoLists.first(where: { $0.id == savedListID }) {
+                Task {
+                    do {
+                        try await syncEngine.saveSharedMemo(list)
+                        list.tripID = syncEngine.selectedTripID
+                        try? modelContext.save()
+                    }
+                    catch { await MainActor.run { saveError = error.localizedDescription } }
+                }
+            }
+        }
         catch { saveError = error.localizedDescription }
         isSaving = false
     }

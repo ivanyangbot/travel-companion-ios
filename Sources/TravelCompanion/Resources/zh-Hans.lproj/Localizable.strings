@@ -455,6 +455,8 @@
 "expense.scanChat" = "扫小票 / 对话";
 "expense.addA11y" = "添加支出";
 "expense.section" = "支出明细";
+"expense.showEstimates" = "显示预估价格";
+"expense.hideEstimates" = "隐藏预估价格";
 "expense.countFormat" = "%lld 笔";
 "expense.emptyTitle" = "还没有实际价";
 "expense.emptyDesc" = "使用右上角手动添加，或通过右下角 Agent 记录实际花费。";
@@ -607,6 +609,7 @@
 "memolisteditor.itemPlaceholder" = "物品名称";
 "memolisteditor.addItemPlaceholder" = "添加物品";
 "memolisteditor.localNote" = "清单与物品仅保存在本机，不与服务器同步。";
+"memolisteditor.sharedNote" = "清单会同步给共享行程中的成员。";
 "memolisteditor.addTitle" = "新建清单";
 "memolisteditor.editTitle" = "编辑清单";
 "memolisteditor.cannotSave" = "无法保存";
@@ -656,6 +659,7 @@
 "journal.emptyDesc" = "拍下旅途片段，写成属于你的手书。";
 "journal.incompleteTitle" = "操作未完成";
 "journal.headerTitle" = "手书";
+"journal.multiSelect" = "多选";
 "journal.allEntries" = "全部记录";
 "journal.manageGroups" = "管理分组";
 "journal.groupMenuA11y" = "选择或管理手书分组";

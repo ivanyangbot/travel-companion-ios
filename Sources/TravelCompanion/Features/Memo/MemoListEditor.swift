@@ -7,7 +7,7 @@ struct MemoListEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     let list: LocalMemoList?
-    let onSaved: (String, String) -> Void
+    let onSaved: (LocalMemoList) -> Void
 
     @State private var title: String
     @State private var symbol: String
@@ -20,7 +20,7 @@ struct MemoListEditor: View {
         ("list.bullet", String(localized: "memolistsymbol.todo")), ("airplane", String(localized: "memolistsymbol.travel")), ("stethoscope", String(localized: "memolistsymbol.medical")),
     ]
 
-    init(list: LocalMemoList?, onSaved: @escaping (String, String) -> Void = { _, _ in }) {
+    init(list: LocalMemoList?, onSaved: @escaping (LocalMemoList) -> Void = { _ in }) {
         self.list = list
         self.onSaved = onSaved
         let sorted = (list?.items ?? []).sorted { $0.position < $1.position }
@@ -66,7 +66,7 @@ struct MemoListEditor: View {
                     }
                 }
                 Section {
-                    Label("memolisteditor.localNote", systemImage: "lock.fill")
+                    Label("memolisteditor.sharedNote", systemImage: "person.2.fill")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -141,17 +141,24 @@ struct MemoListEditor: View {
                 return updated
             }
         do {
+            let savedList: LocalMemoList
             if let list {
                 list.title = trimmedTitle
                 list.symbol = symbol
-                // Remove existing items and recreate from drafts so positions and names stay in sync.
-                for item in list.items { modelContext.delete(item) }
+                let existing = Dictionary(uniqueKeysWithValues: list.items.map { ($0.id, $0) })
+                let retained = Set(clean.map(\.id))
+                for item in list.items where !retained.contains(item.id) { modelContext.delete(item) }
                 for draft in clean {
-                    let item = LocalMemoItem(name: draft.name, position: draft.position, category: draft.category, notes: nil)
+                    let item = existing[draft.id] ?? LocalMemoItem(id: draft.id, name: draft.name)
+                    item.name = draft.name
+                    item.position = draft.position
+                    item.category = draft.category
                     item.isChecked = draft.isChecked
-                    list.items.append(item)
+                    item.updatedAt = .now
+                    if item.list == nil { list.items.append(item) }
                 }
                 list.updatedAt = .now
+                savedList = list
             } else {
                 let newList = LocalMemoList(title: trimmedTitle, symbol: symbol)
                 for draft in clean {
@@ -160,9 +167,10 @@ struct MemoListEditor: View {
                     newList.items.append(item)
                 }
                 modelContext.insert(newList)
+                savedList = newList
             }
             try modelContext.save()
-            onSaved(trimmedTitle, symbol)
+            onSaved(savedList)
             dismiss()
         } catch {
             errorMessage = String(format: String(localized: "memolisteditor.saveFailed"), error.localizedDescription)

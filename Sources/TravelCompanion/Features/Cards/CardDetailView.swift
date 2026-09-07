@@ -443,6 +443,7 @@ struct FlightTicketPopup: View {
 
     @StateObject private var linkHandler = ExternalLinkHandler()
     @State private var popupFrame = CGRect.null
+    @State private var dismissDragOffset: CGFloat = 0
 
     var body: some View {
         GeometryReader { geometry in
@@ -482,6 +483,22 @@ struct FlightTicketPopup: View {
                     popupFrame = frame
                 }
                 .padding(.vertical, max(10, geometry.safeAreaInsets.top * 0.25))
+                .offset(y: dismissDragOffset)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 18)
+                        .onChanged { value in
+                            guard value.translation.height > 0,
+                                  abs(value.translation.width) < value.translation.height else { return }
+                            dismissDragOffset = value.translation.height
+                        }
+                        .onEnded { value in
+                            if value.translation.height > 120 {
+                                onDismiss()
+                            } else {
+                                withAnimation(.snappy(duration: 0.22)) { dismissDragOffset = 0 }
+                            }
+                        }
+                )
             }
             .coordinateSpace(name: "flight-ticket-popup")
             .contentShape(Rectangle())

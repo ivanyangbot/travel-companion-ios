@@ -52,6 +52,21 @@ final class SyncEngine: ObservableObject {
     /// create and edit trips in the isolated local workspace.
     private var localOnly: Bool { !isUserAuthenticated }
 
+    func fetchSharedMemos() async throws -> [SharedMemoListSnapshot] {
+        guard !localOnly, let tripID = selectedTripID else { return [] }
+        return try await apiClient.fetchMemos(tripID: tripID)
+    }
+
+    func saveSharedMemo(_ list: LocalMemoList) async throws {
+        guard !localOnly, let tripID = selectedTripID else { return }
+        _ = try await apiClient.saveMemo(id: list.id, value: SharedMemoListRequest(list), tripID: tripID)
+    }
+
+    func deleteSharedMemo(id: UUID) async throws {
+        guard !localOnly, let tripID = selectedTripID else { return }
+        try await apiClient.deleteMemo(id: id, tripID: tripID)
+    }
+
     /// Starts listening for Apple sign-in state changes. When the user signs
     /// in, the engine transitions out of ``localOnly`` and replays any queued
     /// operations. When the user signs out, it returns to local-only mode.

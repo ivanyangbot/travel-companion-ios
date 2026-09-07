@@ -1,15 +1,21 @@
 import SwiftData
 import SwiftUI
 
-/// 账本页的备忘分区。清单数据只在本设备保存；新建入口由账本页右上角
-/// 的统一加号承载，智能操作统一交给右下角的账本 Agent。
+/// 账本页的备忘分区。SwiftData serves as the offline cache; signed-in trips
+/// synchronize the same checklist with every member of the shared trip.
 struct MemoSection: View {
+    @ObservedObject var syncEngine: SyncEngine
     @Binding var creatingList: Bool
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \LocalMemoList.updatedAt, order: .reverse) private var lists: [LocalMemoList]
 
     @State private var editingList: LocalMemoList?
     @State private var pendingDeletion: LocalMemoList?
+
+    private var visibleLists: [LocalMemoList] {
+        guard let tripID = syncEngine.selectedTripID else { return lists.filter { $0.tripID == nil } }
+        return lists.filter { $0.tripID == tripID || $0.tripID == nil }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,18 +34,22 @@ struct MemoSection: View {
             .padding(.top, 8)
             .padding(.bottom, 10)
 
-            if lists.isEmpty {
-                ContentUnavailableView(
-                    "memo.emptyTitle",
-                    systemImage: "checklist",
-                    description: Text("memo.emptyDesc")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.bottom, 112)
+            if visibleLists.isEmpty {
+                ScrollView {
+                    ContentUnavailableView(
+                        "memo.emptyTitle",
+                        systemImage: "checklist",
+                        description: Text("memo.emptyDesc")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 80)
+                    .padding(.bottom, 112)
+                }
+                .refreshable { await reload() }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(lists) { list in
+                        ForEach(visibleLists) { list in
                             listCard(list)
                         }
                     }
@@ -47,27 +57,30 @@ struct MemoSection: View {
                     .padding(.bottom, 128)
                 }
                 .scrollIndicators(.hidden)
+                .refreshable { await reload() }
             }
         }
         .background(PrimaryTabPalette.background)
         .frame(maxHeight: .infinity, alignment: .top)
         .sheet(isPresented: $creatingList) {
-            MemoListEditor(list: nil) { _, _ in }
+            MemoListEditor(list: nil) { list in Task { try? await syncEngine.saveSharedMemo(list) } }
         }
         .sheet(item: $editingList) { list in
-            MemoListEditor(list: list) { _, _ in }
+            MemoListEditor(list: list) { saved in Task { try? await syncEngine.saveSharedMemo(saved) } }
         }
         .alert("memo.deleteTitle", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }), presenting: pendingDeletion) { list in
             Button("common.delete", role: .destructive) {
+                let id = list.id
                 modelContext.delete(list)
                 try? modelContext.save()
+                Task { try? await syncEngine.deleteSharedMemo(id: id) }
                 pendingDeletion = nil
             }
             Button("common.cancel", role: .cancel) { pendingDeletion = nil }
         } message: { _ in
             Text("memo.deleteMessage")
         }
-        .task { MemoListSeed.ensureDefaultList(context: modelContext) }
+        .task(id: syncEngine.selectedTripID) { await reload() }
     }
 
     @ViewBuilder
@@ -120,6 +133,9 @@ struct MemoSection: View {
                 item.isChecked.toggle()
                 item.updatedAt = .now
                 try? modelContext.save()
+                if let list = item.list {
+                    Task { try? await syncEngine.saveSharedMemo(list) }
+                }
             } label: {
                 Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
@@ -138,6 +154,26 @@ struct MemoSection: View {
                 }
             }
             Spacer(minLength: 4)
+        }
+    }
+
+    private func reload() async {
+        if syncEngine.isUserAuthenticated, syncEngine.selectedTripID != nil {
+            do {
+                let tripID = syncEngine.selectedTripID!
+                // One-time migration for checklists created before shared sync existed.
+                for list in lists where list.tripID == nil {
+                    try await syncEngine.saveSharedMemo(list)
+                    list.tripID = tripID
+                }
+                try? modelContext.save()
+                let remote = try await syncEngine.fetchSharedMemos()
+                try SharedMemoCache.replace(with: remote, tripID: tripID, context: modelContext)
+            } catch {
+                // Cached checklists remain fully usable while offline.
+            }
+        } else {
+            MemoListSeed.ensureDefaultList(context: modelContext)
         }
     }
 }

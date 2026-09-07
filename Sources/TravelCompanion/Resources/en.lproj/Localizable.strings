@@ -455,6 +455,8 @@
 "expense.scanChat" = "Scan Receipt / Chat";
 "expense.addA11y" = "Add expense";
 "expense.section" = "Expense Details";
+"expense.showEstimates" = "Show estimated prices";
+"expense.hideEstimates" = "Hide estimated prices";
 "expense.countFormat" = "%lld items";
 "expense.emptyTitle" = "No Actual Prices Yet";
 "expense.emptyDesc" = "Add manually from the top right, or use the Agent at the bottom right to record actual spending.";
@@ -607,6 +609,7 @@
 "memolisteditor.itemPlaceholder" = "Item name";
 "memolisteditor.addItemPlaceholder" = "Add item";
 "memolisteditor.localNote" = "Lists and items stay on this device only and never sync to the server.";
+"memolisteditor.sharedNote" = "This checklist syncs with members of the shared trip.";
 "memolisteditor.addTitle" = "New List";
 "memolisteditor.editTitle" = "Edit List";
 "memolisteditor.cannotSave" = "Couldn't Save";
@@ -656,6 +659,7 @@
 "journal.emptyDesc" = "Snap moments along the way and write them into your own journal.";
 "journal.incompleteTitle" = "Not Finished";
 "journal.headerTitle" = "Journal";
+"journal.multiSelect" = "Select multiple";
 "journal.allEntries" = "All Entries";
 "journal.manageGroups" = "Manage Groups";
 "journal.groupMenuA11y" = "Choose or manage journal groups";

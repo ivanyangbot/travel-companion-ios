@@ -258,6 +258,7 @@ final class JournalSyncCoordinator: ObservableObject, @unchecked Sendable {
             longitude: sourceImage?.longitude,
             capturedAt: sourceImage?.capturedAt,
             description: sourceImage?.description,
+            isHDR: sourceImage?.isHDR,
             pairedVideo: pairedUpload
         ))
     }
@@ -326,6 +327,9 @@ struct NotesView: View {
     @State private var listViewer: JournalListViewerContext?
     @State private var photoEditor: JournalPhotoEditorContext?
     @State private var showsQuickPhotoPicker = false
+    @State private var quickPhotoSelection: [PhotosPickerItem] = []
+    @State private var isSelectingPhotos = false
+    @State private var selectedPhotoIDs = Set<String>()
     @State private var isQuickImporting = false
     private let api = APIClient()
 
@@ -409,7 +413,8 @@ struct NotesView: View {
                             id: pin.id,
                             url: pin.imageURL,
                             description: pin.description,
-                            capturedAt: pin.capturedAt
+                            capturedAt: pin.capturedAt,
+                            media: pin.image
                         )
                     },
                     initialIndex: 0,
@@ -436,27 +441,30 @@ struct NotesView: View {
                 )
             }
             .sheet(item: $photoEditor) { context in
-                JournalPhotoMetadataEditor(image: context.image) { description, latitude, longitude in
+                JournalPhotoMetadataEditor(image: context.image) { description in
                     await updateImageMetadata(
                         entryID: context.entryID,
                         imageKey: context.image.key,
                         description: description,
-                        latitude: latitude,
-                        longitude: longitude
+                        latitude: context.image.latitude,
+                        longitude: context.image.longitude
                     )
                 }
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $showsQuickPhotoPicker) {
-                JournalPhotoPickerSheet { results in
-                    showsQuickPhotoPicker = false
-                    Task { await importQuickPhotos(results) }
-                } onCancel: {
-                    showsQuickPhotoPicker = false
-                }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+            .photosPicker(
+                isPresented: $showsQuickPhotoPicker,
+                selection: $quickPhotoSelection,
+                maxSelectionCount: 9,
+                selectionBehavior: .ordered,
+                matching: .images,
+                preferredItemEncoding: .current
+            )
+            .onChange(of: quickPhotoSelection) { _, values in
+                guard !values.isEmpty else { return }
+                quickPhotoSelection = []
+                Task { await importQuickPhotos(values) }
             }
             .sheet(isPresented: $showsGroupEditor) {
                 JournalGroupsEditor(groups: snapshot.groups) {
@@ -542,23 +550,18 @@ struct NotesView: View {
                 .foregroundStyle(.white)
 
             HStack {
-                Menu {
-                    Button("journal.allEntries") { selectedGroupID = nil }
-                    Divider()
-                    ForEach(snapshot.groups) { group in
-                        Button(group.name) { selectedGroupID = group.id }
-                    }
-                    Divider()
-                    Button("journal.manageGroups", systemImage: "folder.badge.plus") {
-                        showsGroupEditor = true
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        isSelectingPhotos.toggle()
+                        if !isSelectingPhotos { selectedPhotoIDs.removeAll() }
                     }
                 } label: {
-                    Image(systemName: "folder")
+                    Image(systemName: isSelectingPhotos ? "xmark" : "checkmark.circle")
                         .font(.system(size: 20, weight: .medium))
                         .frame(width: 40, height: 40)
                 }
                 .primaryTabHeaderButtonStyle()
-                .accessibilityLabel(Text("journal.groupMenuA11y"))
+                .accessibilityLabel(Text(isSelectingPhotos ? "common.cancel" : "journal.multiSelect"))
 
                 Spacer(minLength: 0)
 
@@ -578,22 +581,34 @@ struct NotesView: View {
                 .primaryTabHeaderButtonStyle()
                 .accessibilityLabel(Text(displayMode == .list ? "journal.mapModeA11y" : "journal.listModeA11y"))
 
-                Button {
-                    showsQuickPhotoPicker = true
-                } label: {
-                    Group {
-                        if isQuickImporting {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: "photo.badge.plus")
-                                .font(.system(size: 20, weight: .medium))
-                        }
+                if isSelectingPhotos {
+                    Button(role: .destructive) {
+                        Task { await deleteSelectedPhotos() }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 20, weight: .medium))
+                            .frame(width: 40, height: 40)
                     }
-                    .frame(width: 40, height: 40)
+                    .primaryTabHeaderButtonStyle()
+                    .disabled(selectedPhotoIDs.isEmpty)
+                } else {
+                    Button {
+                        showsQuickPhotoPicker = true
+                    } label: {
+                        Group {
+                            if isQuickImporting {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: "photo.badge.plus")
+                                    .font(.system(size: 20, weight: .medium))
+                            }
+                        }
+                        .frame(width: 40, height: 40)
+                    }
+                    .primaryTabHeaderButtonStyle()
+                    .disabled(isQuickImporting)
+                    .accessibilityLabel(Text("journal.newA11y"))
                 }
-                .primaryTabHeaderButtonStyle()
-                .disabled(isQuickImporting)
-                .accessibilityLabel(Text("journal.newA11y"))
             }
         }
         .frame(height: 48)
@@ -603,7 +618,7 @@ struct NotesView: View {
 
     private var journalSummary: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(selectedGroupTitle)
+            Text(visiblePhotoDateRange)
                 .font(.system(size: 23, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -652,7 +667,31 @@ struct NotesView: View {
         return 0
     }
 
-    private var selectedGroupTitle: String { snapshot.groups.first(where: { $0.id == selectedGroupID })?.name ?? String(localized: "journal.allGroups") }
+    private var visiblePhotoDateRange: String {
+        let dates = visiblePhotos.map { $0.image.capturedAt ?? $0.entry.createdAt }.sorted()
+        guard let first = dates.first, let last = dates.last else { return "" }
+        let calendar = Calendar.current
+        let firstText = Self.fullDateFormatter.string(from: first)
+        if calendar.isDate(first, inSameDayAs: last) { return firstText }
+        let lastText = calendar.component(.year, from: first) == calendar.component(.year, from: last)
+            ? Self.shortDateFormatter.string(from: last)
+            : Self.fullDateFormatter.string(from: last)
+        return "\(firstText)~\(lastText)"
+    }
+
+    private static let fullDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = .current
+        formatter.dateFormat = "yyyy/M/d"
+        return formatter
+    }()
+
+    private static let shortDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = .current
+        formatter.dateFormat = "M/d"
+        return formatter
+    }()
 
     private var isSyncingJournal: Bool {
         if case .syncing = journalSync.state { return true }
@@ -705,7 +744,30 @@ struct NotesView: View {
                 .stroke(.white.opacity(0.1), lineWidth: 0.5)
         )
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onTapGesture { presentPhotoViewer(startingAt: item.image.key) }
+        .overlay(alignment: .topTrailing) {
+            if isSelectingPhotos {
+                Image(systemName: selectedPhotoIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                    .font(.title2)
+                    .foregroundStyle(selectedPhotoIDs.contains(item.id) ? PrimaryTabPalette.accent : .white)
+                    .padding(8)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            HStack(spacing: 4) {
+                if item.image.kind == "livePhoto" { Image(systemName: "livephoto") }
+                if item.image.isHDR == true { Text("HDR") }
+            }
+            .font(.caption2.bold())
+            .foregroundStyle(.white)
+            .padding(6)
+        }
+        .onTapGesture {
+            if isSelectingPhotos {
+                if !selectedPhotoIDs.insert(item.id).inserted { selectedPhotoIDs.remove(item.id) }
+            } else {
+                presentPhotoViewer(startingAt: item.image.key)
+            }
+        }
         .contextMenu {
             Button("journal.editPhotoTitle", systemImage: "square.and.pencil") {
                 photoEditor = JournalPhotoEditorContext(entryID: item.entry.id, image: item.image)
@@ -737,7 +799,8 @@ struct NotesView: View {
                 id: $0.image.key,
                 url: $0.image.url.flatMap(URL.init(string:)),
                 description: $0.image.description,
-                capturedAt: $0.image.capturedAt
+                capturedAt: $0.image.capturedAt,
+                media: $0.image
             )
         }
         guard let index = photos.firstIndex(where: { $0.id == imageKey }) else { return }
@@ -745,7 +808,7 @@ struct NotesView: View {
     }
 
     /// 顶部“添加照片”只有一个系统选择步骤；点系统对勾后立即创建手书记录。
-    private func importQuickPhotos(_ values: [JournalPhotoPickerResult]) async {
+    private func importQuickPhotos(_ values: [PhotosPickerItem]) async {
         guard !values.isEmpty else { return }
         isQuickImporting = true
         defer {
@@ -932,6 +995,39 @@ struct NotesView: View {
         for index in offsets { let entry = visibleEntries[index]; Task { do { try await api.deleteJournalEntry(id: entry.id, tripID: tripID); await reload() } catch { presentErrorUnlessOffline(error) } } }
     }
 
+    private func deleteSelectedPhotos() async {
+        let keys = selectedPhotoIDs
+        guard !keys.isEmpty else { return }
+        if let tripID = remoteTripID {
+            do {
+                for entry in snapshot.entries where entry.images.contains(where: { keys.contains($0.key) }) {
+                    let remaining = entry.images.filter { !keys.contains($0.key) }
+                    if remaining.isEmpty {
+                        try await api.deleteJournalEntry(id: entry.id, tripID: tripID)
+                    } else {
+                        let request = JournalEntryRequest(
+                            groupId: entry.groupId,
+                            title: entry.title,
+                            content: entry.content,
+                            imageKeys: remaining.map(\.uploadReference)
+                        )
+                        _ = try await api.updateJournalEntry(id: entry.id, request, tripID: tripID)
+                    }
+                }
+                selectedPhotoIDs.removeAll()
+                isSelectingPhotos = false
+                await reload()
+            } catch { presentErrorUnlessOffline(error) }
+        } else {
+            do {
+                try localStore.deleteImages(keys)
+                selectedPhotoIDs.removeAll()
+                isSelectingPhotos = false
+                snapshot = localStore.snapshot
+            } catch { errorMessage = error.localizedDescription }
+        }
+    }
+
     private func saveGroup(_ request: JournalGroupRequest) async {
         guard let tripID = remoteTripID else {
             do {
@@ -992,6 +1088,7 @@ struct NotesView: View {
             longitude: attachment.longitude,
             capturedAt: attachment.capturedAt,
             description: nil,
+            isHDR: attachment.isHDR,
             pairedVideo: pairedUpload
         ))
     }
@@ -1059,7 +1156,8 @@ final class LocalJournalStore: ObservableObject {
                 latitude: attachment.latitude,
                 longitude: attachment.longitude,
                 capturedAt: attachment.capturedAt,
-                description: nil
+                description: nil,
+                isHDR: attachment.isHDR
             )
         }
         let now = Date()
@@ -1128,6 +1226,30 @@ final class LocalJournalStore: ObservableObject {
             groups: snapshot.groups,
             entries: snapshot.entries.filter { !idSet.contains($0.id) }
         )
+        try persist()
+    }
+
+    func deleteImages(_ keys: Set<String>) throws {
+        var entries: [JournalEntry] = []
+        for entry in snapshot.entries {
+            let removed = entry.images.filter { keys.contains($0.key) }
+            for image in removed {
+                if let url = image.url.flatMap(URL.init(string:)), url.isFileURL { try? FileManager.default.removeItem(at: url) }
+                if let url = image.pairedVideo?.url.flatMap(URL.init(string:)), url.isFileURL { try? FileManager.default.removeItem(at: url) }
+            }
+            let remaining = entry.images.filter { !keys.contains($0.key) }
+            guard !remaining.isEmpty else { continue }
+            entries.append(JournalEntry(
+                id: entry.id,
+                groupId: entry.groupId,
+                title: entry.title,
+                content: entry.content,
+                images: remaining,
+                createdAt: entry.createdAt,
+                updatedAt: removed.isEmpty ? entry.updatedAt : .now
+            ))
+        }
+        snapshot = JournalSnapshot(groups: snapshot.groups, entries: entries)
         try persist()
     }
 
@@ -1231,28 +1353,14 @@ private struct LocalJournalSyncCheckpoint: Codable {
 }
 
 private struct JournalPhotoMetadataEditor: View {
-    let onSave: (String, Double?, Double?) async -> Void
+    let onSave: (String) async -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var description: String
-    @State private var hasLocation: Bool
-    @State private var latitude: String
-    @State private var longitude: String
     @State private var isSaving = false
 
-    init(image: JournalImage, onSave: @escaping (String, Double?, Double?) async -> Void) {
+    init(image: JournalImage, onSave: @escaping (String) async -> Void) {
         self.onSave = onSave
         _description = State(initialValue: image.description ?? "")
-        _hasLocation = State(initialValue: image.latitude != nil && image.longitude != nil)
-        _latitude = State(initialValue: image.latitude.map { String(format: "%.6f", $0) } ?? "")
-        _longitude = State(initialValue: image.longitude.map { String(format: "%.6f", $0) } ?? "")
-    }
-
-    private var parsedLatitude: Double? { Double(latitude.replacingOccurrences(of: ",", with: ".")) }
-    private var parsedLongitude: Double? { Double(longitude.replacingOccurrences(of: ",", with: ".")) }
-    private var isLocationValid: Bool {
-        guard hasLocation else { return true }
-        guard let parsedLatitude, let parsedLongitude else { return false }
-        return (-90.0 ... 90.0).contains(parsedLatitude) && (-180.0 ... 180.0).contains(parsedLongitude)
     }
 
     var body: some View {
@@ -1262,15 +1370,6 @@ private struct JournalPhotoMetadataEditor: View {
                     TextField("journal.descriptionPlaceholder", text: $description, axis: .vertical)
                         .lineLimit(3...8)
                 }
-                Section("journal.locationSection") {
-                    Toggle("journal.hasLocation", isOn: $hasLocation)
-                    if hasLocation {
-                        TextField("journal.latitude", text: $latitude)
-                            .keyboardType(.numbersAndPunctuation)
-                        TextField("journal.longitude", text: $longitude)
-                            .keyboardType(.numbersAndPunctuation)
-                    }
-                }
             }
             .navigationTitle("journal.editPhotoTitle")
             .toolbar {
@@ -1279,12 +1378,12 @@ private struct JournalPhotoMetadataEditor: View {
                     Button(isSaving ? "journal.saving" : "common.save") {
                         isSaving = true
                         Task {
-                            await onSave(description, hasLocation ? parsedLatitude : nil, hasLocation ? parsedLongitude : nil)
+                            await onSave(description)
                             isSaving = false
                             dismiss()
                         }
                     }
-                    .disabled(isSaving || !isLocationValid)
+                    .disabled(isSaving)
                 }
             }
         }
