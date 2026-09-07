@@ -93,9 +93,9 @@ struct ExpenseSummaryView: View {
     private let pendingColor = Color(red: 0.95, green: 0.74, blue: 0.48)
     private let estimateColor = Color(red: 0.38, green: 0.39, blue: 0.43)
     private let ink = Color(red: 0.97, green: 0.95, blue: 0.91)
-    /// 与首页列表卡一致的两级深灰：概览为外层，三项指标为更浅的内层卡。
-    private let overviewSurface = Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
-    private let metricSurface = Color(red: 48 / 255, green: 48 / 255, blue: 48 / 255)
+    /// 首页同款层级：列表 23、卡片 34、内嵌内容 26。
+    private let overviewSurface = PrimaryTabPalette.elevatedSurface
+    private let metricSurface = PrimaryTabPalette.insetSurface
     private var actualTotal: Int64 { paidTotal + unpaidTotal }
     private var sortedCategories: [ExpenseCategory] {
         ExpenseCategory.allCases.filter { (byCategory[$0] ?? 0) > 0 }
@@ -315,7 +315,7 @@ struct ExpenseSummaryView: View {
             .foregroundStyle(PrimaryTabPalette.secondaryText)
         }
         .padding(18)
-        .background(Color(red: 0.065, green: 0.065, blue: 0.075),
+        .background(PrimaryTabPalette.elevatedSurface,
                     in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)

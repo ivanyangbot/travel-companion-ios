@@ -1417,7 +1417,7 @@ struct ItineraryView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 12)
                     .background(
-                        Color.white.opacity(0.035),
+                        PrimaryTabPalette.insetSurface,
                         in: RoundedRectangle(cornerRadius: 13, style: .continuous)
                     )
 

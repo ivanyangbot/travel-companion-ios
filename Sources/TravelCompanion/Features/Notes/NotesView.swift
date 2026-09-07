@@ -353,6 +353,17 @@ struct NotesView: View {
             ZStack {
                 PrimaryTabPalette.background.ignoresSafeArea()
 
+                if displayMode == .map {
+                    JournalPhotoMapScreen(pins: photoPins) { selectedPins in
+                        mapViewer = MapViewerContext(
+                            id: selectedPins.first?.id ?? UUID().uuidString,
+                            pins: selectedPins
+                        )
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(!isSyncingJournal)
+                }
+
                 VStack(spacing: 0) {
                     journalHeader
                         .allowsHitTesting(!isSyncingJournal)
@@ -364,12 +375,7 @@ struct NotesView: View {
                         case .list:
                             listContent
                         case .map:
-                            JournalPhotoMapScreen(pins: photoPins) { selectedPins in
-                                mapViewer = MapViewerContext(
-                                    id: selectedPins.first?.id ?? UUID().uuidString,
-                                    pins: selectedPins
-                                )
-                            }
+                            Spacer().allowsHitTesting(false)
                         }
                     }
                     .allowsHitTesting(!isSyncingJournal)

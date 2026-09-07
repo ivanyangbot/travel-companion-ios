@@ -20,20 +20,6 @@ struct WalletSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("wallet.title")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Text("wallet.subtitle")
-                        .font(.caption)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
 
             if items.isEmpty {
                 ContentUnavailableView(

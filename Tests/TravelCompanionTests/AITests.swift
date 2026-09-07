@@ -5,6 +5,23 @@ import XCTest
 @testable import TravelCompanion
 
 final class AITests: XCTestCase {
+    @MainActor
+    func testAgentMarkdownKeepsCodeAndRendersTableAsCells() {
+        let blocks = AgentMarkdownView.parse("# Summary\n| Item | Cost |\n| --- | ---: |\n| **Flight** | 120 |\n```swift\nlet a = 1\n```")
+        XCTAssertEqual(blocks[0].text, "# Summary")
+        XCTAssertEqual(blocks[1].rows, [["Item", "Cost"], ["**Flight**", "120"]])
+        XCTAssertTrue(blocks[2].code)
+        XCTAssertEqual(blocks[2].text, "let a = 1")
+    }
+
+    @MainActor
+    func testAgentMarkdownRetainsUnfinishedStreamingCode() {
+        let blocks = AgentMarkdownView.parse("Text\n```\n| not a table |")
+        XCTAssertEqual(blocks.last?.text, "| not a table |")
+        XCTAssertEqual(blocks.last?.code, true)
+        XCTAssertEqual(blocks.last?.rows, [])
+    }
+
     func testAgentImageUnderThreeMegabytesKeepsItsOriginalEncoding() throws {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32))
         let source = try XCTUnwrap(renderer.image { context in
