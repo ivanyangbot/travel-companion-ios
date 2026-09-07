@@ -1518,6 +1518,8 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         private var flightPlaneAnnotations: [MapLibreFlightAnnotation] = []
         private var flightEndpointAnnotations: [MapLibreFlightEndpointAnnotation] = []
         private var flightShapeMetadata: [ObjectIdentifier: MapLibreFlightShapeMetadata] = [:]
+        private var flightLineLayerIDs: [String] = []
+        private var flightLineSourceIDs: [String] = []
         private var displayedRouteCoordinates: [CLLocationCoordinate2D] = []
         private var displayedFlightCoordinates: [CLLocationCoordinate2D] = []
         private var routeTask: Task<Void, Never>?
@@ -1910,6 +1912,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             on mapView: MLNMapView,
             flightRoutes: [TodayFlightRoute]
         ) {
+            rebuildFlightLineLayers(on: mapView, routes: flightRoutes)
             if !flightShapeAnnotations.isEmpty {
                 mapView.removeAnnotations(flightShapeAnnotations)
             }
@@ -1936,7 +1939,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 guard displayCoordinates.count > 2 else { continue }
                 displayedFlightCoordinates.append(contentsOf: displayCoordinates)
 
-                for style in MapLibreFlightShapeStyle.allCases {
+                // Visible strokes are style layers so offsets stay in screen
+                // points at every zoom. Keep the generous annotation hit area.
+                for style in [MapLibreFlightShapeStyle.hitTarget] {
                     var coordinates = displayCoordinates
                     let annotation = MLNPolyline(
                         coordinates: &coordinates,
@@ -1957,7 +1962,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                             routeID: route.cardID,
                             coordinate: placement.coordinate,
                             screenAngle: placement.angle,
-                            title: "\(route.fromAirport) → \(route.toAirport)"
+                            title: "\(route.title) · \(route.fromAirport) → \(route.toAirport)"
                         )
                     )
                 }
@@ -1976,8 +1981,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 ])
             }
 
-            // Shape order is halo, accent stroke, then an almost transparent
-            // generous hit target. The plane annotations sit above all three.
+            // Thin style-layer strokes retain a separate generous hit target.
             if !flightShapeAnnotations.isEmpty {
                 mapView.addAnnotations(flightShapeAnnotations)
             }
@@ -1987,6 +1991,53 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             if !flightEndpointAnnotations.isEmpty {
                 mapView.addAnnotations(flightEndpointAnnotations)
             }
+        }
+
+        private func rebuildFlightLineLayers(on mapView: MLNMapView, routes: [TodayFlightRoute]) {
+            guard let style = mapView.style else { return }
+            for id in flightLineLayerIDs {
+                if let layer = style.layer(withIdentifier: id) { style.removeLayer(layer) }
+            }
+            for id in flightLineSourceIDs {
+                if let source = style.source(withIdentifier: id) { style.removeSource(source) }
+            }
+            flightLineLayerIDs.removeAll()
+            flightLineSourceIDs.removeAll()
+            for route in routes {
+                let peers = routes.filter {
+                    $0.originLatitude == route.originLatitude && $0.originLongitude == route.originLongitude &&
+                    $0.destinationLatitude == route.destinationLatitude && $0.destinationLongitude == route.destinationLongitude
+                }
+                // Draw a shared path once, even when each traveler has a
+                // separate ticket card. Per-card tap annotations remain above.
+                guard peers.first?.id == route.id else { continue }
+                let lanes = Array(Set(peers.flatMap(\.passengerColorIndices))).sorted()
+                var coordinates = MapLibreCoordinateTransform.displayCoordinates(for:
+                    TodayFlightArcGeometry.coordinates(from: route.originCoordinate, to: route.destinationCoordinate))
+                guard coordinates.count > 2 else { continue }
+                let shape = MLNPolyline(coordinates: &coordinates, count: UInt(coordinates.count))
+                let sourceID = "flight-passengers-\(route.id)"
+                let source = MLNShapeSource(identifier: sourceID, shape: shape, options: nil)
+                style.addSource(source)
+                flightLineSourceIDs.append(sourceID)
+                for colorIndex in lanes {
+                    let layerID = "\(sourceID)-\(colorIndex)"
+                    let layer = MLNLineStyleLayer(identifier: layerID, source: source)
+                    layer.lineColor = NSExpression(forConstantValue: TodayFlightPassengerStyle.color(colorIndex))
+                    layer.lineWidth = NSExpression(forConstantValue: TodayFlightPassengerStyle.lineWidth)
+                    layer.lineOffset = NSExpression(forConstantValue: TodayFlightPassengerStyle.offset(
+                        index: lanes.firstIndex(of: colorIndex) ?? 0, count: lanes.count))
+                    layer.lineCap = NSExpression(forConstantValue: "round")
+                    layer.lineJoin = NSExpression(forConstantValue: "round")
+                    style.addLayer(layer)
+                    flightLineLayerIDs.append(layerID)
+                }
+            }
+        }
+
+        func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+            // Initial content may precede the asynchronous basemap load.
+            rebuildFlightLineLayers(on: mapView, routes: renderedFlightRoutes)
         }
 
         private func setRouteLoading(_ isLoading: Bool, notify: (Bool) -> Void) {
@@ -2869,10 +2920,6 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         ) -> UIColor {
             if let metadata = flightShapeMetadata[ObjectIdentifier(annotation)] {
                 switch metadata.style {
-                case .halo:
-                    return UIColor.black.withAlphaComponent(0.46)
-                case .route:
-                    return UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 0.96)
                 case .hitTarget:
                     return UIColor.white.withAlphaComponent(0.01)
                 }
@@ -2886,8 +2933,6 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
         ) -> CGFloat {
             if let metadata = flightShapeMetadata[ObjectIdentifier(annotation)] {
                 switch metadata.style {
-                case .halo: return 9
-                case .route: return 3.5
                 case .hitTarget: return 24
                 }
             }
@@ -3020,9 +3065,7 @@ private final class MapLibreNumberedAnnotation: MLNPointAnnotation {
     }
 }
 
-private enum MapLibreFlightShapeStyle: CaseIterable {
-    case halo
-    case route
+private enum MapLibreFlightShapeStyle {
     case hitTarget
 }
 

@@ -250,6 +250,10 @@ enum AppleMapService {
         resolvedLocations: [FlightAirportLocationResolution]
     ) -> [TodayFlightRoute] {
         let locationsByCardID = Dictionary(uniqueKeysWithValues: resolvedLocations.map { ($0.cardID, $0) })
+        let names = Array(Set(cards.filter { $0.kind == .flight }.flatMap {
+            TodayFlightPassengerStyle.names($0.passengers)
+        })).sorted()
+        let colors = Dictionary(uniqueKeysWithValues: names.enumerated().map { ($0.element, $0.offset) })
         return cards.compactMap { card in
             guard card.kind == .flight,
                   let fromAirport = nonEmptyAirport(card.fromAirport),
@@ -266,7 +270,11 @@ enum AppleMapService {
                 fromAirport: fromAirport,
                 toAirport: toAirport,
                 originLocation: originLocation,
-                destinationLocation: destinationLocation
+                destinationLocation: destinationLocation,
+                passengerColorIndices: {
+                    let indices = TodayFlightPassengerStyle.names(card.passengers).compactMap { colors[$0] }
+                    return indices.isEmpty ? [-1] : indices
+                }()
             )
         }
     }

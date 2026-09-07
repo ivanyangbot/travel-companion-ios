@@ -25,6 +25,8 @@ struct TodayFlightRoute: Identifiable, Equatable, Sendable {
     let toAirport: String
     let originLocation: FlightAirportLocationSnapshot
     let destinationLocation: FlightAirportLocationSnapshot
+    /// Assigned across the whole trip, before filtering to a single day.
+    var passengerColorIndices: [Int] = [-1]
 
     var originLatitude: Double { originLocation.latitude }
     var originLongitude: Double { originLocation.longitude }
@@ -61,6 +63,37 @@ struct TodayFlightRoute: Identifiable, Equatable, Sendable {
     private func derivedUUIDString(suffix: String) -> String {
         let prefix = String(id.uuidString.dropLast(4))
         return prefix + suffix
+    }
+}
+
+enum TodayFlightPassengerStyle {
+    static let lineWidth: CGFloat = 1.6
+    static let laneSpacing: CGFloat = 1.9
+
+    static func names(_ value: String?) -> [String] {
+        // A slash is part of many international ticket names (SURNAME/GIVEN).
+        let names = (value ?? "").components(separatedBy: CharacterSet(charactersIn: "、,，;；\n"))
+            .map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ").uppercased() }
+            .filter { !$0.isEmpty }
+        return Array(Set(names)).sorted()
+    }
+
+    static func offset(index: Int, count: Int) -> CGFloat {
+        (CGFloat(index) - CGFloat(count - 1) / 2) * laneSpacing
+    }
+
+    static func color(_ index: Int) -> UIColor {
+        guard index >= 0 else { return .systemGray }
+        let colors: [UIColor] = [
+            UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1),
+            UIColor(red: 0.22, green: 0.75, blue: 1, alpha: 1),
+            UIColor(red: 0.39, green: 0.85, blue: 0.63, alpha: 1),
+            UIColor(red: 0.79, green: 0.57, blue: 1, alpha: 1),
+            UIColor(red: 1, green: 0.75, blue: 0.27, alpha: 1),
+            UIColor(red: 1, green: 0.44, blue: 0.66, alpha: 1)
+        ]
+        if index < colors.count { return colors[index] }
+        return UIColor(hue: CGFloat((Double(index) * 0.61803398875).truncatingRemainder(dividingBy: 1)), saturation: 0.6, brightness: 1, alpha: 1)
     }
 }
 
