@@ -9,7 +9,6 @@ struct ExpenseListView: View {
     @State private var pendingDeletion: ExpenseSnapshot?
     @State private var section: ExpenseSection = .expenses
     @State private var members: [TripMemberSummary] = []
-    @State private var currencyBeingUpdated: String?
     @State private var listFilter = ExpenseListFilter()
     @State private var linkedCardDetail: TravelCardSnapshot?
     @State private var linkedFlightDetail: TravelCardSnapshot?
@@ -173,14 +172,7 @@ struct ExpenseListView: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     // 同步状态不再展示提示条：本地先落库，登录后由前台
                     // 轮询/场景回前台静默重试上传（SyncEngine.startForegroundSync）。
-                    ExpenseSummaryView(trip: trip, currency: currency, members: members) { newCurrency in
-                        guard currencyBeingUpdated == nil else { return }
-                        currencyBeingUpdated = newCurrency
-                        Task {
-                            await syncEngine.updatePrimaryCurrency(newCurrency)
-                            currencyBeingUpdated = nil
-                        }
-                    }
+                    ExpenseSummaryView(trip: trip, currency: currency, members: members)
 
                     HStack {
                         Text("expense.section")
@@ -243,23 +235,6 @@ struct ExpenseListView: View {
             }
             .scrollIndicators(.hidden)
             .refreshable { await syncEngine.refresh() }
-            .disabled(currencyBeingUpdated != nil)
-            .overlay {
-                if let target = currencyBeingUpdated {
-                    ZStack {
-                        PrimaryTabPalette.background.opacity(0.96)
-                        VStack(spacing: 14) {
-                            ProgressView().tint(PrimaryTabPalette.accent)
-                            Text(String(format: String(localized: "expensesummary.convertingCurrency"), target))
-                                .font(.headline)
-                            Text("expensesummary.convertingCurrencyNote")
-                                .font(.subheadline)
-                                .foregroundStyle(PrimaryTabPalette.secondaryText)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-            }
         } else {
             ContentUnavailableView(
                 "expense.needTripTitle",
@@ -696,7 +671,7 @@ private struct ExpenseSwipeToDeleteModifier: ViewModifier {
             .buttonStyle(.plain)
             content
                 .offset(x: offset)
-                .gesture(
+                .simultaneousGesture(
                     DragGesture(minimumDistance: 12)
                         .onChanged { value in
                             guard abs(value.translation.width) > abs(value.translation.height) else { return }

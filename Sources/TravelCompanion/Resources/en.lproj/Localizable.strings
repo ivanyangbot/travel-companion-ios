@@ -508,11 +508,8 @@
 "expenseeditor.editTitle" = "Edit Actual Expense";
 "expenseeditor.errorInvalid" = "Enter a valid positive amount with no more decimals than the currency allows.";
 "expensesummary.title" = "Expense Overview";
-"expensesummary.convertingCurrency" = "Converting to %@";
-"expensesummary.convertingCurrencyNote" = "Please wait while amounts are updated";
 "expensesummary.count" = "%lld actual";
 "expensesummary.primaryCurrency" = "Primary currency";
-"expensesummary.changePrimaryCurrencyA11y" = "Change primary currency";
 "expensesummary.actual" = "Actually spent";
 "expensesummary.estimated" = "Estimated (pending actual)";
 "expensesummary.total" = "Trip total (actual + estimated)";
@@ -1289,7 +1286,6 @@
 "expense.savedRefreshFailed" = "Saved, but refreshing failed. Refresh before adding again.";
 "agent.commitNothingSaved" = "No items were saved. Your draft is retained; please retry.";
 
-"expensesummary.actualBasis" = "Recorded · Excludes estimates";
 "expensesummary.tripTotalShort" = "Trip total";
 "expensesummary.includesEstimates" = "Recorded + estimated expenses";
 "expensesummary.estimateShort" = "Estimated";

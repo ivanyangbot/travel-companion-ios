@@ -235,11 +235,17 @@ struct JournalEntryDetailView: View {
         .accessibilityLabel(image.description ?? image.fileName ?? String(localized: "journal.photoSection"))
     }
 
-    /// 有位置/描述的照片在角上给轻量标识。
+    /// Media and metadata indicators stay attached to the lower-right corner.
     @ViewBuilder
     private func photoBadges(_ image: JournalImage) -> some View {
-        if image.latitude != nil || image.description != nil {
+        if image.kind == "livePhoto" || image.isHDR == true || image.latitude != nil || image.description != nil {
             HStack(spacing: 6) {
+                if image.kind == "livePhoto" {
+                    Image(systemName: "livephoto")
+                }
+                if image.isHDR == true {
+                    Text("HDR")
+                }
                 if image.latitude != nil {
                     Image(systemName: "mappin")
                 }
@@ -250,7 +256,7 @@ struct JournalEntryDetailView: View {
             .font(.caption2.bold())
             .foregroundStyle(.white)
             .padding(5)
-            .background(.black.opacity(0.55), in: Circle())
+            .background(.black.opacity(0.55), in: Capsule())
             .padding(6)
         }
     }

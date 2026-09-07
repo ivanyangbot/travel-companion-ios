@@ -233,9 +233,14 @@ private struct JournalZoomablePhoto: View {
 
     var body: some View {
         Group {
-            if let media = photo.media, media.kind == "livePhoto" {
+            if let media = photo.media, media.kind == "livePhoto" || media.isHDR == true {
                 JournalMediaView(media: media)
                     .scaledToFit()
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .gesture(zoomGesture)
+                    .gesture(panGesture, including: scale > 1 ? .all : .none)
+                    .onTapGesture(count: 2, perform: toggleZoom)
             } else if let image {
                 Image(uiImage: image)
                     .resizable()
@@ -256,7 +261,8 @@ private struct JournalZoomablePhoto: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: photo.url) {
-            guard photo.media?.kind != "livePhoto", let url = photo.url else { return }
+            guard photo.media?.kind != "livePhoto", photo.media?.isHDR != true,
+                  let url = photo.url else { return }
             // 全尺寸查看用较大像素上限，兼顾内存与清晰度；命中 NSCache 时零开销。
             image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 2400, cacheKey: photo.id)
         }

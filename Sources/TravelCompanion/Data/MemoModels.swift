@@ -125,8 +125,9 @@ enum SharedMemoCache {
         let remoteIDs = Set(remote.map(\.id))
         for stale in local where stale.tripID == tripID && !remoteIDs.contains(stale.id) { context.delete(stale) }
         for snapshot in remote {
-            let list = local.first { $0.id == snapshot.id } ?? LocalMemoList(id: snapshot.id, title: snapshot.title, symbol: snapshot.symbol, tripID: tripID)
-            if list.modelContext == nil { context.insert(list) }
+            let existingList = local.first { $0.id == snapshot.id }
+            let list = existingList ?? LocalMemoList(id: snapshot.id, title: snapshot.title, symbol: snapshot.symbol, tripID: tripID)
+            if existingList == nil { context.insert(list) }
             list.tripID = tripID
             list.title = snapshot.title
             list.symbol = snapshot.symbol

@@ -508,11 +508,8 @@
 "expenseeditor.editTitle" = "編輯實際價";
 "expenseeditor.errorInvalid" = "請輸入有效的正數金額，且小數位數不能超過該幣別的精度。";
 "expensesummary.title" = "支出總覽";
-"expensesummary.convertingCurrency" = "正在換算為 %@";
-"expensesummary.convertingCurrencyNote" = "金額更新完成後顯示";
 "expensesummary.count" = "實際 %lld 筆";
 "expensesummary.primaryCurrency" = "主要幣別";
-"expensesummary.changePrimaryCurrencyA11y" = "修改主要幣別";
 "expensesummary.actual" = "實際已支出";
 "expensesummary.estimated" = "預估（待記實際）";
 "expensesummary.total" = "全行程合計（實際 + 預估）";
@@ -1291,7 +1288,6 @@
 "expense.savedRefreshFailed" = "已儲存，但重新整理失敗。請重新整理帳本後再操作，避免重複新增。";
 "agent.commitNothingSaved" = "本次沒有成功儲存任何項目。草稿已保留，請重試。";
 
-"expensesummary.actualBasis" = "實際帳目 · 不含預估";
 "expensesummary.tripTotalShort" = "全行程支出";
 "expensesummary.includesEstimates" = "實際帳目 + 待記預估";
 "expensesummary.estimateShort" = "預估";

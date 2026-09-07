@@ -49,10 +49,10 @@ struct MemoSection: View {
         .background(PrimaryTabPalette.background)
         .frame(maxHeight: .infinity, alignment: .top)
         .sheet(isPresented: $creatingList) {
-            MemoListEditor(list: nil) { list in Task { try? await syncEngine.saveSharedMemo(list) } }
+            MemoListEditor(list: nil) { list in saveAndBind(list) }
         }
         .sheet(item: $editingList) { list in
-            MemoListEditor(list: list) { saved in Task { try? await syncEngine.saveSharedMemo(saved) } }
+            MemoListEditor(list: list) { saved in saveAndBind(saved) }
         }
         .alert("memo.deleteTitle", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }), presenting: pendingDeletion) { list in
             Button("common.delete", role: .destructive) {
@@ -153,13 +153,34 @@ struct MemoSection: View {
                     list.tripID = tripID
                 }
                 try? modelContext.save()
-                let remote = try await syncEngine.fetchSharedMemos()
+                var remote = try await syncEngine.fetchSharedMemos()
+                let remoteByID = Dictionary(uniqueKeysWithValues: remote.map { ($0.id, $0) })
+                var uploadedLocalChange = false
+                for list in lists where list.tripID == tripID {
+                    if let server = remoteByID[list.id], list.updatedAt > server.updatedAt {
+                        try await syncEngine.saveSharedMemo(list)
+                        uploadedLocalChange = true
+                    }
+                }
+                if uploadedLocalChange { remote = try await syncEngine.fetchSharedMemos() }
                 try SharedMemoCache.replace(with: remote, tripID: tripID, context: modelContext)
             } catch {
                 // Cached checklists remain fully usable while offline.
             }
         } else {
             MemoListSeed.ensureDefaultList(context: modelContext)
+        }
+    }
+
+    private func saveAndBind(_ list: LocalMemoList) {
+        Task {
+            do {
+                try await syncEngine.saveSharedMemo(list)
+                list.tripID = syncEngine.selectedTripID
+                try? modelContext.save()
+            } catch {
+                // The SwiftData copy remains available and will be retried on refresh.
+            }
         }
     }
 }

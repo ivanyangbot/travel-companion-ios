@@ -508,11 +508,8 @@
 "expenseeditor.editTitle" = "编辑实际价";
 "expenseeditor.errorInvalid" = "请输入有效的正数金额，且小数位不能超过该币种精度。";
 "expensesummary.title" = "支出概览";
-"expensesummary.convertingCurrency" = "正在换算为 %@";
-"expensesummary.convertingCurrencyNote" = "金额更新完成后显示";
 "expensesummary.count" = "实际 %lld 笔";
 "expensesummary.primaryCurrency" = "主货币";
-"expensesummary.changePrimaryCurrencyA11y" = "修改主货币";
 "expensesummary.actual" = "实际已支出";
 "expensesummary.estimated" = "预估（待记实际）";
 "expensesummary.total" = "全行程合计（实际 + 预估）";
@@ -1289,7 +1286,6 @@
 "expense.savedRefreshFailed" = "已保存，但刷新失败。请刷新账本后再操作，避免重复添加。";
 "agent.commitNothingSaved" = "本次没有成功保存任何项目。草稿已保留，请重试。";
 
-"expensesummary.actualBasis" = "实际账目 · 不含预估";
 "expensesummary.tripTotalShort" = "全行程支出";
 "expensesummary.includesEstimates" = "实际账目 + 待记预估";
 "expensesummary.estimateShort" = "预估";

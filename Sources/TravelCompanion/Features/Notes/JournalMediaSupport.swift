@@ -77,9 +77,12 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
     }
 
     static func load(from item: PhotosPickerItem) async throws -> JournalAttachment {
-        // PhotosPicker 本身不需要整库授权。只在用户已经授权时走 PHAsset，避免
-        // 选完照片后又出现一层权限弹窗；未授权时从原始文件的 EXIF 读取位置。
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        // Access to the selected PHAsset is needed to retain the paired MOV and
+        // HDR subtype. If access is unavailable, fall back to the picked file.
+        var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if status == .notDetermined {
+            status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        }
         if (status == .authorized || status == .limited),
            let identifier = item.itemIdentifier,
            let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject {
@@ -90,47 +93,6 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
             throw JournalMediaError.unreadable
         }
         return try await loadFile(at: imported.url)
-    }
-
-    static func load(from wrappedResult: JournalPhotoPickerResult) async throws -> JournalAttachment {
-        let result = wrappedResult.value
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        if (status == .authorized || status == .limited),
-           let identifier = result.assetIdentifier,
-           let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject {
-            return try await load(from: asset)
-        }
-
-        let provider = result.itemProvider
-        guard let typeIdentifier = provider.registeredTypeIdentifiers.first(where: {
-            UTType($0)?.conforms(to: .image) == true
-        }) else { throw JournalMediaError.unsupported }
-        let importedURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-            provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { url, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                guard let url else {
-                    continuation.resume(throwing: JournalMediaError.unreadable)
-                    return
-                }
-                do {
-                    let type = UTType(typeIdentifier)
-                    let originalName = url.lastPathComponent
-                    let hasImageExtension = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
-                    let fileName = hasImageExtension
-                        ? originalName
-                        : "photo.\(type?.preferredFilenameExtension ?? "jpg")"
-                    let destination = try temporaryURL(fileName: fileName)
-                    try FileManager.default.copyItem(at: url, to: destination)
-                    continuation.resume(returning: destination)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-        return try await loadFile(at: importedURL)
     }
 
     static func loadFile(at sourceURL: URL) async throws -> JournalAttachment {
@@ -276,12 +238,6 @@ struct JournalAttachment: Identifiable, @unchecked Sendable {
     }
 }
 
-/// PHPickerResult carries an NSItemProvider and has no SDK Sendable conformance.
-/// Selection is immutable after the delegate callback, so it is safe to hand to the import task.
-struct JournalPhotoPickerResult: @unchecked Sendable {
-    let value: PHPickerResult
-}
-
 private struct JournalPickedFile: Transferable, Sendable {
     let url: URL
 
@@ -346,6 +302,17 @@ struct JournalMediaView: View {
                     .padding(8)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if media.isHDR == true {
+                Text("HDR")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .foregroundStyle(.white)
+                    .padding(8)
+            }
+        }
     }
 }
 
@@ -357,10 +324,10 @@ private struct JournalHDRImage: View {
             Image(uiImage: image)
                 .resizable()
                 .allowedDynamicRange(.high)
-                .scaledToFill()
+                .scaledToFit()
         } else {
             AsyncImage(url: url) { image in
-                image.resizable().allowedDynamicRange(.high).scaledToFill()
+                image.resizable().allowedDynamicRange(.high).scaledToFit()
             } placeholder: {
                 Rectangle().fill(.quaternary)
             }
@@ -477,21 +444,13 @@ final class JournalPhotoLoader: @unchecked Sendable {
             data = local
             diskCache.store(local, for: persistentKey)
         } else {
-            // 网络同步只传输尚未同步的本地附件；这里是展示路径，不能回源拉图。
-            return nil
+            guard let (remote, response) = try? await URLSession.shared.data(from: url),
+                  let http = response as? HTTPURLResponse,
+                  (200 ..< 300).contains(http.statusCode),
+                  remote.count <= JournalAttachment.maximumResourceBytes else { return nil }
+            data = remote
+            diskCache.store(remote, for: persistentKey)
         }
-        .overlay(alignment: .bottomTrailing) {
-            if media.isHDR == true {
-                Text("HDR")
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(.black.opacity(0.6), in: Capsule())
-                    .foregroundStyle(.white)
-                    .padding(8)
-            }
-        }
-
         guard let image = Self.downsampledImage(from: data, maxPixelSize: maxPixelSize) else { return nil }
         cache.setObject(image, forKey: memoryKey)
         return image
@@ -582,6 +541,7 @@ private struct JournalPhotoThumbnailCore: View {
             if let image {
                 Image(uiImage: image)
                     .resizable()
+                    .allowedDynamicRange(.high)
                     .scaledToFill()
             } else {
                 Rectangle().fill(PrimaryTabPalette.elevatedSurface)

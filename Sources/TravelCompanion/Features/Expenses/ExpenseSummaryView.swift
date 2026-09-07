@@ -4,7 +4,6 @@ struct ExpenseSummaryView: View {
     let trip: SharedTripSnapshot
     let currency: String
     let members: [TripMemberSummary]
-    let onCurrencyChange: (String) -> Void
 
     private var expenses: [ExpenseSnapshot] { trip.expenses }
     private var cards: [TravelCardSnapshot] { trip.days.flatMap(\.cards) }
@@ -131,7 +130,6 @@ struct ExpenseSummaryView: View {
                         .foregroundStyle(ink)
                 }
                 Spacer(minLength: 8)
-                currencyMenu
             }
 
             ZStack {
@@ -190,31 +188,6 @@ struct ExpenseSummaryView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         }
-    }
-
-    private var currencyMenu: some View {
-        Menu {
-            ForEach(ExpenseCurrency.supported, id: \.self) { code in
-                Button {
-                    onCurrencyChange(code)
-                } label: {
-                    if code == currency { Label(code, systemImage: "checkmark") }
-                    else { Text(code) }
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Text(currency).font(.caption.weight(.semibold).monospaced())
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
-            }
-            .foregroundStyle(ink.opacity(0.85))
-            .padding(.horizontal, 10)
-            .frame(height: 34)
-            .background(.black.opacity(0.18), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.10), lineWidth: 1))
-        }
-        .accessibilityLabel(Text("expensesummary.changePrimaryCurrencyA11y"))
-        .accessibilityValue(Text(currency))
     }
 
     private var paymentArc: some View {

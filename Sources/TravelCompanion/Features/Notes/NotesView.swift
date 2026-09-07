@@ -559,6 +559,7 @@ struct NotesView: View {
                 Button {
                     withAnimation(.snappy(duration: 0.2)) {
                         isSelectingPhotos.toggle()
+                        if isSelectingPhotos { displayMode = .list }
                         if !isSelectingPhotos { selectedPhotoIDs.removeAll() }
                     }
                 } label: {
@@ -1395,39 +1396,6 @@ private struct JournalPhotoMetadataEditor: View {
         }
     }
 
-}
-
-private struct JournalPhotoPickerSheet: UIViewControllerRepresentable {
-    let onComplete: ([JournalPhotoPickerResult]) -> Void
-    let onCancel: () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.filter = .images
-        configuration.selectionLimit = 9
-        configuration.preferredAssetRepresentationMode = .current
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
-
-    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let parent: JournalPhotoPickerSheet
-
-        init(parent: JournalPhotoPickerSheet) { self.parent = parent }
-
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            if results.isEmpty {
-                parent.onCancel()
-            } else {
-                parent.onComplete(results.map { JournalPhotoPickerResult(value: $0) })
-            }
-        }
-    }
 }
 
 @MainActor
