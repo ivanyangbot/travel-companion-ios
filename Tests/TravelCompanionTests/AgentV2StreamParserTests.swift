@@ -2,6 +2,39 @@ import XCTest
 @testable import TravelCompanion
 
 final class AgentV2StreamParserTests: XCTestCase {
+    func testChecklistExtensionKeepsCompatibleTextAndNoExpenseCards() throws {
+        let fixture = """
+        event: assistant_delta
+        data: "行前准备清单：☐ 护照 ☐ 身份证"
+
+        event: checklist
+        data: {"title":"行前准备清单","items":[{"text":"护照"},{"text":"身份证"}]}
+
+        event: change_set
+        data: []
+
+        event: done
+        data: {}
+
+
+        """
+        var parser = AgentV2SSEParser()
+        var reply = ""
+        var done = false
+        for byte in fixture.utf8 {
+            guard let event = try parser.consume(byte) else { continue }
+            switch event {
+            case .assistantDelta(let text): reply += text
+            case .changeSet(let changes): XCTAssertTrue(changes.isEmpty)
+            case .done: done = true
+            default: XCTFail("Checklist must not create expense card events")
+            }
+        }
+        XCTAssertTrue(reply.contains("护照"))
+        XCTAssertTrue(done)
+        XCTAssertNoThrow(try parser.finishAtEOF())
+    }
+
     func testSSEEventIDIsCapturedForCursorResume() throws {
         let fixture = """
         id: 41

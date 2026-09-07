@@ -6,6 +6,41 @@ import XCTest
 @testable import TravelCompanion
 
 final class TravelCardsTests: XCTestCase {
+    func testItineraryListSumsAllActualExpensesLinkedToOneCard() {
+        let expenses = [
+            ExpenseSnapshot(
+                amountMinor: 50_000,
+                currency: "CNY",
+                category: .other,
+                occurredOn: "2026-10-01",
+                cardIDs: [42]
+            ),
+            ExpenseSnapshot(
+                amountMinor: 100_000,
+                currency: "CNY",
+                category: .other,
+                occurredOn: "2026-10-02",
+                cardIDs: [42]
+            ),
+            ExpenseSnapshot(
+                amountMinor: 999_999,
+                currency: "CNY",
+                category: .other,
+                occurredOn: "2026-10-03",
+                cardIDs: [99]
+            ),
+        ]
+
+        XCTAssertEqual(
+            ItineraryListPresentation.linkedActualExpenseTotal(
+                cardID: 42,
+                expenses: expenses,
+                preferredCurrency: "CNY"
+            ),
+            .init(amountMinor: 150_000, currency: "CNY")
+        )
+    }
+
     func testFlightRouteTitleOnlyKeepsDepartureAndDestination() {
         XCTAssertEqual(
             AgentFlightDisplay.routeTitle(

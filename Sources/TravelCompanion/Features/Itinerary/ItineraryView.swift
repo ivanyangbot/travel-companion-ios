@@ -1970,33 +1970,38 @@ struct ItineraryView: View {
     }
 
     private func compactCardPrice(for card: TravelCardSnapshot) -> String? {
-        let currency = syncEngine.trip?.currency
+        let tripCurrency = syncEngine.trip?.currency
+        // 一张行程卡可关联订金、尾款等多笔实际支出；存在关联账目时，
+        // 它们的合计取代卡片上的预估价（而不是只显示最后更新的一笔）。
+        if let actual = linkedActualExpenseTotal(for: card),
+           let formatted = CardPrice.formatRoundedMajor(
+               minor: actual.amountMinor,
+               currency: actual.currency
+           ) {
+            return formatted
+        }
         if let actual = CardPrice.formatRoundedMajor(
             minor: card.actualPriceMinor,
-            currency: card.priceCurrency ?? currency
+            currency: card.priceCurrency ?? tripCurrency
         ) {
             return actual
         }
-        if let expense = linkedActualExpense(for: card),
-           let actual = CardPrice.formatRoundedMajor(
-               minor: expense.amountMinor,
-               currency: expense.currency
-           ) {
-            return actual
-        }
-        return CardPrice.formatRoundedMajor(minor: card.priceMinor, currency: card.priceCurrency ?? currency)
-            ?? CardPrice.formatRoundedMajor(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? currency)
+        return CardPrice.formatRoundedMajor(minor: card.priceMinor, currency: card.priceCurrency ?? tripCurrency)
+            ?? CardPrice.formatRoundedMajor(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? tripCurrency)
     }
 
     private func hasRecordedActualPrice(for card: TravelCardSnapshot) -> Bool {
-        card.actualPriceMinor != nil || linkedActualExpense(for: card) != nil
+        card.actualPriceMinor != nil || linkedActualExpenseTotal(for: card) != nil
     }
 
-    private func linkedActualExpense(for card: TravelCardSnapshot) -> ExpenseSnapshot? {
-        guard let cardID = card.serverID else { return nil }
-        return syncEngine.trip?.expenses
-            .filter { $0.cardIDs.contains(cardID) }
-            .max { $0.updatedAt < $1.updatedAt }
+    private func linkedActualExpenseTotal(
+        for card: TravelCardSnapshot
+    ) -> ItineraryListPresentation.LinkedActualExpenseTotal? {
+        ItineraryListPresentation.linkedActualExpenseTotal(
+            cardID: card.serverID,
+            expenses: syncEngine.trip?.expenses ?? [],
+            preferredCurrency: syncEngine.trip?.currency ?? card.priceCurrency
+        )
     }
 
     private func handleListCardSwipeChanged(_ card: TravelCardSnapshot, translation: CGFloat) {
@@ -4202,6 +4207,11 @@ enum ItineraryCardDragPolicy {
 }
 
 enum ItineraryListPresentation {
+    struct LinkedActualExpenseTotal: Equatable {
+        let amountMinor: Int64
+        let currency: String
+    }
+
     struct HotelNightProgress: Equatable {
         let nightIndex: Int
         let totalNights: Int
@@ -4246,6 +4256,34 @@ enum ItineraryListPresentation {
         String(localized: "common.weekday.5"),
         String(localized: "common.weekday.6")
     ]
+
+    /// 支出与行程卡为多对多关系。一张卡关联多笔账时，列表价应显示这些
+    /// 实际支出的合计；预估价仅在没有可展示的实际支出时作为回退。
+    static func linkedActualExpenseTotal(
+        cardID: Int?,
+        expenses: [ExpenseSnapshot],
+        preferredCurrency: String?
+    ) -> LinkedActualExpenseTotal? {
+        guard let cardID else { return nil }
+        let linked = expenses.compactMap { expense -> (amount: Int64, currency: String)? in
+            guard expense.cardIDs.contains(cardID),
+                  let amount = expense.amountForSettlement
+            else { return nil }
+            return (amount, expense.settlementCurrency ?? expense.currency)
+        }
+        guard let first = linked.first else { return nil }
+
+        // 汇总金额必须使用同一币种；正常情况下服务端会把外币支出折算到行程币种。
+        let currency = preferredCurrency ?? first.currency
+        let matching = linked.filter { $0.currency == currency }
+        guard !matching.isEmpty else { return nil }
+
+        let amount = matching.reduce(Int64(0)) { total, item in
+            let result = total.addingReportingOverflow(item.amount)
+            return result.overflow ? Int64.max : result.partialValue
+        }
+        return LinkedActualExpenseTotal(amountMinor: amount, currency: currency)
+    }
 
     static func selectedIndex(date: String?, in days: [TripDaySnapshot]) -> Int {
         guard !days.isEmpty else { return 0 }

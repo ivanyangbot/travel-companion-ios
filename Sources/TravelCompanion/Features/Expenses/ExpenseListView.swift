@@ -11,6 +11,8 @@ struct ExpenseListView: View {
     @State private var members: [TripMemberSummary] = []
     @State private var currencyBeingUpdated: String?
     @State private var listFilter = ExpenseListFilter()
+    @State private var linkedCardDetail: TravelCardSnapshot?
+    @State private var linkedFlightDetail: TravelCardSnapshot?
 
     var body: some View {
         NavigationStack {
@@ -33,6 +35,20 @@ struct ExpenseListView: View {
                     }
                 }
             }
+            .overlay {
+                if let card = linkedFlightDetail {
+                    FlightTicketPopup(
+                        card: card,
+                        currency: syncEngine.trip?.currency,
+                        showsPassengers: syncEngine.isUserAuthenticated && members.count > 1,
+                        onDismiss: {
+                            withAnimation(.snappy(duration: 0.24)) { linkedFlightDetail = nil }
+                        }
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .zIndex(10_000)
+                }
+            }
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
             .sheet(isPresented: $addingExpense) {
@@ -48,6 +64,17 @@ struct ExpenseListView: View {
                         await syncEngine.saveExpenseFromEditor(request, existing: expense, idempotencyKey: key)
                     }
                 }
+            }
+            .sheet(item: $linkedCardDetail) { card in
+                CardDetailView(
+                    card: card,
+                    currency: syncEngine.trip?.currency,
+                    showsPassengers: syncEngine.isUserAuthenticated && members.count > 1
+                )
+                .presentationDetents([.fraction(0.82), .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(30)
+                .presentationBackground(PrimaryTabPalette.background)
             }
             .alert(
                 "expense.deleteTitle",
@@ -456,25 +483,30 @@ struct ExpenseListView: View {
                     }
                 }
 
-                // 关联行程卡：强调色单行 chip，多卡折叠为「首卡名 +n」。
-                if let linked = cards.first {
-                    HStack(spacing: 5) {
-                        Image(systemName: linked.kind.systemImage)
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(cards.count > 1
-                             ? "\(linked.title) +\(cards.count - 1)"
-                             : linked.title)
-                            .lineLimit(1)
+                // 每个关联活动各自占一行：不能折叠为「+n」，以免遗漏支出归属。
+                if !cards.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(cards) { linked in
+                            Button { presentLinkedCardDetail(linked) } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: linked.kind.systemImage)
+                                        .font(.system(size: 10, weight: .semibold))
+                                    Text(linked.title)
+                                        .lineLimit(1)
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(PrimaryTabPalette.accent)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(PrimaryTabPalette.accent.opacity(0.12), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text(String(
+                                format: String(localized: "expense.a11y.linkedCard"),
+                                linked.title
+                            )))
+                        }
                     }
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PrimaryTabPalette.accent)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(PrimaryTabPalette.accent.opacity(0.12), in: Capsule())
-                    .accessibilityLabel(Text(String(
-                        format: String(localized: cards.count > 1 ? "expense.a11y.linkedCards" : "expense.a11y.linkedCard"),
-                        linked.title, cards.count
-                    )))
                 }
 
                 // 备注：仅显示未被标题占用的剩余内容。
@@ -541,6 +573,16 @@ struct ExpenseListView: View {
     private func linkedCards(for expense: ExpenseSnapshot) -> [TravelCardSnapshot] {
         let cards = syncEngine.trip?.days.flatMap(\.cards) ?? []
         return expense.cardIDs.compactMap { id in cards.first { $0.serverID == id } }
+    }
+
+    /// 与首页列表卡保持同一详情层级：普通活动/酒店使用底部 sheet，
+    /// 航班保留专用票券弹层。
+    private func presentLinkedCardDetail(_ card: TravelCardSnapshot) {
+        if card.kind == .flight {
+            linkedFlightDetail = card
+        } else {
+            linkedCardDetail = card
+        }
     }
 
     /// 消费时间优先；否则把发生日 ISO 串转成本地化短日期，不再裸奔 yyyy-MM-dd。

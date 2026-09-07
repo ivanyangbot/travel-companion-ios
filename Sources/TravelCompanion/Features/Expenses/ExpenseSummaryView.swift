@@ -93,6 +93,9 @@ struct ExpenseSummaryView: View {
     private let pendingColor = Color(red: 0.95, green: 0.74, blue: 0.48)
     private let estimateColor = Color(red: 0.38, green: 0.39, blue: 0.43)
     private let ink = Color(red: 0.97, green: 0.95, blue: 0.91)
+    /// 与首页列表卡一致的两级深灰：概览为外层，三项指标为更浅的内层卡。
+    private let overviewSurface = Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
+    private let metricSurface = Color(red: 48 / 255, green: 48 / 255, blue: 48 / 255)
     private var actualTotal: Int64 { paidTotal + unpaidTotal }
     private var sortedCategories: [ExpenseCategory] {
         ExpenseCategory.allCases.filter { (byCategory[$0] ?? 0) > 0 }
@@ -119,13 +122,14 @@ struct ExpenseSummaryView: View {
     private var overviewCard: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center) {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     Image(systemName: "chart.pie.fill")
+                        .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(paidColor)
                     Text("expensesummary.title")
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(ink)
                 }
-                .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
                 currencyMenu
             }
@@ -173,22 +177,22 @@ struct ExpenseSummaryView: View {
                 .padding(.bottom, 18)
 
             let layout = dynamicTypeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 18))
-                : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
             layout {
                 statusMetric("expensesummary.paid", amount: paidTotal, color: paidColor)
                 statusMetric("expensesummary.unpaid", amount: unpaidTotal, color: pendingColor)
                 statusMetric("expensesummary.estimateShort", amount: estimatedTotal, color: estimateColor)
             }
         }
-        .padding(20)
+        .padding(18)
         .background {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(red: 0.075, green: 0.075, blue: 0.085))
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(overviewSurface)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         }
     }
 
@@ -208,10 +212,10 @@ struct ExpenseSummaryView: View {
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
             }
             .foregroundStyle(ink.opacity(0.85))
-            .padding(.horizontal, 12)
-            .frame(minHeight: 44)
-            .background(.white.opacity(0.045), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1))
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(.black.opacity(0.18), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.10), lineWidth: 1))
         }
         .accessibilityLabel(Text("expensesummary.changePrimaryCurrencyA11y"))
         .accessibilityValue(Text(currency))
@@ -256,7 +260,14 @@ struct ExpenseSummaryView: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
         }
+        .padding(12)
+        .frame(minHeight: 86, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(metricSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(.white.opacity(0.045), lineWidth: 1)
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(key))
         .accessibilityValue(Text(ExpenseMoney.formatted(amount, currency: currency)))

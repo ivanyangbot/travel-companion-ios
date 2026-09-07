@@ -1,5 +1,6 @@
 import AVKit
 import CoreTransferable
+import Foundation
 import ImageIO
 import Photos
 import PhotosUI
@@ -446,36 +447,43 @@ private struct LivePhotoRepresentable: UIViewRepresentable {
     }
 }
 
-/// 手书照片缩略图加载器：本地 file:// 与远端预签名 URL 统一处理，
-/// NSCache 去重 + CGImageSource 降采样，供地图 pin（UIKit）与照片网格（SwiftUI）共用。
+/// 手书照片缩略图加载器：展示层只从本地读取，绝不因滚动或预览而请求服务端。
+/// 照片在导入、上传时写入磁盘缓存；之后缩略图、地图与全屏预览共用该缓存。
 final class JournalPhotoLoader: @unchecked Sendable {
     static let shared = JournalPhotoLoader()
 
     private let cache: NSCache<NSString, UIImage>
+    private let diskCache = JournalPhotoDiskCache.shared
 
     private init() {
         cache = NSCache()
         cache.countLimit = 240
     }
 
-    func thumbnail(for url: URL, maxPixelSize: CGFloat) async -> UIImage? {
-        let cacheKey = "\(url.absoluteString)#\(Int(maxPixelSize))" as NSString
-        if let cached = cache.object(forKey: cacheKey) { return cached }
-        guard let image = await Self.loadAndDownsample(url: url, maxPixelSize: maxPixelSize) else { return nil }
-        cache.setObject(image, forKey: cacheKey)
+    func thumbnail(for url: URL, maxPixelSize: CGFloat, cacheKey: String? = nil) async -> UIImage? {
+        let persistentKey = cacheKey ?? url.absoluteString
+        let memoryKey = "\(persistentKey)#\(Int(maxPixelSize))" as NSString
+        if let cached = cache.object(forKey: memoryKey) { return cached }
+
+        let data: Data
+        if let cached = diskCache.data(for: persistentKey) {
+            data = cached
+        } else if url.isFileURL, let local = FileManager.default.contents(atPath: url.path) {
+            data = local
+            diskCache.store(local, for: persistentKey)
+        } else {
+            // 网络同步只传输尚未同步的本地附件；这里是展示路径，不能回源拉图。
+            return nil
+        }
+
+        guard let image = Self.downsampledImage(from: data, maxPixelSize: maxPixelSize) else { return nil }
+        cache.setObject(image, forKey: memoryKey)
         return image
     }
 
-    private static func loadAndDownsample(url: URL, maxPixelSize: CGFloat) async -> UIImage? {
-        let data: Data
-        if url.isFileURL {
-            guard let local = FileManager.default.contents(atPath: url.path) else { return nil }
-            data = local
-        } else {
-            guard let (downloaded, _) = try? await URLSession.shared.data(from: url) else { return nil }
-            data = downloaded
-        }
-        return downsampledImage(from: data, maxPixelSize: maxPixelSize)
+    func persistLocalPhoto(at url: URL, key: String) {
+        guard let data = FileManager.default.contents(atPath: url.path) else { return }
+        diskCache.store(data, for: key)
     }
 
     static func downsampledImage(from data: Data, maxPixelSize: CGFloat) -> UIImage? {
@@ -492,15 +500,54 @@ final class JournalPhotoLoader: @unchecked Sendable {
     }
 }
 
+/// Application Support 中的稳定照片缓存。key 是服务端媒体 key，而非会过期的
+/// 预签名 URL，因此应用重启、链接刷新也不会重新下载同一张照片。
+private final class JournalPhotoDiskCache: @unchecked Sendable {
+    static let shared = JournalPhotoDiskCache()
+
+    private let directory: URL
+    private let lock = NSLock()
+
+    private init() {
+        directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("TravelCompanion/JournalPhotoCache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    func data(for key: String) -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return FileManager.default.contents(atPath: fileURL(for: key).path)
+    }
+
+    func store(_ data: Data, for key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        let destination = fileURL(for: key)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
+        try? data.write(to: destination, options: .atomic)
+    }
+
+    private func fileURL(for key: String) -> URL {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in key.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return directory.appendingPathComponent(String(format: "%016llx", hash) + ".photo")
+    }
+}
+
 /// 手书照片缩略图（SwiftUI）：远端/本地通用，加载中显示占位底色。
 struct JournalPhotoThumbnail: View {
     let url: URL?
+    var cacheKey: String? = nil
     var maxPixelSize: CGFloat = 600
 
     var body: some View {
         Group {
             if let url {
-                JournalPhotoThumbnailCore(url: url, maxPixelSize: maxPixelSize)
+                JournalPhotoThumbnailCore(url: url, cacheKey: cacheKey, maxPixelSize: maxPixelSize)
             } else {
                 Rectangle().fill(.quaternary)
             }
@@ -510,6 +557,7 @@ struct JournalPhotoThumbnail: View {
 
 private struct JournalPhotoThumbnailCore: View {
     let url: URL
+    let cacheKey: String?
     let maxPixelSize: CGFloat
     @State private var image: UIImage?
 
@@ -524,7 +572,7 @@ private struct JournalPhotoThumbnailCore: View {
             }
         }
         .task(id: url) {
-            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: maxPixelSize)
+            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: maxPixelSize, cacheKey: cacheKey)
         }
     }
 }
@@ -533,11 +581,12 @@ private struct JournalPhotoThumbnailCore: View {
 /// 按原始宽高比放大显示；lift-and-zoom 过场由系统 context menu 动画提供。
 struct JournalPhotoPreview: View {
     let url: URL?
+    var cacheKey: String? = nil
 
     var body: some View {
         Group {
             if let url {
-                JournalPhotoPreviewCore(url: url)
+                JournalPhotoPreviewCore(url: url, cacheKey: cacheKey)
             } else {
                 Rectangle().fill(.quaternary)
             }
@@ -549,6 +598,7 @@ struct JournalPhotoPreview: View {
 
 private struct JournalPhotoPreviewCore: View {
     let url: URL
+    let cacheKey: String?
     @State private var image: UIImage?
 
     var body: some View {
@@ -562,7 +612,7 @@ private struct JournalPhotoPreviewCore: View {
             }
         }
         .task(id: url) {
-            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 1000)
+            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 1000, cacheKey: cacheKey)
         }
     }
 }

@@ -216,6 +216,9 @@ final class JournalSyncCoordinator: ObservableObject, @unchecked Sendable {
                 }
             }
         )
+        if attachment.kind == "photo" || attachment.kind == "livePhoto" {
+            JournalPhotoLoader.shared.persistLocalPhoto(at: attachment.primary.url, key: primaryKey)
+        }
         completed += 1
         publishProgress(completed: completed, total: total)
 
@@ -627,21 +630,26 @@ struct NotesView: View {
         } else {
             ZStack {
                 Circle()
-                    .stroke(.white.opacity(0.18), lineWidth: 2)
-                Circle()
-                    .trim(from: 0, to: syncProgress)
-                    .stroke(PrimaryTabPalette.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
+                    .stroke(.gray.opacity(0.65), lineWidth: 3)
+                if syncProgress > 0 {
+                    Circle()
+                        .trim(from: 0, to: syncProgress)
+                        .stroke(.orange, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
             }
-            .frame(width: 11, height: 11)
+            .frame(width: 18, height: 18)
+            .animation(.easeInOut(duration: 0.2), value: syncProgress)
             .accessibilityLabel(Text("journal.syncingTitle"))
             .accessibilityValue(Text(syncProgress, format: .percent))
         }
     }
 
     private var syncProgress: Double {
-        if case .syncing(let progress, _, _) = journalSync.state { return max(0.03, progress) }
-        return journalSync.hasPendingContent ? 0.08 : 1
+        if case .syncing(let progress, _, _) = journalSync.state {
+            return min(1, max(0.02, progress))
+        }
+        return 0
     }
 
     private var selectedGroupTitle: String { snapshot.groups.first(where: { $0.id == selectedGroupID })?.name ?? String(localized: "journal.allGroups") }
@@ -670,7 +678,11 @@ struct NotesView: View {
 
     private func journalPhoto(_ item: JournalPhotoItem) -> some View {
         ZStack(alignment: .bottomLeading) {
-            JournalPhotoThumbnail(url: item.image.url.flatMap(URL.init(string:)), maxPixelSize: 1000)
+            JournalPhotoThumbnail(
+                url: item.image.url.flatMap(URL.init(string:)),
+                cacheKey: item.image.key,
+                maxPixelSize: 1000
+            )
                 .frame(height: waterfallImageHeight(for: item.image))
                 .frame(maxWidth: .infinity)
                 .clipped()
@@ -702,7 +714,7 @@ struct NotesView: View {
                 presentPhotoViewer(startingAt: item.image.key)
             }
         } preview: {
-            JournalPhotoPreview(url: item.image.url.flatMap(URL.init(string:)))
+            JournalPhotoPreview(url: item.image.url.flatMap(URL.init(string:)), cacheKey: item.image.key)
         }
         .accessibilityLabel(item.image.description ?? String(localized: "journal.photoPinA11y"))
         .accessibilityHint(Text("journal.photoLongPressHint"))
@@ -950,6 +962,9 @@ struct NotesView: View {
             fileName: attachment.primary.fileName,
             tripID: tripID
         )
+        if attachment.kind == "photo" || attachment.kind == "livePhoto" {
+            JournalPhotoLoader.shared.persistLocalPhoto(at: attachment.primary.url, key: primaryKey)
+        }
         let pairedUpload: JournalMediaUploadResource?
         if let paired = attachment.pairedVideo {
             let key = try await api.uploadJournalFile(

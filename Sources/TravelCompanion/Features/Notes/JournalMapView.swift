@@ -413,7 +413,7 @@ final class JournalPhotoAnnotationView: MLNAnnotationView {
         imageView.image = nil
         guard let url = pin.imageURL else { return }
         loadTask = Task { [weak self] in
-            let image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 120)
+            let image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 120, cacheKey: pin.id)
             guard !Task.isCancelled, let self else { return }
             self.imageView.image = image
         }

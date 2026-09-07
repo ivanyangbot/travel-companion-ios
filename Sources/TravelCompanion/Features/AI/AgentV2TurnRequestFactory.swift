@@ -39,7 +39,7 @@ struct AgentV2TurnRequestFactory {
             sessionId: session.id,
             turnId: UUID(),
             intent: agent == .itinerary ? "itinerary" : agent.rawValue,
-            message: agent == .ledger ? Self.ledgerMessage(message) : message,
+            message: message,
             trip: Self.tripEnvelope(for: trip, includeActualPrices: agent == .ledger),
             preferences: session.preferences,
             history: history,
@@ -126,17 +126,7 @@ struct AgentV2TurnRequestFactory {
             .map { $0 }
     }
 
-    private static func ledgerMessage(_ userMessage: String) -> String {
-        """
-        \(userMessage)
-
-        [Ledger output rules]
-        Keep expense notes strictly concise. Put transaction time, payment time, merchant/platform, payment method, consumer, linked itinerary cards, amount, currency, and category in their dedicated structured fields, never in notes. Notes may contain only a user-stated reconciliation detail that has no structured field; otherwise return notes as null. Do not copy booking descriptions, cancellation policies, exchange-rate disclaimers, confirmations, or generic advice into notes. Limit any note to 80 characters. When evidence is available, populate spentAt (ISO 8601), paidAt (actual payment time when already paid, expected payment time for pay-on-arrival, or empty when unpaid), purchaseChannel, paymentMethod, consumerUserId/consumerName, and cardIds (JSON array of itinerary card IDs; one expense may cover several cards). paymentMethod must be one of cash, credit_card, debit_card, alipay, wechat_pay, apple_pay, bank_transfer, or other.
-        """
-    }
-
-    /// 备忘物品引用：id 为顺序编号（仅轮内引用），仅未勾选项对记账有意义，
-    /// 已勾选（已购/已办）的物品也保留——补录历史开销同样需要。
+    /// 备忘引用只提供事实；勾选状态不代表付款或打包状态。
     static func memoSnapshot(items: [(name: String, notes: String?)]) -> [AgentV2TurnRequest.ReferenceItem] {
         items.prefix(referenceSnapshotLimit).enumerated().map { index, item in
             AgentV2TurnRequest.ReferenceItem(

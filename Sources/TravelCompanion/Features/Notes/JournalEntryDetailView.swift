@@ -213,7 +213,11 @@ struct JournalEntryDetailView: View {
         } label: {
             ZStack(alignment: .bottomTrailing) {
                 if isViewable {
-                    JournalPhotoThumbnail(url: image.url.flatMap(URL.init(string:)), maxPixelSize: 800)
+                    JournalPhotoThumbnail(
+                        url: image.url.flatMap(URL.init(string:)),
+                        cacheKey: image.key,
+                        maxPixelSize: 800
+                    )
                 } else {
                     JournalMediaView(media: image)
                 }

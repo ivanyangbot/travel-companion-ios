@@ -55,7 +55,7 @@ struct JournalPhotoViewer: View {
             if photos.count > 1 {
                 TabView(selection: $currentIndex) {
                     ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
-                        JournalZoomablePhoto(url: photo.url)
+                        JournalZoomablePhoto(id: photo.id, url: photo.url)
                             .tag(index)
                     }
                 }
@@ -65,7 +65,7 @@ struct JournalPhotoViewer: View {
                     descriptionFieldFocused = false
                 }
             } else if let photo = currentPhoto {
-                JournalZoomablePhoto(url: photo.url)
+                JournalZoomablePhoto(id: photo.id, url: photo.url)
             }
 
             // 顶部：关闭 + 页码
@@ -211,6 +211,7 @@ struct JournalPhotoViewer: View {
 
 /// 单张可缩放照片页：缩放/拖拽状态页内独立，翻页自动复位。
 private struct JournalZoomablePhoto: View {
+    let id: String
     let url: URL?
 
     @State private var image: UIImage?
@@ -242,7 +243,7 @@ private struct JournalZoomablePhoto: View {
         .task(id: url) {
             guard let url else { return }
             // 全尺寸查看用较大像素上限，兼顾内存与清晰度；命中 NSCache 时零开销。
-            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 2400)
+            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 2400, cacheKey: id)
         }
     }
 

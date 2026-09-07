@@ -3,6 +3,13 @@ import XCTest
 @testable import TravelCompanion
 
 final class AgentV2RequestFactoryTests: XCTestCase {
+    func testChecklistRequestPreservesUserIntentWithoutExpenseInstructions() {
+        let factory = AgentV2TurnRequestFactory(agent: .ledger, session: makeSession(), trip: makeTrip())
+        let request = factory.makeRequest(message: "生成印尼行前准备清单")
+        XCTAssertEqual(request.message, "生成印尼行前准备清单")
+        XCTAssertEqual(request.agent, "ledger")
+    }
+
     private func makeTrip(expenses: [ExpenseSnapshot] = []) -> SharedTripSnapshot {
         let card = TravelCardSnapshot(
             serverID: 11,
@@ -82,8 +89,7 @@ final class AgentV2RequestFactoryTests: XCTestCase {
         XCTAssertEqual(request.expenses?.first?.cardIds, [11, 12])
         XCTAssertNotNil(request.expenses?.first?.paidAt)
         XCTAssertNotNil(request.expenses?.first?.createdAt)
-        XCTAssertTrue(request.message.hasPrefix("记一笔晚餐"))
-        XCTAssertTrue(request.message.contains("Keep expense notes strictly concise"))
+        XCTAssertEqual(request.message, "记一笔晚餐")
         XCTAssertNil(request.journal)
         XCTAssertEqual(request.memos?.first?.title, "买潜水镜")
         XCTAssertEqual(request.walletCards?.first?.title, "招商银行信用卡")
