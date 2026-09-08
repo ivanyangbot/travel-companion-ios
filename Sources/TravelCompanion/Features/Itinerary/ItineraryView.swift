@@ -24,7 +24,6 @@ struct ItineraryView: View {
     @State private var expenseEditorDate: Date?
     @State private var showsSharingSheet = false
     @State private var isHeaderMenuExpanded = false
-    @State private var headerMenuFrame: CGRect = .zero
     @State private var headerQuickAction: TodayQuickAction?
     @State private var isReloading = false
     @State private var showsTripPicker = false
@@ -392,43 +391,40 @@ struct ItineraryView: View {
                         timelineWidth: min(390, max(0, geometry.size.width - 40))
                     )
 
-                    if days.isEmpty {
-                        ContentUnavailableView {
-                            Label("itinerary.noDatesTitle", systemImage: "calendar.badge.plus")
-                        } description: {
-                            Text("itinerary.noDatesDesc")
-                        } actions: {
-                            Button("itinerary.addDateButton") { activeDaySheet = .add }
-                                .buttonStyle(.borderedProminent)
+                    Group {
+                        if days.isEmpty {
+                            ContentUnavailableView {
+                                Label("itinerary.noDatesTitle", systemImage: "calendar.badge.plus")
+                            } description: {
+                                Text("itinerary.noDatesDesc")
+                            } actions: {
+                                Button("itinerary.addDateButton") { activeDaySheet = .add }
+                                    .buttonStyle(.borderedProminent)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            itineraryDayScroller(trip: trip, days: days)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        itineraryDayScroller(trip: trip, days: days)
                     }
+                    .overlay {
+                        if isHeaderMenuExpanded {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { collapseHeaderMenu() }
+                        }
+                    }
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 2, coordinateSpace: .named("itinerary-list-root"))
+                            .onChanged { _ in
+                                guard isHeaderMenuExpanded else { return }
+                                collapseHeaderMenu()
+                            }
+                    )
                 }
 
                 draggedItineraryCardOverlay(days: days)
             }
             .coordinateSpace(name: "itinerary-list-root")
-            .onPreferenceChange(ItineraryHeaderMenuFramePreferenceKey.self) { frame in
-                headerMenuFrame = frame
-            }
-            // 列表模式的快捷菜单像普通弹出菜单一样工作：菜单范围外的
-            // 点击，以及任何上下/横向滑动，都会立即将它收回。
-            .simultaneousGesture(
-                SpatialTapGesture().onEnded { event in
-                    guard isHeaderMenuExpanded,
-                          !headerMenuFrame.contains(event.location) else { return }
-                    collapseHeaderMenu()
-                }
-            )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 2, coordinateSpace: .named("itinerary-list-root"))
-                    .onChanged { _ in
-                        guard isHeaderMenuExpanded else { return }
-                        collapseHeaderMenu()
-                    }
-            )
             .gesture(
                 ItineraryLongPressDragGesture(
                     isEnabled: listCardSwipeGestureCardID == nil && revealedListCardID == nil,
@@ -3675,14 +3671,6 @@ private struct ItineraryHeaderDropdownMenu: View {
                 }
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: ItineraryHeaderMenuFramePreferenceKey.self,
-                    value: proxy.frame(in: .named("itinerary-list-root"))
-                )
-            }
-        }
         .animation(.snappy(duration: 0.3), value: isExpanded)
         .shadow(
             color: Color(red: 24 / 255, green: 22 / 255, blue: 82 / 255).opacity(0.1),
@@ -3761,13 +3749,6 @@ private struct ItineraryHeaderDropdownMenu: View {
         .frame(width: 40, height: 40)
         .accessibilityLabel(action.accessibilityLabel)
         .accessibilityAddTraits(activeAction == action ? .isSelected : [])
-    }
-}
-
-private struct ItineraryHeaderMenuFramePreferenceKey: PreferenceKey {
-    static var defaultValue: CGRect { .zero }
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
     }
 }
 
