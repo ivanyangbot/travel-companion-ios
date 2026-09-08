@@ -8,6 +8,9 @@ struct TodayMapPoint: Identifiable, Equatable {
     let title: String
     /// Shown above the current, enlarged number marker.
     let categorySymbolName: String
+    /// Overrides the chronological number for contextual points such as the
+    /// previous night's hotel at the start of a day's route.
+    var markerLabel: String? = nil
     let latitude: Double
     let longitude: Double
 

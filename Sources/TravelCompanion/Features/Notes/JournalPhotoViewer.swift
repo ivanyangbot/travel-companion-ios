@@ -1,5 +1,42 @@
 import SwiftUI
 
+/// 瀑布流/详情网格把当前屏幕中的照片位置传给全屏查看器，关闭时据此飞回原位。
+struct JournalPhotoSourceFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+enum JournalPhotoDismissalPhysics {
+    static let fullProgressDistance: CGFloat = 240
+    static let releaseDistance: CGFloat = 110
+    static let predictedReleaseDistance: CGFloat = 210
+
+    static func distance(_ translation: CGSize) -> CGFloat {
+        hypot(translation.width, translation.height)
+    }
+
+    static func progress(_ translation: CGSize) -> CGFloat {
+        min(1, distance(translation) / fullProgressDistance)
+    }
+
+    static func shouldDismiss(translation: CGSize, predicted: CGSize) -> Bool {
+        distance(translation) >= releaseDistance || distance(predicted) >= predictedReleaseDistance
+    }
+
+    static func scale(progress: CGFloat, viewportWidth: CGFloat, sourceWidth: CGFloat?) -> CGFloat {
+        let sourceScale: CGFloat
+        if let sourceWidth, viewportWidth > 0 {
+            sourceScale = min(0.82, max(0.18, sourceWidth / viewportWidth))
+        } else {
+            sourceScale = 0.42
+        }
+        return 1 - (1 - sourceScale) * min(1, max(0, progress))
+    }
+}
+
 /// 全屏手书照片查看器：捏合缩放、拖拽平移、双击缩放、多图左右翻页、底部描述查看与编辑。
 /// 详情页照片网格（多图翻页）与地图照片 pin 弹窗（单图）共用。
 struct JournalPhotoViewer: View {
@@ -9,13 +46,22 @@ struct JournalPhotoViewer: View {
         let description: String?
         let capturedAt: Date?
         let media: JournalImage?
+        let sourceFrame: CGRect?
 
-        init(id: String, url: URL?, description: String?, capturedAt: Date?, media: JournalImage? = nil) {
+        init(
+            id: String,
+            url: URL?,
+            description: String?,
+            capturedAt: Date?,
+            media: JournalImage? = nil,
+            sourceFrame: CGRect? = nil
+        ) {
             self.id = id
             self.url = url
             self.description = description
             self.capturedAt = capturedAt
             self.media = media
+            self.sourceFrame = sourceFrame
         }
     }
 
@@ -32,6 +78,10 @@ struct JournalPhotoViewer: View {
     @State private var isSavingDescription = false
     /// 已保存描述的本地回显（index → 最新值），避免保存后依赖外部重建才刷新。
     @State private var savedDescriptions: [Int: String] = [:]
+    @State private var dismissTranslation: CGSize = .zero
+    @State private var dismissProgress: CGFloat = 0
+    @State private var isCompletingDismiss = false
+    @State private var isCurrentPhotoZoomed = false
     @FocusState private var descriptionFieldFocused: Bool
 
     init(
@@ -51,27 +101,54 @@ struct JournalPhotoViewer: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-                .onTapGesture { dismiss() }
+        GeometryReader { proxy in
+            ZStack {
+                Color.black
+                    .opacity(max(0.04, 1 - dismissProgress * 0.96))
+                    .ignoresSafeArea()
+                    .onTapGesture { dismiss() }
 
-            if photos.count > 1 {
-                TabView(selection: $currentIndex) {
-                    ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
-                        JournalZoomablePhoto(photo: photo)
-                            .tag(index)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .onChange(of: currentIndex) { _ in
-                    isEditingDescription = false
-                    descriptionFieldFocused = false
-                }
-            } else if let photo = currentPhoto {
-                JournalZoomablePhoto(photo: photo)
+                photoPager
+                    .scaleEffect(interactiveScale(in: proxy.size))
+                    .offset(dismissTranslation)
+
+                viewerChrome
+                    .opacity(max(0, 1 - dismissProgress * 2.2))
             }
+            .contentShape(Rectangle())
+            .simultaneousGesture(interactiveDismissGesture(in: proxy))
+        }
+        .presentationBackground(.clear)
+        .statusBarHidden()
+        .onAppear {
+            draftDescription = currentPhoto?.description ?? ""
+        }
+    }
 
-            // 顶部：关闭 + 页码
+    @ViewBuilder
+    private var photoPager: some View {
+        if photos.count > 1 {
+            TabView(selection: $currentIndex) {
+                ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                    JournalZoomablePhoto(photo: photo, isZoomed: $isCurrentPhotoZoomed)
+                        .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .scrollDisabled(dismissProgress > 0)
+            .onChange(of: currentIndex) { _ in
+                isEditingDescription = false
+                descriptionFieldFocused = false
+                isCurrentPhotoZoomed = false
+                restorePreview()
+            }
+        } else if let photo = currentPhoto {
+            JournalZoomablePhoto(photo: photo, isZoomed: $isCurrentPhotoZoomed)
+        }
+    }
+
+    private var viewerChrome: some View {
+        ZStack {
             VStack(spacing: 10) {
                 HStack(alignment: .top) {
                     Spacer()
@@ -102,7 +179,6 @@ struct JournalPhotoViewer: View {
             .padding(.top, 8)
             .padding(.trailing, 16)
 
-            // 底部：拍摄时间 + 描述（可编辑）
             VStack(spacing: 10) {
                 Spacer()
                 if hasDescription || isEditingDescription {
@@ -112,18 +188,64 @@ struct JournalPhotoViewer: View {
                 }
             }
         }
-        .presentationBackground(.black)
-        .statusBarHidden()
-        .onAppear {
-            draftDescription = currentPhoto?.description ?? ""
-        }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24).onEnded { value in
-                if value.translation.height > 120 && abs(value.translation.width) < value.translation.height {
-                    dismiss()
+    }
+
+    private func interactiveDismissGesture(in proxy: GeometryProxy) -> some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .global)
+            .onChanged { value in
+                guard !isCurrentPhotoZoomed, !isEditingDescription, !isCompletingDismiss else { return }
+                dismissTranslation = value.translation
+                dismissProgress = JournalPhotoDismissalPhysics.progress(value.translation)
+            }
+            .onEnded { value in
+                guard !isCurrentPhotoZoomed, !isEditingDescription, !isCompletingDismiss else { return }
+                if JournalPhotoDismissalPhysics.shouldDismiss(
+                    translation: value.translation,
+                    predicted: value.predictedEndTranslation
+                ) {
+                    completeDismiss(in: proxy)
+                } else {
+                    restorePreview()
                 }
             }
+    }
+
+    private func interactiveScale(in size: CGSize) -> CGFloat {
+        JournalPhotoDismissalPhysics.scale(
+            progress: dismissProgress,
+            viewportWidth: size.width,
+            sourceWidth: currentPhoto?.sourceFrame?.width
         )
+    }
+
+    private func completeDismiss(in proxy: GeometryProxy) {
+        isCompletingDismiss = true
+        let rootFrame = proxy.frame(in: .global)
+        let targetTranslation: CGSize
+        if let sourceFrame = currentPhoto?.sourceFrame {
+            targetTranslation = CGSize(
+                width: sourceFrame.midX - rootFrame.midX,
+                height: sourceFrame.midY - rootFrame.midY
+            )
+        } else {
+            targetTranslation = dismissTranslation
+        }
+        withAnimation(.spring(duration: 0.28, bounce: 0)) {
+            dismissTranslation = targetTranslation
+            dismissProgress = 1
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(280))
+            dismiss()
+        }
+    }
+
+    private func restorePreview() {
+        guard !isCompletingDismiss else { return }
+        withAnimation(.spring(duration: 0.3, bounce: 0.16)) {
+            dismissTranslation = .zero
+            dismissProgress = 0
+        }
     }
 
     private var descriptionBar: some View {
@@ -224,6 +346,7 @@ struct JournalPhotoViewer: View {
 /// 单张可缩放照片页：缩放/拖拽状态页内独立，翻页自动复位。
 private struct JournalZoomablePhoto: View {
     let photo: JournalPhotoViewer.Photo
+    @Binding var isZoomed: Bool
 
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1
@@ -231,16 +354,45 @@ private struct JournalZoomablePhoto: View {
     @State private var offset: CGSize = .zero
     @State private var settledOffset: CGSize = .zero
 
+    /// 实况照片的主图和配对视频都从持久化缓存解析，绝不把远端 URL 交给预览层。
+    private var localLivePhotoResources: (photo: URL, video: URL)? {
+        guard let media = photo.media,
+              media.kind == "livePhoto",
+              let paired = media.pairedVideo,
+              let photoURL = JournalPhotoLoader.shared.localResourceURL(
+                originalURL: photo.url,
+                cacheKey: media.key,
+                preferredFileName: media.fileName
+              ),
+              let videoURL = JournalPhotoLoader.shared.localResourceURL(
+                originalURL: paired.url.flatMap(URL.init(string:)),
+                cacheKey: paired.key,
+                preferredFileName: paired.fileName
+              )
+        else { return nil }
+        return (photoURL, videoURL)
+    }
+
     var body: some View {
         Group {
-            if let media = photo.media, media.kind == "livePhoto" || media.isHDR == true {
-                JournalMediaView(media: media)
-                    .scaledToFit()
+            if let resources = localLivePhotoResources {
+                JournalLivePhotoView(photoURL: resources.photo, videoURL: resources.video)
+                    .aspectRatio(photoAspectRatio ?? 3 / 4, contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .scaleEffect(scale)
                     .offset(offset)
                     .gesture(zoomGesture)
                     .gesture(panGesture, including: scale > 1 ? .all : .none)
                     .onTapGesture(count: 2, perform: toggleZoom)
+                    .overlay(alignment: .topLeading) {
+                        Label("journal.liveBadge", systemImage: "livephoto")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.55), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(12)
+                    }
             } else if let image {
                 Image(uiImage: image)
                     .resizable()
@@ -261,20 +413,31 @@ private struct JournalZoomablePhoto: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: photo.url) {
-            guard photo.media?.kind != "livePhoto", photo.media?.isHDR != true,
-                  let url = photo.url else { return }
-            // 全尺寸查看用较大像素上限，兼顾内存与清晰度；命中 NSCache 时零开销。
-            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: 2400, cacheKey: photo.id)
+            guard let url = photo.url else { return }
+            // 查看器严格读取本地持久化缓存；点击照片不会触发远端下载。
+            image = await JournalPhotoLoader.shared.localThumbnail(
+                for: url,
+                maxPixelSize: 2400,
+                cacheKey: photo.id
+            )
         }
+        .onDisappear { isZoomed = false }
+    }
+
+    private var photoAspectRatio: CGFloat? {
+        guard let image, image.size.height > 0 else { return nil }
+        return image.size.width / image.size.height
     }
 
     private var zoomGesture: some Gesture {
         MagnifyGesture(minimumScaleDelta: 0.01)
             .onChanged { value in
                 scale = min(5, max(1, settledScale * value.magnification))
+                isZoomed = scale > 1.01
             }
             .onEnded { _ in
                 settledScale = scale
+                isZoomed = scale > 1.01
                 if scale == 1 {
                     resetOffset()
                 }
@@ -304,10 +467,12 @@ private struct JournalZoomablePhoto: View {
             if scale > 1 {
                 scale = 1
                 settledScale = 1
+                isZoomed = false
                 resetOffset()
             } else {
                 scale = 2
                 settledScale = 2
+                isZoomed = true
             }
         }
     }

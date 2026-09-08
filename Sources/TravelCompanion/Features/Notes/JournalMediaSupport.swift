@@ -353,7 +353,7 @@ private struct JournalFileTile: View {
     }
 }
 
-private struct JournalLivePhotoView: View {
+struct JournalLivePhotoView: View {
     let photoURL: URL
     let videoURL: URL
     @State private var livePhoto: PHLivePhoto?
@@ -456,8 +456,9 @@ private struct LivePhotoRepresentable: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PHLivePhotoView {
         let view = PHLivePhotoView()
-        view.contentMode = .scaleAspectFill
-        view.clipsToBounds = true
+        view.contentMode = .scaleAspectFit
+        view.clipsToBounds = false
+        view.backgroundColor = .clear
         return view
     }
 
@@ -473,8 +474,8 @@ private struct LivePhotoRepresentable: UIViewRepresentable {
     }
 }
 
-/// 手书照片缩略图加载器：展示层只从本地读取，绝不因滚动或预览而请求服务端。
-/// 照片在导入、上传时写入磁盘缓存；之后缩略图、地图与全屏预览共用该缓存。
+/// 手书照片加载器：导入、上传和同步预取会写入持久化磁盘缓存。
+/// 全屏预览使用 `localThumbnail`，严格只读内存、磁盘缓存或本地文件。
 final class JournalPhotoLoader: @unchecked Sendable {
     static let shared = JournalPhotoLoader()
 
@@ -487,6 +488,21 @@ final class JournalPhotoLoader: @unchecked Sendable {
     }
 
     func thumbnail(for url: URL, maxPixelSize: CGFloat, cacheKey: String? = nil) async -> UIImage? {
+        await image(for: url, maxPixelSize: maxPixelSize, cacheKey: cacheKey, allowsNetwork: true)
+    }
+
+    /// 全屏查看只允许命中内存、Application Support 磁盘缓存或本地文件。
+    /// 即使传入的是服务端 URL，也不会在用户点击照片时发起网络请求。
+    func localThumbnail(for url: URL, maxPixelSize: CGFloat, cacheKey: String? = nil) async -> UIImage? {
+        await image(for: url, maxPixelSize: maxPixelSize, cacheKey: cacheKey, allowsNetwork: false)
+    }
+
+    private func image(
+        for url: URL,
+        maxPixelSize: CGFloat,
+        cacheKey: String?,
+        allowsNetwork: Bool
+    ) async -> UIImage? {
         let persistentKey = cacheKey ?? url.absoluteString
         let memoryKey = "\(persistentKey)#\(Int(maxPixelSize))" as NSString
         if let cached = cache.object(forKey: memoryKey) { return cached }
@@ -497,13 +513,15 @@ final class JournalPhotoLoader: @unchecked Sendable {
         } else if url.isFileURL, let local = FileManager.default.contents(atPath: url.path) {
             data = local
             diskCache.store(local, for: persistentKey)
-        } else {
+        } else if allowsNetwork {
             guard let (remote, response) = try? await URLSession.shared.data(from: url),
                   let http = response as? HTTPURLResponse,
                   (200 ..< 300).contains(http.statusCode),
                   remote.count <= JournalAttachment.maximumResourceBytes else { return nil }
             data = remote
             diskCache.store(remote, for: persistentKey)
+        } else {
+            return nil
         }
         guard let image = Self.downsampledImage(from: data, maxPixelSize: maxPixelSize) else { return nil }
         cache.setObject(image, forKey: memoryKey)
@@ -511,8 +529,25 @@ final class JournalPhotoLoader: @unchecked Sendable {
     }
 
     func persistLocalPhoto(at url: URL, key: String) {
-        guard let data = FileManager.default.contents(atPath: url.path) else { return }
-        diskCache.store(data, for: key)
+        diskCache.storeFile(at: url, for: key)
+    }
+
+    /// Live Photo 的配对视频与主图使用同一持久化缓存，保证同步完成并清理
+    /// 导入临时文件后，预览仍只依赖 Application Support 中的本地资源。
+    func persistLocalResource(at url: URL, key: String) {
+        diskCache.storeFile(at: url, for: key)
+    }
+
+    func localResourceURL(originalURL: URL?, cacheKey: String, preferredFileName: String? = nil) -> URL? {
+        if let originalURL,
+           originalURL.isFileURL,
+           FileManager.default.fileExists(atPath: originalURL.path) {
+            return originalURL
+        }
+        let preferredExtension = preferredFileName
+            .map { URL(fileURLWithPath: $0).pathExtension }
+            .flatMap { $0.isEmpty ? nil : $0 }
+        return diskCache.existingFileURL(for: cacheKey, preferredExtension: preferredExtension)
     }
 
     static func downsampledImage(from data: Data, maxPixelSize: CGFloat) -> UIImage? {
@@ -557,13 +592,51 @@ private final class JournalPhotoDiskCache: @unchecked Sendable {
         try? data.write(to: destination, options: .atomic)
     }
 
+    func storeFile(at source: URL, for key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard FileManager.default.fileExists(atPath: source.path) else { return }
+        let destination = fileURL(for: key)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
+        do {
+            try FileManager.default.linkItem(at: source, to: destination)
+        } catch {
+            try? FileManager.default.copyItem(at: source, to: destination)
+        }
+    }
+
+    func existingFileURL(for key: String, preferredExtension: String? = nil) -> URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        let source = fileURL(for: key)
+        guard FileManager.default.fileExists(atPath: source.path) else { return nil }
+        guard let preferredExtension,
+              preferredExtension.range(of: "^[A-Za-z0-9]{1,8}$", options: .regularExpression) != nil
+        else { return source }
+        let destination = directory.appendingPathComponent(
+            hashedStem(for: key) + "." + preferredExtension.lowercased()
+        )
+        if FileManager.default.fileExists(atPath: destination.path) { return destination }
+        do {
+            // 同卷硬链接不会复制大体积 Live Photo 视频，仅提供 PhotoKit 可识别的扩展名。
+            try FileManager.default.linkItem(at: source, to: destination)
+            return destination
+        } catch {
+            return source
+        }
+    }
+
     private func fileURL(for key: String) -> URL {
+        directory.appendingPathComponent(hashedStem(for: key) + ".photo")
+    }
+
+    private func hashedStem(for key: String) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in key.utf8 {
             hash ^= UInt64(byte)
             hash &*= 1_099_511_628_211
         }
-        return directory.appendingPathComponent(String(format: "%016llx", hash) + ".photo")
+        return String(format: "%016llx", hash)
     }
 }
 

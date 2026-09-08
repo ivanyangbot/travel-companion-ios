@@ -241,13 +241,36 @@ struct TodayView: View {
         let displayedFlights = isTripOverview ? allFlights : flights
         let flightIDs = Set(displayedFlights.map(\.id))
         let flightRoutes = resolvedFlightRoutes.filter { flightIDs.contains($0.cardID) }
-        let points = mapPoints(pois: displayedPOIs)
+        let previousNightHotel = isTripOverview
+            ? nil
+            : ItineraryListPresentation.dayStartHotelLeg(
+                for: day,
+                in: days
+            )?.hotel
+        let points = mapPoints(
+            pois: displayedPOIs,
+            previousNightHotel: previousNightHotel
+        )
         // Adjacent POI pairs that a flight connects are drawn as the flight
         // arc only; their ground route is never requested or rendered.
-        let flownLegOriginIDs = ItineraryListPresentation.flownLegOriginIDs(
-            pois: displayedPOIs,
-            flights: displayedFlights
-        )
+        let flownLegOriginIDs: Set<UUID> = {
+            let routePOIs = previousNightHotel.map { [$0] + displayedPOIs }
+                ?? displayedPOIs
+            var ids = ItineraryListPresentation.flownLegOriginIDs(
+                pois: routePOIs,
+                flights: displayedFlights
+            )
+            // The contextual hotel uses a derived annotation ID so a
+            // multi-night hotel can also appear later as today's final stop.
+            // Transfer the flight-suppression marker to that derived point.
+            if let hotel = previousNightHotel,
+               ids.remove(hotel.id) != nil,
+               let contextualPoint = points.first,
+               contextualPoint.markerLabel == "<" {
+                ids.insert(contextualPoint.id)
+            }
+            return ids
+        }()
         let showsPOISwiper = !isTripOverview && !pois.isEmpty && isPOIOverlayExpanded
         let showsTimeline = !isTripOverview && (pois.isEmpty || isPOIOverlayExpanded)
         ZStack(alignment: .top) {
@@ -259,7 +282,9 @@ struct TodayView: View {
                 // A selected map marker is the visual counterpart of the
                 // visible POI card. Keep every marker compact and neutral
                 // while the user has collapsed the bottom overlay.
-                selectedIndex: !isTripOverview && isPOIOverlayExpanded ? clampedIndex(pois: pois) : nil,
+                selectedIndex: !isTripOverview && isPOIOverlayExpanded
+                    ? selectedMapPointIndex(points: points, pois: pois)
+                    : nil,
                 cameraFocus: cameraFocus,
                 cameraFocusPointID: cameraFocusPointID,
                 cameraRequestID: cameraRequestID,
@@ -919,8 +944,11 @@ struct TodayView: View {
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
-    private func mapPoints(pois: [TravelCardSnapshot]) -> [TodayMapPoint] {
-        pois.compactMap { card in
+    private func mapPoints(
+        pois: [TravelCardSnapshot],
+        previousNightHotel: TravelCardSnapshot? = nil
+    ) -> [TodayMapPoint] {
+        var points = pois.compactMap { card -> TodayMapPoint? in
             guard let coordinate = coordinate(of: card) else { return nil }
             return TodayMapPoint(
                 id: card.id,
@@ -930,6 +958,35 @@ struct TodayView: View {
                 longitude: coordinate.longitude
             )
         }
+        for index in points.indices {
+            points[index].markerLabel = String(index + 1)
+        }
+        if let hotel = previousNightHotel,
+           let coordinate = coordinate(of: hotel) {
+            let prefix = String(hotel.id.uuidString.dropLast(4))
+            let contextualID = UUID(uuidString: prefix + "D001") ?? UUID()
+            points.insert(
+                TodayMapPoint(
+                    id: contextualID,
+                    title: hotel.place?.name ?? hotel.title,
+                    categorySymbolName: TravelCardSnapshot.Kind.hotel.systemImage,
+                    markerLabel: "<",
+                    latitude: coordinate.latitude,
+                    longitude: coordinate.longitude
+                ),
+                at: 0
+            )
+        }
+        return points
+    }
+
+    private func selectedMapPointIndex(
+        points: [TodayMapPoint],
+        pois: [TravelCardSnapshot]
+    ) -> Int? {
+        guard !pois.isEmpty else { return nil }
+        let selectedCardID = pois[clampedIndex(pois: pois)].id
+        return points.firstIndex(where: { $0.id == selectedCardID })
     }
 
     private func clampedIndex(pois: [TravelCardSnapshot]) -> Int {

@@ -509,7 +509,13 @@ enum MapLibrePinLabelGeometry {
     /// inside the available width. Up to five pins retain their itinerary
     /// numbers; larger groups collapse into a compact count badge.
     static func fittingText(displayOrders: [Int], maximumWidth: CGFloat) -> String {
-        let labels = displayOrders.map { String($0 + 1) }
+        fittingText(
+            labels: displayOrders.map { String($0 + 1) },
+            maximumWidth: maximumWidth
+        )
+    }
+
+    static func fittingText(labels: [String], maximumWidth: CGFloat) -> String {
         guard !labels.isEmpty else { return "" }
         if labels.count > maximumVisibleSequenceCount {
             return String(labels.count)
@@ -531,6 +537,7 @@ enum MapLibrePinLabelGeometry {
 struct MapLibreRegularPinMember: Equatable {
     let id: UUID
     let displayOrder: Int
+    var labelText: String? = nil
     let numberCenter: CGPoint
     let renderedFrame: CGRect
     let isHighlighted: Bool
@@ -604,7 +611,7 @@ enum MapLibreRegularPinGrouping {
         )
         let labelText = members.count > 1
             ? MapLibrePinLabelGeometry.fittingText(
-                displayOrders: members.map(\.displayOrder),
+                labels: members.map { $0.labelText ?? String($0.displayOrder + 1) },
                 maximumWidth: .greatestFiniteMagnitude
             )
             : nil
@@ -1062,6 +1069,7 @@ enum MapLibreEdgePinTrigger {
 struct MapLibreProjectedEdgePinMember: Equatable {
     let id: UUID
     let displayOrder: Int
+    var labelText: String? = nil
     let sourcePoint: CGPoint
     let isHighlighted: Bool
 }
@@ -1107,7 +1115,7 @@ enum MapLibreProjectedEdgePinGrouping {
             let angle = directionAngle(for: member.sourcePoint, from: screenCenter)
             let target = rayTarget(angle: angle, origin: screenCenter, safeRect: safeRect)
             let labelText = MapLibrePinLabelGeometry.fittingText(
-                displayOrders: [member.displayOrder],
+                labels: [member.labelText ?? String(member.displayOrder + 1)],
                 maximumWidth: safeRect.width
             )
             let measuredLabelSize = MapLibrePinLabelGeometry.size(for: labelText)
@@ -1188,7 +1196,7 @@ enum MapLibreProjectedEdgePinGrouping {
         guard !unsortedMembers.isEmpty else { return nil }
         let members = unsortedMembers.sorted { $0.displayOrder < $1.displayOrder }
         let labelText = MapLibrePinLabelGeometry.fittingText(
-            displayOrders: members.map(\.displayOrder),
+            labels: members.map { $0.labelText ?? String($0.displayOrder + 1) },
             maximumWidth: safeRect.width
         )
         let measuredLabelSize = MapLibrePinLabelGeometry.size(for: labelText)
@@ -1860,6 +1868,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 for (origin, destination) in missingLegs {
                     guard !Task.isCancelled, generation == routeGeneration else { return }
                     var route: TodayRouteGeometry?
+                    var shouldPersistRoute = true
                     if let coordinates = await navigationCoordinates(
                         from: origin,
                         to: destination,
@@ -1880,6 +1889,9 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     } else {
                         // Keep the itinerary visually continuous even when
                         // neither routing service recognizes the two points.
+                        // This temporary straight line must not survive an app
+                        // restart or mask a real route after connectivity returns.
+                        shouldPersistRoute = false
                         route = TodayRouteGeometry(
                             coordinates: [origin.coordinate, destination.coordinate],
                             isWalking: true
@@ -1890,12 +1902,14 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                     // mutate MapLibre annotations or the shared route cache.
                     guard !Task.isCancelled, generation == routeGeneration else { return }
                     if let route, route.coordinates.count > 1 {
-                        routeCache.store(
-                            route.coordinates,
-                            from: origin,
-                            to: destination,
-                            isWalking: route.isWalking
-                        )
+                        if shouldPersistRoute {
+                            routeCache.store(
+                                route.coordinates,
+                                from: origin,
+                                to: destination,
+                                isWalking: route.isWalking
+                            )
+                        }
                         let annotations = routeAnnotations(
                             for: route,
                             origin: origin,
@@ -2784,6 +2798,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 return MapLibreRegularPinMember(
                     id: annotation.pointID,
                     displayOrder: annotation.index,
+                    labelText: annotation.markerLabel,
                     numberCenter: placement.numberCenter,
                     renderedFrame: placement.labelRect,
                     isHighlighted: annotation.isHighlighted
@@ -2798,6 +2813,7 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
                 return MapLibreProjectedEdgePinMember(
                     id: annotation.pointID,
                     displayOrder: annotation.index,
+                    labelText: annotation.markerLabel,
                     sourcePoint: sourcePoint,
                     isHighlighted: annotation.isHighlighted
                 )
@@ -3052,7 +3068,10 @@ enum MapLibrePinCategoryIconSource: Equatable {
 
 enum MapLibrePinCategoryIcon {
     static func sources(symbolName: String) -> [MapLibrePinCategoryIconSource] {
-        [
+        if symbolName == "bed.double" || symbolName == "bed.double.fill" {
+            return [.system("bed.double.fill"), .system(symbolName)]
+        }
+        return [
             .asset("icon-camera-outline"),
             .asset("icon-camera"),
             .asset("icon-landscape-outline"),
@@ -3083,6 +3102,7 @@ private final class MapLibreNumberedAnnotation: MLNPointAnnotation {
     let index: Int
     var isHighlighted: Bool
     let categorySymbolName: String
+    let markerLabel: String?
     let sourceCoordinate: CLLocationCoordinate2D
 
     init(point: TodayMapPoint, index: Int, isHighlighted: Bool) {
@@ -3090,6 +3110,7 @@ private final class MapLibreNumberedAnnotation: MLNPointAnnotation {
         self.index = index
         self.isHighlighted = isHighlighted
         categorySymbolName = point.categorySymbolName
+        markerLabel = point.markerLabel
         sourceCoordinate = MapLibreCoordinateTransform.displayCoordinate(for: point.coordinate)
         super.init()
         coordinate = sourceCoordinate
@@ -3560,7 +3581,7 @@ private final class MapLibreNumberedAnnotationView: MLNAnnotationView {
         )
         numberBackground.frame = numberFrame
         numberLabel.frame = numberFrame
-        numberLabel.text = placement.labelText ?? String(annotation.index + 1)
+        numberLabel.text = placement.labelText ?? annotation.markerLabel ?? String(annotation.index + 1)
 
         let accentColor = UIColor(red: 1, green: 110 / 255, blue: 0, alpha: 1)
         let isCountBadge = placement.representedMemberIDs.count

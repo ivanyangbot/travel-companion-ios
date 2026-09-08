@@ -253,6 +253,18 @@ struct ExpenseListFilter: Equatable, Sendable {
         consumer != nil || paymentStatus != .all || category != nil
     }
 
+    /// “按消费人”概览卡使用同一操作切换筛选：首次选中，重复点击取消。
+    mutating func toggleConsumer(_ option: ConsumerOption, paymentStatus status: PaymentStatus) {
+        if consumer == option && paymentStatus == status {
+            consumer = nil
+            paymentStatus = .all
+        } else {
+            consumer = option
+            paymentStatus = status
+        }
+        category = nil
+    }
+
     func apply(to expenses: [ExpenseSnapshot], members: [TripMemberSummary] = []) -> [ExpenseSnapshot] {
         let filtered = expenses.filter { expense in
             if let consumer,

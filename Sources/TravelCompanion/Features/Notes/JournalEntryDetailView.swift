@@ -16,6 +16,7 @@ struct JournalEntryDetailView: View {
     @State private var isImporting = false
     @State private var mediaError: String?
     @State private var presentedViewer: PresentedViewer?
+    @State private var photoSourceFrames: [String: CGRect] = [:]
 
     private struct PresentedViewer: Identifiable {
         let id: String
@@ -37,7 +38,8 @@ struct JournalEntryDetailView: View {
                     url: image.url.flatMap(URL.init(string:)),
                     description: image.description,
                     capturedAt: image.capturedAt,
-                    media: image
+                    media: image,
+                    sourceFrame: photoSourceFrames[image.key]
                 )
             }
     }
@@ -85,6 +87,9 @@ struct JournalEntryDetailView: View {
                     await onSaveDescription(imageKey, description)
                 }
             )
+        }
+        .onPreferenceChange(JournalPhotoSourceFramePreferenceKey.self) { frames in
+            photoSourceFrames = frames
         }
         .onChange(of: pickerItems) { _, values in
             Task { await importPhotoItems(values) }
@@ -230,6 +235,14 @@ struct JournalEntryDetailView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.white.opacity(0.14), lineWidth: 0.5)
             )
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: JournalPhotoSourceFramePreferenceKey.self,
+                        value: [image.key: proxy.frame(in: .global)]
+                    )
+                }
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(image.description ?? image.fileName ?? String(localized: "journal.photoSection"))

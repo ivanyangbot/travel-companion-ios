@@ -589,6 +589,10 @@ final class MapsTests: XCTestCase {
             .asset("icon-landscape-outline"),
             .system("fork.knife")
         ])
+        XCTAssertEqual(MapLibrePinCategoryIcon.sources(symbolName: "bed.double"), [
+            .system("bed.double.fill"),
+            .system("bed.double")
+        ])
     }
 
     func testPointingCornerTransitionOnlySquaresTheDirectedCorner() {
@@ -910,6 +914,19 @@ final class MapsTests: XCTestCase {
             ),
             "1.2.3.4.5"
         )
+    }
+
+    func testMergedPinPreservesPreviousNightHotelArrowLabel() throws {
+        var hotel = regularMember(1, order: 0, center: CGPoint(x: 100, y: 300))
+        hotel.labelText = "<"
+        var firstStop = regularMember(2, order: 1, center: CGPoint(x: 104, y: 300))
+        firstStop.labelText = "1"
+
+        let cluster = try XCTUnwrap(
+            MapLibreRegularPinGrouping.clusters(members: [hotel, firstStop]).first
+        )
+
+        XCTAssertEqual(cluster.labelText, "<.1")
     }
 
     func testWidenedRegularPillCreatesSecondaryCollisionClosure() {
@@ -1538,6 +1555,15 @@ final class MapsTests: XCTestCase {
             CardLegStore(modelContext: container.mainContext)
                 .hasEstimateFailure(routeKey: routeKey, for: key)
         )
+        XCTAssertFalse(
+            CardLegStore(modelContext: container.mainContext).hasEstimateFailure(
+                routeKey: routeKey,
+                for: key,
+                now: .now.addingTimeInterval(CardLegStore.estimateFailureRetryDelay + 1)
+            )
+        )
+
+        store.markEstimateFailure(routeKey: routeKey, for: key)
 
         store.clearAllEstimateFailures()
         XCTAssertFalse(store.hasEstimateFailure(routeKey: routeKey, for: key))

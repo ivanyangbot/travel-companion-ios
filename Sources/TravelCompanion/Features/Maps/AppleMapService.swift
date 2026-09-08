@@ -1,6 +1,7 @@
 import CoreLocation
 import Contacts
 import MapKit
+import OSLog
 
 /// Airport-coordinate enrichment is intentionally partial. A ground leg after
 /// a flight only needs the arrival airport, while a ground leg before it only
@@ -12,10 +13,33 @@ struct FlightAirportLocationResolution: Equatable, Sendable {
     let destinationLocation: FlightAirportLocationSnapshot?
 }
 
+/// Route rows appear together and can otherwise start several MapKit requests
+/// in the same instant. Reserve staggered start times to avoid MapKit's
+/// loading-throttled response while keeping every estimate on the device.
+private actor MapDirectionsRequestGate {
+    static let shared = MapDirectionsRequestGate()
+
+    private var nextStart = Date.distantPast
+
+    func waitForTurn() async throws {
+        let now = Date()
+        let scheduled = max(now, nextStart)
+        nextStart = scheduled.addingTimeInterval(0.5)
+        let delay = scheduled.timeIntervalSince(now)
+        if delay > 0 {
+            try await Task.sleep(for: .seconds(delay))
+        }
+    }
+}
+
 /// Interactive POI and route work stays on-device through MapKit. Airports use
 /// the backend's static reference dataset first and fall back to MapKit.
 enum AppleMapService {
     static let unverifiedPlaceNote = String(localized: "mapservice.unverified")
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "TravelCompanion",
+        category: "AppleMapService"
+    )
 
     enum ServiceError: LocalizedError {
         case noRoute
@@ -464,26 +488,45 @@ enum AppleMapService {
     }
 
     static func estimateRoute(origin: RoutePoint, destination: RoutePoint, mode: RouteMode) async throws -> RouteEstimate {
+        var lastError: Error = ServiceError.noRoute
+        for attempt in 1 ... 2 {
+            do {
+                return try await estimateRouteOnDevice(origin: origin, destination: destination, mode: mode)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+                let nsError = error as NSError
+                logger.warning(
+                    "MapKit route estimate attempt \(attempt) failed; domain=\(nsError.domain, privacy: .public) code=\(nsError.code): \(nsError.localizedDescription, privacy: .public)"
+                )
+                if attempt == 1 {
+                    try await Task.sleep(for: .milliseconds(750))
+                }
+            }
+        }
+        throw lastError
+    }
+
+    private static func estimateRouteOnDevice(
+        origin: RoutePoint,
+        destination: RoutePoint,
+        mode: RouteMode
+    ) async throws -> RouteEstimate {
+        try await MapDirectionsRequestGate.shared.waitForTurn()
         let request = MKDirections.Request()
         request.source = mapItem(for: origin)
         request.destination = mapItem(for: destination)
         request.transportType = mode.transportType
-        do {
-            let response = try await MKDirections(request: request).calculate()
-            if let route = response.routes.first {
-                return RouteEstimate(
-                    distanceMeters: Int(route.distance.rounded()),
-                    durationSeconds: Int(route.expectedTravelTime.rounded()),
-                    mode: mode,
-                    updatedAt: .now,
-                    source: String(localized: "route.sourceAppleMaps")
-                )
-            }
-        } catch {
-            // Retry through the backend's Apple Maps Directions Server API.
-            // This is still an actual Apple route, not a geometric estimate.
-        }
-        return try await APIClient().estimateRoute(RouteEstimateRequest(origin: origin, destination: destination, mode: mode))
+        let response = try await MKDirections(request: request).calculate()
+        guard let route = response.routes.first else { throw ServiceError.noRoute }
+        return RouteEstimate(
+            distanceMeters: Int(route.distance.rounded()),
+            durationSeconds: Int(route.expectedTravelTime.rounded()),
+            mode: mode,
+            updatedAt: .now,
+            source: String(localized: "route.sourceAppleMaps")
+        )
     }
 
     static func mapItem(for point: RoutePoint, name: String? = nil) -> MKMapItem {

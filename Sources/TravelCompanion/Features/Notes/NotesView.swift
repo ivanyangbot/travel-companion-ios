@@ -237,6 +237,7 @@ final class JournalSyncCoordinator: ObservableObject, @unchecked Sendable {
                     }
                 }
             )
+            JournalPhotoLoader.shared.persistLocalResource(at: paired.url, key: key)
             pairedUpload = .init(
                 key: key,
                 contentType: paired.contentType,
@@ -369,6 +370,7 @@ struct NotesView: View {
     @State private var isSelectingPhotos = false
     @State private var selectedPhotoIDs = Set<String>()
     @State private var isQuickImporting = false
+    @State private var photoSourceFrames: [String: CGRect] = [:]
     private let api = APIClient()
     private let snapshotCache = JournalSnapshotDiskCache.shared
 
@@ -451,6 +453,9 @@ struct NotesView: View {
             .onReceive(NotificationCenter.default.publisher(for: .agentJournalEntriesDidChange)) { _ in
                 Task { await reload() }
             }
+            .onPreferenceChange(JournalPhotoSourceFramePreferenceKey.self) { frames in
+                photoSourceFrames = frames
+            }
             .fullScreenCover(item: $mapViewer) { context in
                 JournalPhotoViewer(
                     photos: context.pins.map { pin in
@@ -459,7 +464,8 @@ struct NotesView: View {
                             url: pin.imageURL,
                             description: pin.description,
                             capturedAt: pin.capturedAt,
-                            media: pin.image
+                            media: pin.image,
+                            sourceFrame: photoSourceFrames[pin.id]
                         )
                     },
                     initialIndex: 0,
@@ -782,6 +788,14 @@ struct NotesView: View {
                 .stroke(.white.opacity(0.1), lineWidth: 0.5)
         )
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: JournalPhotoSourceFramePreferenceKey.self,
+                    value: [item.id: proxy.frame(in: .global)]
+                )
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if isSelectingPhotos {
                 Image(systemName: selectedPhotoIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
@@ -838,7 +852,8 @@ struct NotesView: View {
                 url: $0.image.url.flatMap(URL.init(string:)),
                 description: $0.image.description,
                 capturedAt: $0.image.capturedAt,
-                media: $0.image
+                media: $0.image,
+                sourceFrame: photoSourceFrames[$0.id]
             )
         }
         guard let index = photos.firstIndex(where: { $0.id == imageKey }) else { return }
@@ -943,7 +958,7 @@ struct NotesView: View {
         var entries: [Int: JournalEntry] = [:]
         for entry in remote.entries { entries[entry.id] = entry }
         for entry in local.entries { entries[entry.id] = entry }
-        JournalSnapshot(
+        return JournalSnapshot(
             groups: groups.values.sorted { $0.position < $1.position },
             entries: entries.values.sorted { $0.updatedAt > $1.updatedAt }
         )
@@ -1143,6 +1158,7 @@ struct NotesView: View {
                 fileName: paired.fileName,
                 tripID: tripID
             )
+            JournalPhotoLoader.shared.persistLocalResource(at: paired.url, key: key)
             pairedUpload = .init(
                 key: key,
                 contentType: paired.contentType,

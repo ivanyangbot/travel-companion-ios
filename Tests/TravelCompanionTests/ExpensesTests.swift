@@ -246,6 +246,30 @@ final class ExpensesTests: XCTestCase {
         XCTAssertEqual(options.map(\.id), ["member:2", "member:1", "name:阿猫"])
     }
 
+    func testConsumerSummaryFilterItemTogglesOffWhenTappedAgain() {
+        let mina = ExpenseListFilter.ConsumerOption(id: "member:1", name: "Mina")
+        let ivan = ExpenseListFilter.ConsumerOption(id: "member:2", name: "Ivan")
+        var filter = ExpenseListFilter(category: .food)
+
+        filter.toggleConsumer(mina, paymentStatus: .paid)
+        XCTAssertEqual(filter.consumer, mina)
+        XCTAssertEqual(filter.paymentStatus, .paid)
+        XCTAssertNil(filter.category)
+
+        filter.toggleConsumer(mina, paymentStatus: .paid)
+        XCTAssertNil(filter.consumer)
+        XCTAssertEqual(filter.paymentStatus, .all)
+
+        filter.toggleConsumer(mina, paymentStatus: .unpaid)
+        filter.toggleConsumer(ivan, paymentStatus: .unpaid)
+        XCTAssertEqual(filter.consumer, ivan)
+        XCTAssertEqual(filter.paymentStatus, .unpaid)
+
+        filter.toggleConsumer(ivan, paymentStatus: .unpaid)
+        XCTAssertNil(filter.consumer)
+        XCTAssertEqual(filter.paymentStatus, .all)
+    }
+
     func testLegacyConsumerNameMergesWithMatchingMemberIdentity() {
         var expense = ExpenseSnapshot(
             amountMinor: 300,

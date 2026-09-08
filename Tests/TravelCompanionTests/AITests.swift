@@ -482,6 +482,49 @@ final class AITests: XCTestCase {
         XCTAssertNil(cache.snapshot(for: 99))
     }
 
+    func testJournalPhotoDismissalTracksAnyDirectionAndCancelsBelowThreshold() {
+        XCTAssertEqual(
+            JournalPhotoDismissalPhysics.progress(CGSize(width: 144, height: 192)),
+            1,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            JournalPhotoDismissalPhysics.progress(CGSize(width: -48, height: 0)),
+            0.2,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(JournalPhotoDismissalPhysics.shouldDismiss(
+            translation: CGSize(width: 60, height: 50),
+            predicted: CGSize(width: 90, height: 60)
+        ))
+        XCTAssertTrue(JournalPhotoDismissalPhysics.shouldDismiss(
+            translation: CGSize(width: -112, height: 0),
+            predicted: .zero
+        ))
+        XCTAssertLessThan(
+            JournalPhotoDismissalPhysics.scale(progress: 0.8, viewportWidth: 390, sourceWidth: 180),
+            JournalPhotoDismissalPhysics.scale(progress: 0.2, viewportWidth: 390, sourceWidth: 180)
+        )
+    }
+
+    func testJournalPhotoLoaderPersistsLivePhotoResourceLocally() throws {
+        let key = "journal-local-resource-test-\(UUID().uuidString)"
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).mov")
+        let bytes = Data([0x00, 0x01, 0x02, 0x03])
+        try bytes.write(to: source, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        JournalPhotoLoader.shared.persistLocalResource(at: source, key: key)
+
+        let stored = try XCTUnwrap(
+            JournalPhotoLoader.shared.localResourceURL(originalURL: nil, cacheKey: key)
+        )
+        XCTAssertTrue(stored.isFileURL)
+        XCTAssertEqual(try Data(contentsOf: stored), bytes)
+        try? FileManager.default.removeItem(at: stored)
+    }
+
     @MainActor
     func testJournalSyncCheckpointSurvivesRetryAndRemovesCompletedEntry() throws {
         let suiteName = "journal-sync-tests-\(UUID().uuidString)"

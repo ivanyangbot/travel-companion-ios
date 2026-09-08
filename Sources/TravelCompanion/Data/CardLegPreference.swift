@@ -8,9 +8,8 @@ import SwiftData
 final class CardLegPreference {
     @Attribute(.unique) var legKey: String
     var travelMode: String
-    /// Route keys that Apple Maps could not estimate. Keeping failures beside
-    /// the leg preference prevents a recycled list row from retrying every
-    /// time it enters the viewport. The page-level refresh action clears them.
+    /// Route keys that Apple Maps could not estimate. They provide only a short
+    /// cooldown so recycled rows do not hammer MapKit after a transient error.
     var failedRouteKeys: String = ""
     /// Manual durations are keyed by coordinates and travel mode, independently of map estimates.
     var manualDurationsJSON: String = "{}"
@@ -28,6 +27,7 @@ final class CardLegPreference {
 
 @MainActor
 final class CardLegStore {
+    nonisolated static let estimateFailureRetryDelay: TimeInterval = 30
     private let modelContext: ModelContext
 
     init(modelContext: ModelContext) { self.modelContext = modelContext }
@@ -52,9 +52,18 @@ final class CardLegStore {
         try? modelContext.save()
     }
 
-    func hasEstimateFailure(routeKey: String, for legKey: String) -> Bool {
+    func hasEstimateFailure(
+        routeKey: String,
+        for legKey: String,
+        now: Date = .now
+    ) -> Bool {
         guard let record = record(for: legKey) else { return false }
-        return Self.failedRouteKeySet(record.failedRouteKeys).contains(routeKey)
+        guard Self.failedRouteKeySet(record.failedRouteKeys).contains(routeKey) else { return false }
+        if now.timeIntervalSince(record.updatedAt) >= Self.estimateFailureRetryDelay {
+            clearEstimateFailure(routeKey: routeKey, for: legKey)
+            return false
+        }
+        return true
     }
 
     func manualDuration(routeKey: String, for legKey: String) -> Int? {

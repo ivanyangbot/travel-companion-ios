@@ -24,7 +24,7 @@ enum ItineraryConnectionTiming {
 
 /// 相邻两张有坐标的卡片之间的出行时间预估。默认驾车，每段可单独切换并持久化；
 /// 首次无缓存时通过 Apple MapKit 静默估算一次，之后始终显示本地缓存值；
-/// 失败也会持久缓存，只有页面左上角菜单的刷新动作会统一清除并重新请求。
+/// 临时失败只进入短暂冷却；点击路线或冷却结束后会重新请求。
 struct CardLegEstimateView: View {
     let originCard: TravelCardSnapshot
     let destinationCard: TravelCardSnapshot
@@ -34,6 +34,7 @@ struct CardLegEstimateView: View {
     var destinationTimeZone: TimeZone? = nil
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var mapLinkHandler = MapLinkHandler()
     @State private var mode: RouteMode = .driving
     @State private var estimate: CachedRouteEstimate?
@@ -74,6 +75,9 @@ struct CardLegEstimateView: View {
         }
         .task(id: legKey) {
             await load()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { retryFailedEstimate() }
         }
         .sheet(isPresented: $showsDurationEditor) { durationEditor }
         .alert("routeSheet.cannotOpenMap", isPresented: Binding(get: { mapLinkHandler.alertMessage != nil }, set: { if !$0 { mapLinkHandler.alertMessage = nil } })) {
@@ -118,15 +122,7 @@ struct CardLegEstimateView: View {
                 Image(systemName: mode.systemImage).frame(minWidth: 28, minHeight: 28)
             }
             .accessibilityLabel(Text(String(format: String(localized: "leg.modeA11y"), mode.title)))
-            Button {
-                mapLinkHandler.openRoute(
-                    origin: originPoint,
-                    originName: originCard.place?.name ?? originCard.title,
-                    destination: destinationPoint,
-                    destinationName: destinationCard.place?.name ?? destinationCard.title,
-                    mode: mode
-                )
-            } label: {
+            Button(action: openRoute) {
                 Image(systemName: "location.fill")
                     .frame(minWidth: 28, minHeight: 28)
             }
@@ -385,6 +381,7 @@ struct CardLegEstimateView: View {
     }
 
     private func openRoute() {
+        retryFailedEstimate()
         mapLinkHandler.openRoute(
             origin: originPoint,
             originName: originCard.place?.name ?? originCard.title,
@@ -392,6 +389,17 @@ struct CardLegEstimateView: View {
             destinationName: destinationCard.place?.name ?? destinationCard.title,
             mode: mode
         )
+    }
+
+    private func retryFailedEstimate() {
+        guard fetchFailed, !isFetching, manualDuration == nil else { return }
+        let routeKey = failureKey(for: mode)
+        CardLegStore(modelContext: modelContext).clearEstimateFailure(
+            routeKey: routeKey,
+            for: legKey
+        )
+        fetchFailed = false
+        Task { await fetch() }
     }
 
     private func load() async {

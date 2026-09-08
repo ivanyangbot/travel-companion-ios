@@ -217,9 +217,7 @@ struct ExpenseListView: View {
                     selectedPaymentStatus: listFilter.paymentStatus
                 ) { consumer, status in
                     withAnimation(.snappy(duration: 0.22)) {
-                        listFilter.consumer = consumer
-                        listFilter.paymentStatus = status
-                        listFilter.category = nil
+                        listFilter.toggleConsumer(consumer, paymentStatus: status)
                     }
                 }
                 .expenseLedgerListRow(top: 4)
