@@ -397,7 +397,7 @@ private struct JournalLivePhotoView: View {
             let gate = JournalLivePhotoRequestGate()
             PHLivePhoto.request(
                 withResourceFileURLs: resources,
-                placeholderImage: UIImage(contentsOfFile: photo.path),
+                placeholderImage: UIImage(contentsOfFile: photoResource.path),
                 targetSize: CGSize(width: 1_200, height: 1_200),
                 contentMode: .aspectFit
             ) { livePhoto, info in
