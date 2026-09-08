@@ -445,6 +445,43 @@ final class AITests: XCTestCase {
         XCTAssertFalse(JournalNetworkAccess.other.allowsAutomaticSync)
     }
 
+    func testJournalSnapshotDiskCacheRestoresMetadataPerTrip() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("journal-snapshot-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = JournalSnapshotDiskCache(directory: directory)
+        let capturedAt = Date(timeIntervalSince1970: 1_788_768_000)
+        let snapshot = JournalSnapshot(
+            groups: [],
+            entries: [
+                JournalEntry(
+                    id: 81,
+                    groupId: nil,
+                    title: "离线可见",
+                    content: nil,
+                    images: [
+                        JournalImage(
+                            key: "travel-companion/journal/42/photo.heic",
+                            url: "https://obs.example/photo.heic",
+                            kind: "photo",
+                            capturedAt: capturedAt
+                        ),
+                    ],
+                    createdAt: capturedAt,
+                    updatedAt: capturedAt
+                ),
+            ]
+        )
+
+        try cache.store(snapshot, for: 42)
+
+        let restored = try XCTUnwrap(cache.snapshot(for: 42))
+        XCTAssertEqual(restored.entries.first?.id, 81)
+        XCTAssertEqual(restored.entries.first?.images.first?.key, "travel-companion/journal/42/photo.heic")
+        XCTAssertEqual(restored.entries.first?.images.first?.capturedAt, capturedAt)
+        XCTAssertNil(cache.snapshot(for: 99))
+    }
+
     @MainActor
     func testJournalSyncCheckpointSurvivesRetryAndRemovesCompletedEntry() throws {
         let suiteName = "journal-sync-tests-\(UUID().uuidString)"

@@ -270,6 +270,44 @@ final class JournalSyncCoordinator: ObservableObject, @unchecked Sendable {
     }
 }
 
+/// Persists the last server snapshot for each trip. Photo bytes use
+/// `JournalPhotoDiskCache`; this cache keeps the metadata needed to find and
+/// render those photos after the app restarts without a network connection.
+final class JournalSnapshotDiskCache: @unchecked Sendable {
+    static let shared = JournalSnapshotDiskCache()
+
+    private let directory: URL
+    private let lock = NSLock()
+
+    init(directory: URL? = nil) {
+        self.directory = directory ?? FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("TravelCompanion/JournalSnapshots", isDirectory: true)
+    }
+
+    func snapshot(for tripID: Int) -> JournalSnapshot? {
+        guard tripID > 0 else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        guard let data = FileManager.default.contents(atPath: fileURL(for: tripID).path) else { return nil }
+        return try? JSONDecoder().decode(JournalSnapshot.self, from: data)
+    }
+
+    func store(_ snapshot: JournalSnapshot, for tripID: Int) throws {
+        guard tripID > 0 else { return }
+        let data = try JSONEncoder().encode(snapshot)
+        lock.lock()
+        defer { lock.unlock() }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: fileURL(for: tripID), options: .atomic)
+    }
+
+    private func fileURL(for tripID: Int) -> URL {
+        directory.appendingPathComponent("trip-\(tripID).json", isDirectory: false)
+    }
+}
+
 private enum JournalSyncError: LocalizedError {
     case missingLocalAttachment
     case pendingForAnotherTrip
@@ -332,6 +370,7 @@ struct NotesView: View {
     @State private var selectedPhotoIDs = Set<String>()
     @State private var isQuickImporting = false
     private let api = APIClient()
+    private let snapshotCache = JournalSnapshotDiskCache.shared
 
     init(syncEngine: SyncEngine, journalSync: JournalSyncCoordinator) {
         self.syncEngine = syncEngine
@@ -645,7 +684,7 @@ struct NotesView: View {
 
     @ViewBuilder
     private var journalSyncStatus: some View {
-        if journalSync.networkAccess == .offline {
+        if journalSync.networkAccess == .offline, journalSync.hasPendingContent {
             Text("journal.waitNetworkTitle")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(PrimaryTabPalette.secondaryText)
@@ -866,7 +905,18 @@ struct NotesView: View {
             snapshot = localStore.snapshot
             return
         }
-        isLoading = true
+        let local = localStore.snapshot
+        let cached = snapshotCache.snapshot(for: tripID)
+        if let cached {
+            snapshot = merge(remote: cached, local: local)
+        } else if snapshot.entries.isEmpty && snapshot.groups.isEmpty {
+            snapshot = local
+        }
+        guard journalSync.networkAccess != .offline else {
+            isLoading = false
+            return
+        }
+        isLoading = cached == nil && snapshot.entries.isEmpty
         defer {
             if remoteTripID == tripID { isLoading = false }
         }
@@ -874,7 +924,9 @@ struct NotesView: View {
             let remote = try await api.fetchJournal(tripID: tripID)
             // 用户可能在请求途中切换行程；旧响应绝不能覆盖当前行程的手书。
             guard remoteTripID == tripID else { return }
+            try? snapshotCache.store(remote, for: tripID)
             snapshot = merge(remote: remote, local: localStore.snapshot)
+            prefetchRemotePhotos(in: remote)
             if let selectedGroupID, !snapshot.groups.contains(where: { $0.id == selectedGroupID }) {
                 self.selectedGroupID = nil
             }
@@ -885,10 +937,33 @@ struct NotesView: View {
     }
 
     private func merge(remote: JournalSnapshot, local: JournalSnapshot) -> JournalSnapshot {
+        var groups: [Int: JournalGroup] = [:]
+        for group in remote.groups { groups[group.id] = group }
+        for group in local.groups { groups[group.id] = group }
+        var entries: [Int: JournalEntry] = [:]
+        for entry in remote.entries { entries[entry.id] = entry }
+        for entry in local.entries { entries[entry.id] = entry }
         JournalSnapshot(
-            groups: remote.groups + local.groups,
-            entries: (remote.entries + local.entries).sorted { $0.updatedAt > $1.updatedAt }
+            groups: groups.values.sorted { $0.position < $1.position },
+            entries: entries.values.sorted { $0.updatedAt > $1.updatedAt }
         )
+    }
+
+    private func prefetchRemotePhotos(in remote: JournalSnapshot) {
+        let images = remote.entries.flatMap(\.images).filter {
+            $0.kind == nil || $0.kind == "photo" || $0.kind == "livePhoto"
+        }
+        Task(priority: .utility) {
+            for image in images {
+                guard !Task.isCancelled,
+                      let url = image.url.flatMap(URL.init(string:)) else { continue }
+                _ = await JournalPhotoLoader.shared.thumbnail(
+                    for: url,
+                    maxPixelSize: 320,
+                    cacheKey: image.key
+                )
+            }
+        }
     }
 
     private func save(entry: JournalEntry, request: JournalEntryRequest, attachments: [JournalAttachment]) async {
