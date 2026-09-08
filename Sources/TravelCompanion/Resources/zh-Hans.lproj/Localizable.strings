@@ -454,6 +454,10 @@
 "expense.manualAdd" = "手动添加";
 "expense.scanChat" = "扫小票 / 对话";
 "expense.addA11y" = "添加支出";
+"expenseestimate.addTitle" = "添加预估价";
+"expenseestimate.cardSection" = "行程项目";
+"expenseestimate.noCardsTitle" = "没有可添加预估价的项目";
+"expenseestimate.noCardsDescription" = "已有实际支出或已关联支出的项目不会重复添加预估价。";
 "expense.section" = "支出明细";
 "expense.showEstimates" = "显示预估价格";
 "expense.hideEstimates" = "隐藏预估价格";

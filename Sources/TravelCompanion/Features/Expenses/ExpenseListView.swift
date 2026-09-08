@@ -4,6 +4,7 @@ struct ExpenseListView: View {
     @ObservedObject var syncEngine: SyncEngine
     @State private var editorTarget: ExpenseSnapshot?
     @State private var addingExpense = false
+    @State private var addingEstimate = false
     @State private var addingWalletItem = false
     @State private var creatingMemoList = false
     @State private var pendingDeletion: ExpenseSnapshot?
@@ -55,6 +56,21 @@ struct ExpenseListView: View {
                 if let trip = syncEngine.trip {
                     ExpenseEditorView(trip: trip, members: members) { request, key in
                         await syncEngine.saveExpenseFromEditor(request, existing: nil, idempotencyKey: key)
+                    }
+                }
+            }
+            .sheet(isPresented: $addingEstimate) {
+                if let trip = syncEngine.trip {
+                    ExpenseEstimateEditorView(trip: trip) { card, amount, currency in
+                        await syncEngine.updateCard(
+                            card,
+                            request: CardRequest(
+                                priceMinor: amount,
+                                priceCurrency: currency,
+                                fieldsToClear: []
+                            )
+                        )
+                        showsEstimatedDetails = true
                     }
                 }
             }
@@ -111,14 +127,36 @@ struct ExpenseListView: View {
             HStack { 
                 Spacer(minLength: 0)
 
-                Button(action: addManualEntry) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 21, weight: .medium))
-                        .frame(width: 40, height: 40)
+                if section == .expenses {
+                    Menu {
+                        Button {
+                            addingExpense = true
+                        } label: {
+                            Label("expenseeditor.addTitle", systemImage: "receipt")
+                        }
+                        Button {
+                            addingEstimate = true
+                        } label: {
+                            Label("expenseestimate.addTitle", systemImage: "tag")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 21, weight: .medium))
+                            .frame(width: 40, height: 40)
+                    }
+                    .menuOrder(.fixed)
+                    .primaryTabHeaderButtonStyle()
+                    .disabled(syncEngine.trip?.currency == nil)
+                    .accessibilityLabel(Text("expense.addA11y"))
+                } else {
+                    Button(action: addManualEntry) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 21, weight: .medium))
+                            .frame(width: 40, height: 40)
+                    }
+                    .primaryTabHeaderButtonStyle()
+                    .accessibilityLabel(Text(LocalizedStringKey(section.addAccessibilityKey)))
                 }
-                .primaryTabHeaderButtonStyle()
-                .disabled(section == .expenses && syncEngine.trip?.currency == nil)
-                .accessibilityLabel(Text(LocalizedStringKey(section.addAccessibilityKey)))
             }
         }
         .frame(height: 48)

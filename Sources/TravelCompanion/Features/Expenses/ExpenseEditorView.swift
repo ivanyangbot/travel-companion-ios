@@ -314,6 +314,131 @@ struct ExpenseEditorView: View {
 
 }
 
+struct ExpenseEstimateEditorView: View {
+    let trip: SharedTripSnapshot
+    let onSave: (TravelCardSnapshot, Int64, String) async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedCardID: UUID?
+    @State private var amountText: String
+    @State private var currency: String
+    @State private var validationMessage: String?
+    @State private var isSaving = false
+
+    init(
+        trip: SharedTripSnapshot,
+        onSave: @escaping (TravelCardSnapshot, Int64, String) async -> Void
+    ) {
+        self.trip = trip
+        self.onSave = onSave
+        let first = Self.eligibleCards(in: trip).first
+        let initialCurrency = first?.priceCurrency ?? trip.currency ?? "CNY"
+        _selectedCardID = State(initialValue: first?.id)
+        _currency = State(initialValue: initialCurrency)
+        _amountText = State(initialValue: first?.priceMinor.map {
+            ExpenseMoney.inputString($0, currency: initialCurrency)
+        } ?? "")
+    }
+
+    private var cards: [TravelCardSnapshot] { Self.eligibleCards(in: trip) }
+
+    private var selectedCard: TravelCardSnapshot? {
+        selectedCardID.flatMap { id in cards.first { $0.id == id } }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if cards.isEmpty {
+                    ContentUnavailableView(
+                        "expenseestimate.noCardsTitle",
+                        systemImage: "tag.slash",
+                        description: Text("expenseestimate.noCardsDescription")
+                    )
+                } else {
+                    Form {
+                        Section("expenseestimate.cardSection") {
+                            Picker("expenseeditor.chooseCard", selection: $selectedCardID) {
+                                ForEach(cards) { card in
+                                    Label(card.title, systemImage: card.kind.systemImage)
+                                        .tag(Optional(card.id))
+                                }
+                            }
+                        }
+
+                        Section("cardeditor.estimatedPrice") {
+                            TextField("expenseeditor.amountPlaceholder", text: $amountText)
+                                .keyboardType(.decimalPad)
+                            Picker("expenseeditor.currencyLabel", selection: $currency) {
+                                ForEach(ExpenseCurrency.supported, id: \.self) { code in
+                                    Text(code).tag(code)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("expenseestimate.addTitle")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("common.cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button { save() } label: {
+                        if isSaving { ProgressView() } else { Text("common.save") }
+                    }
+                    .disabled(selectedCard == nil || isSaving)
+                }
+            }
+            .disabled(isSaving)
+            .interactiveDismissDisabled(isSaving)
+            .alert("agent.cannotCompleteTitle", isPresented: Binding(
+                get: { validationMessage != nil },
+                set: { if !$0 { validationMessage = nil } }
+            )) {
+                Button("common.done") { validationMessage = nil }
+            } message: {
+                Text(validationMessage ?? "")
+            }
+            .onChange(of: selectedCardID) { _, _ in
+                guard let card = selectedCard else { return }
+                let selectedCurrency = card.priceCurrency ?? trip.currency ?? "CNY"
+                currency = selectedCurrency
+                amountText = card.priceMinor.map {
+                    ExpenseMoney.inputString($0, currency: selectedCurrency)
+                } ?? ""
+            }
+        }
+    }
+
+    private func save() {
+        guard let card = selectedCard,
+              let amount = ExpenseMoney.amountMinor(from: amountText, currency: currency),
+              amount > 0 else {
+            validationMessage = String(localized: "expenseeditor.errorInvalid")
+            return
+        }
+        isSaving = true
+        Task {
+            await onSave(card, amount, currency)
+            dismiss()
+        }
+    }
+
+    private static func eligibleCards(in trip: SharedTripSnapshot) -> [TravelCardSnapshot] {
+        let linkedCardIDs = Set(trip.expenses.flatMap(\.cardIDs))
+        return trip.days.flatMap(\.cards).filter { card in
+            guard card.actualPriceMinor == nil else { return false }
+            guard let serverID = card.serverID else { return true }
+            return !linkedCardIDs.contains(serverID)
+        }
+        .sorted { lhs, rhs in
+            lhs.startAt == rhs.startAt ? lhs.title < rhs.title : lhs.startAt < rhs.startAt
+        }
+    }
+}
+
 private struct ExpenseCardLinkPicker: View {
     let trip: SharedTripSnapshot
     let selectedCardIDs: [Int]

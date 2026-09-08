@@ -454,6 +454,10 @@
 "expense.manualAdd" = "手動加入";
 "expense.scanChat" = "掃收據 / 對話";
 "expense.addA11y" = "加入支出";
+"expenseestimate.addTitle" = "加入預估價";
+"expenseestimate.cardSection" = "行程項目";
+"expenseestimate.noCardsTitle" = "沒有可加入預估價的項目";
+"expenseestimate.noCardsDescription" = "已有實際支出或已連結支出的項目不會重複加入預估價。";
 "expense.section" = "支出明細";
 "expense.showEstimates" = "顯示預估價格";
 "expense.hideEstimates" = "隱藏預估價格";

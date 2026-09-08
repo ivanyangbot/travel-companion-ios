@@ -454,6 +454,10 @@
 "expense.manualAdd" = "Add Manually";
 "expense.scanChat" = "Scan Receipt / Chat";
 "expense.addA11y" = "Add expense";
+"expenseestimate.addTitle" = "Add Estimate";
+"expenseestimate.cardSection" = "Itinerary Item";
+"expenseestimate.noCardsTitle" = "No Items Available";
+"expenseestimate.noCardsDescription" = "Items with an actual or linked expense cannot receive another estimate.";
 "expense.section" = "Expense Details";
 "expense.showEstimates" = "Show estimated prices";
 "expense.hideEstimates" = "Hide estimated prices";
