@@ -41,6 +41,14 @@ final class ExpensesTests: XCTestCase {
         XCTAssertEqual(settlement.owedByB, 5_000)
     }
 
+    func testSettlementNeverTreatsForecastAsPaidActual() {
+        let forecast = ExpenseSnapshot(amountMinor: 8_000, isEstimate: true, currency: "CNY", category: .lodging, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-02", paidAt: .distantPast)
+        XCTAssertFalse(forecast.isPaid())
+        let settlement = ExpenseSettlementCalculator.calculate([forecast])
+        XCTAssertEqual(settlement.total, 0)
+        XCTAssertTrue(settlement.byCategory.isEmpty)
+    }
+
     func testIsPaidDerivesFromPaymentDateVersusNow() {
         let now = Date()
         XCTAssertTrue(ExpenseSnapshot(amountMinor: 1, currency: "CNY", category: .food, occurredOn: "2026-10-01", paidAt: now.addingTimeInterval(-1)).isPaid(at: now))
@@ -97,6 +105,7 @@ final class ExpensesTests: XCTestCase {
         let spentAt = Date(timeIntervalSince1970: 1_760_000_000)
         let request = ExpenseRequest(
             amountMinor: 8_800,
+            isEstimate: true,
             spentAt: spentAt,
             purchaseChannel: "Grab",
             paymentMethod: ExpensePaymentMethod.creditCard.rawValue,
@@ -107,6 +116,7 @@ final class ExpensesTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(request)) as? [String: Any])
         XCTAssertNotNil(object["spentAt"] as? String)
+        XCTAssertEqual(object["isEstimate"] as? Bool, true)
         XCTAssertEqual(object["purchaseChannel"] as? String, "Grab")
         XCTAssertEqual(object["paymentMethod"] as? String, "credit_card")
         XCTAssertEqual(object["consumerUserId"] as? Int, 7)
@@ -173,11 +183,12 @@ final class ExpensesTests: XCTestCase {
         let local = ExpenseSnapshot(amountMinor: 100, currency: "CNY", category: .food, paidBy: .personA, splitMode: .equal, occurredOn: "2026-10-01", note: "旧备注", cardIDs: [11])
         let spentAt = Date(timeIntervalSince1970: 1_760_000_000)
         let paidAt = Date(timeIntervalSince1970: 1_760_000_100)
-        let request = ExpenseRequest(amountMinor: 250, currency: "CNY", category: .transport, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-02", spentAt: spentAt, paidAt: paidAt, purchaseChannel: "Grab", paymentMethod: ExpensePaymentMethod.creditCard.rawValue, consumerUserID: 9, consumerName: "Mina", note: nil, cardIDs: [12, 13], fieldsToClear: ["note"])
+        let request = ExpenseRequest(amountMinor: 250, isEstimate: true, currency: "CNY", category: .transport, paidBy: .personB, splitMode: .self, occurredOn: "2026-10-02", spentAt: spentAt, paidAt: paidAt, purchaseChannel: "Grab", paymentMethod: ExpensePaymentMethod.creditCard.rawValue, consumerUserID: 9, consumerName: "Mina", note: nil, cardIDs: [12, 13], fieldsToClear: ["note"])
 
         let updated = ExpenseOptimisticMutation.applying(request, to: local)
         XCTAssertNil(updated.serverID)
         XCTAssertEqual(updated.amountMinor, 250)
+        XCTAssertTrue(updated.isEstimate)
         XCTAssertEqual(updated.category, .transport)
         XCTAssertEqual(updated.paidBy, .personB)
         XCTAssertEqual(updated.splitMode, .self)
@@ -218,6 +229,13 @@ final class ExpensesTests: XCTestCase {
          "cardId": 4, "updatedAt": "2026-10-02T03:00:00Z"}
         """.utf8))
         XCTAssertEqual(legacy.cardIDs, [4])
+        XCTAssertFalse(legacy.isEstimate)
+
+        let forecast = try decoder.decode(ExpenseSnapshot.self, from: Data("""
+        {"id": 10, "amountMinor": 900, "isEstimate": true, "currency": "CNY", "category": "lodging", "occurredOn": "2026-10-03",
+         "cardIds": [], "updatedAt": "2026-10-02T03:00:00Z"}
+        """.utf8))
+        XCTAssertTrue(forecast.isEstimate)
         XCTAssertNil(legacy.paidAt)
     }
 

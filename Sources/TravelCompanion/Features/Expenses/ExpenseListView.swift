@@ -61,16 +61,10 @@ struct ExpenseListView: View {
             }
             .sheet(isPresented: $addingEstimate) {
                 if let trip = syncEngine.trip {
-                    ExpenseEstimateEditorView(trip: trip) { card, amount, currency in
-                        await syncEngine.updateCard(
-                            card,
-                            request: CardRequest(
-                                priceMinor: amount,
-                                priceCurrency: currency,
-                                fieldsToClear: []
-                            )
-                        )
-                        showsEstimatedDetails = true
+                    ExpenseEditorView(trip: trip, members: members, mode: .estimate) { request, key in
+                        let error = await syncEngine.saveExpenseFromEditor(request, existing: nil, idempotencyKey: key)
+                        if error == nil { showsEstimatedDetails = true }
+                        return error
                     }
                 }
             }
@@ -227,7 +221,7 @@ struct ExpenseListView: View {
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.white)
                     Spacer()
-                    Text(String(format: String(localized: "expense.filteredCountFormat"), visibleExpenses(in: trip).count, trip.expenses.count))
+                    Text(String(format: String(localized: "expense.filteredCountFormat"), visibleExpenses(in: trip).count, actualExpenses(in: trip).count))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
@@ -245,7 +239,7 @@ struct ExpenseListView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 36)
                     .expenseLedgerListRow()
-                } else if visibleExpenses(in: trip).isEmpty && (!showsEstimatedDetails || visibleEstimateCards(in: trip).isEmpty) {
+                } else if visibleExpenses(in: trip).isEmpty && (!showsEstimatedDetails || (visibleEstimateExpenses(in: trip).isEmpty && visibleEstimateCards(in: trip).isEmpty)) {
                     ContentUnavailableView(
                         "expense.noMatchTitle",
                         systemImage: "line.3.horizontal.decrease.circle",
@@ -268,6 +262,17 @@ struct ExpenseListView: View {
                     }
                 }
                 if showsEstimatedDetails {
+                    ForEach(visibleEstimateExpenses(in: trip)) { expense in
+                        expenseRow(expense, currency: currency)
+                            .expenseLedgerListRow()
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    pendingDeletion = expense
+                                } label: {
+                                    Label("common.delete", systemImage: "trash")
+                                }
+                            }
+                    }
                     ForEach(visibleEstimateCards(in: trip)) { card in
                         estimateRow(card, currency: currency)
                             .expenseLedgerListRow()
@@ -297,11 +302,23 @@ struct ExpenseListView: View {
     }
 
     private func visibleExpenses(in trip: SharedTripSnapshot) -> [ExpenseSnapshot] {
-        listFilter.apply(to: trip.expenses, members: members)
+        listFilter.apply(to: actualExpenses(in: trip), members: members)
+    }
+
+    private func actualExpenses(in trip: SharedTripSnapshot) -> [ExpenseSnapshot] {
+        trip.expenses.filter { !$0.isEstimate }
+    }
+
+    private func visibleEstimateExpenses(in trip: SharedTripSnapshot) -> [ExpenseSnapshot] {
+        var estimateFilter = listFilter
+        // Paid/unpaid applies only to actual records; the adjacent “预估”
+        // switch controls forecast visibility. Other filters and sorting remain shared.
+        estimateFilter.paymentStatus = .all
+        return estimateFilter.apply(to: trip.expenses.filter(\.isEstimate), members: members)
     }
 
     private func filterBar(trip: SharedTripSnapshot) -> some View {
-        let consumerOptions = ExpenseListFilter.consumerOptions(from: trip.expenses, members: members)
+        let consumerOptions = ExpenseListFilter.consumerOptions(from: actualExpenses(in: trip), members: members)
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
             Menu {
@@ -525,12 +542,20 @@ struct ExpenseListView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(ExpenseMoney.formatted(expense.amountMinor, currency: expense.currency))
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(expense.isEstimate ? PrimaryTabPalette.secondaryText : .white)
                             .monospacedDigit()
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
                             .fixedSize(horizontal: false, vertical: true)
-                        if !expense.isPaid() {
+                        if expense.isEstimate {
+                            Text("expenseestimate.badge")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(PrimaryTabPalette.secondaryText)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(PrimaryTabPalette.surface, in: Capsule())
+                                .fixedSize()
+                        } else if !expense.isPaid() {
                             Text(expense.paidAt.map { String(format: String(localized: "expense.unpaidWithDateBadge"), Self.badgeDateFormatter.string(from: $0)) }
                                 ?? String(localized: "expense.unpaidBadge"))
                                 .font(.system(size: 10, weight: .semibold))

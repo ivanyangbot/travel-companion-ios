@@ -1295,3 +1295,14 @@
 "expensesummary.includesEstimates" = "实际账目 + 待记预估";
 "expensesummary.estimateShort" = "预估";
 "expensesummary.distribution" = "支出分布";
+
+"expenseestimate.amountSection" = "预计价";
+"expenseestimate.editTitle" = "编辑预估价";
+"expenseestimate.paymentSection" = "预计支付";
+"expenseestimate.paymentHelp" = "可填写预计支付时间；到达该时间后仍保持为预估记录。";
+"expenseestimate.spentAt" = "预计消费时间";
+"expenseestimate.transactionDetails" = "预计消费信息";
+"expenseestimate.transactionDetailsHelp" = "填写预计渠道、支付方式和消费人。";
+"expenseestimate.linkHelp" = "关联这笔预估价对应的行程项目。";
+"expenseestimate.noteHelp" = "填写这笔预估价的说明或计算依据。";
+"expenseestimate.badge" = "预估";

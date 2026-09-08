@@ -107,6 +107,8 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
     let id: UUID
     var serverID: Int?
     var amountMinor: Int64
+    /// Full-detail forecast entry. Missing on legacy snapshots means actual expense.
+    var isEstimate: Bool
     var currency: String
     var settlementAmountMinor: Int64?
     var settlementCurrency: String?
@@ -133,12 +135,13 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
     var createdAt: Date
     var updatedAt: Date
 
-    enum CodingKeys: String, CodingKey { case serverID = "id", localID, amountMinor, currency, settlementAmountMinor, settlementCurrency, exchangeRate, exchangeRateAsOf, exchangeRateSource, category, paidBy, splitMode, occurredOn, spentAt, purchaseChannel, paymentMethod, consumerUserID = "consumerUserId", consumerName, note, cardIDs = "cardIds", legacyCardID = "cardId", paidAt, createdAt, updatedAt }
+    enum CodingKeys: String, CodingKey { case serverID = "id", localID, amountMinor, isEstimate, currency, settlementAmountMinor, settlementCurrency, exchangeRate, exchangeRateAsOf, exchangeRateSource, category, paidBy, splitMode, occurredOn, spentAt, purchaseChannel, paymentMethod, consumerUserID = "consumerUserId", consumerName, note, cardIDs = "cardIds", legacyCardID = "cardId", paidAt, createdAt, updatedAt }
 
-    init(serverID: Int? = nil, amountMinor: Int64, currency: String, settlementAmountMinor: Int64? = nil, settlementCurrency: String? = nil, exchangeRate: String? = nil, exchangeRateAsOf: String? = nil, exchangeRateSource: String? = nil, category: ExpenseCategory, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String, spentAt: Date? = nil, paidAt: Date? = nil, purchaseChannel: String? = nil, paymentMethod: String? = nil, consumerUserID: Int? = nil, consumerName: String? = nil, note: String? = nil, cardIDs: [Int] = [], createdAt: Date = .now, updatedAt: Date = .now) {
+    init(serverID: Int? = nil, amountMinor: Int64, isEstimate: Bool = false, currency: String, settlementAmountMinor: Int64? = nil, settlementCurrency: String? = nil, exchangeRate: String? = nil, exchangeRateAsOf: String? = nil, exchangeRateSource: String? = nil, category: ExpenseCategory, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String, spentAt: Date? = nil, paidAt: Date? = nil, purchaseChannel: String? = nil, paymentMethod: String? = nil, consumerUserID: Int? = nil, consumerName: String? = nil, note: String? = nil, cardIDs: [Int] = [], createdAt: Date = .now, updatedAt: Date = .now) {
         id = UUID()
         self.serverID = serverID
         self.amountMinor = amountMinor
+        self.isEstimate = isEstimate
         self.currency = currency
         self.settlementAmountMinor = settlementAmountMinor
         self.settlementCurrency = settlementCurrency
@@ -165,6 +168,7 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         serverID = try container.decodeIfPresent(Int.self, forKey: .serverID)
         amountMinor = try container.decode(Int64.self, forKey: .amountMinor)
+        isEstimate = try container.decodeIfPresent(Bool.self, forKey: .isEstimate) ?? false
         currency = try container.decode(String.self, forKey: .currency)
         settlementAmountMinor = try container.decodeIfPresent(Int64.self, forKey: .settlementAmountMinor)
         settlementCurrency = try container.decodeIfPresent(String.self, forKey: .settlementCurrency)
@@ -198,6 +202,7 @@ struct ExpenseSnapshot: Codable, Sendable, Equatable, Identifiable {
         if let serverID { try container.encode(serverID, forKey: .serverID) }
         try container.encode(id, forKey: .localID)
         try container.encode(amountMinor, forKey: .amountMinor)
+        try container.encode(isEstimate, forKey: .isEstimate)
         try container.encode(currency, forKey: .currency)
         try container.encodeIfPresent(settlementAmountMinor, forKey: .settlementAmountMinor)
         try container.encodeIfPresent(settlementCurrency, forKey: .settlementCurrency)

@@ -505,6 +505,18 @@ final class AITests: XCTestCase {
             JournalPhotoDismissalPhysics.scale(progress: 0.8, viewportWidth: 390, sourceWidth: 180),
             JournalPhotoDismissalPhysics.scale(progress: 0.2, viewportWidth: 390, sourceWidth: 180)
         )
+        XCTAssertTrue(JournalPhotoDismissalPhysics.isHorizontalPaging(
+            CGSize(width: 90, height: 20),
+            hasMultiplePhotos: true
+        ))
+        XCTAssertFalse(JournalPhotoDismissalPhysics.isHorizontalPaging(
+            CGSize(width: 40, height: 65),
+            hasMultiplePhotos: true
+        ))
+        XCTAssertFalse(JournalPhotoDismissalPhysics.isHorizontalPaging(
+            CGSize(width: 90, height: 10),
+            hasMultiplePhotos: false
+        ))
     }
 
     func testJournalPhotoLoaderPersistsLivePhotoResourceLocally() throws {

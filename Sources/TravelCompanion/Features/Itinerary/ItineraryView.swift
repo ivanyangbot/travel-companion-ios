@@ -4861,28 +4861,22 @@ enum ItineraryListPresentation {
         let destination: TravelCardSnapshot
     }
 
-    /// The first located itinerary stop can start from the hotel occupied
-    /// during the previous night. This also handles multi-night stays whose
-    /// source card lives several days earlier.
-    static func dayStartHotelLeg(
+    /// Hotel occupied at the start of the target day. The hotel timestamps are
+    /// authoritative; a separate TripDay row for the preceding date is not
+    /// required because imported or shortened trips may legitimately omit it.
+    static func previousNightHotel(
         for targetDay: TripDaySnapshot,
         in days: [TripDaySnapshot],
         timeZone: TimeZone = .autoupdatingCurrent
-    ) -> DayStartHotelLeg? {
+    ) -> TravelCardSnapshot? {
         guard let targetStart = localDayStart(targetDay.date, timeZone: timeZone),
               let previousStart = localDayCalendar(for: timeZone).date(
                 byAdding: .day,
                 value: -1,
                 to: targetStart
-              ),
-              days.contains(where: {
-                localDayStart($0.date, timeZone: timeZone) == previousStart
-              }),
-              let destination = chronologicalCards(targetDay.cards).first(where: {
-                legDestinationPoint(for: $0) != nil
-              }) else { return nil }
+              ) else { return nil }
 
-        let hotel = days.flatMap { sourceDay in
+        return days.flatMap { sourceDay in
             orderedCards(sourceDay.cards).compactMap { card -> TravelCardSnapshot? in
                 guard card.kind == .hotel,
                       legOriginPoint(for: card) != nil,
@@ -4898,8 +4892,26 @@ enum ItineraryListPresentation {
             if left.startAt != right.startAt { return left.startAt < right.startAt }
             return left.position < right.position
         }
+    }
 
-        return hotel.map { DayStartHotelLeg(hotel: $0, destination: destination) }
+    /// The first located itinerary stop can start from the hotel occupied
+    /// during the previous night. This also handles multi-night stays whose
+    /// source card lives several days earlier.
+    static func dayStartHotelLeg(
+        for targetDay: TripDaySnapshot,
+        in days: [TripDaySnapshot],
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> DayStartHotelLeg? {
+        guard let destination = chronologicalCards(targetDay.cards).first(where: {
+                legDestinationPoint(for: $0) != nil
+              }),
+              let hotel = previousNightHotel(
+                for: targetDay,
+                in: days,
+                timeZone: timeZone
+              ) else { return nil }
+
+        return DayStartHotelLeg(hotel: hotel, destination: destination)
     }
 
     /// Merges a day's own cards with the multi-day occurrences projected from

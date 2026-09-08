@@ -243,10 +243,10 @@ struct TodayView: View {
         let flightRoutes = resolvedFlightRoutes.filter { flightIDs.contains($0.cardID) }
         let previousNightHotel = isTripOverview
             ? nil
-            : ItineraryListPresentation.dayStartHotelLeg(
+            : ItineraryListPresentation.previousNightHotel(
                 for: day,
                 in: days
-            )?.hotel
+            )
         let points = mapPoints(
             pois: displayedPOIs,
             previousNightHotel: previousNightHotel

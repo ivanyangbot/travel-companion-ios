@@ -2193,24 +2193,13 @@ struct MapLibreTodayMapCanvas: UIViewRepresentable {
             to destination: TodayMapPoint,
             transportType: MKDirectionsTransportType
         ) async -> [CLLocationCoordinate2D]? {
-            let request = MKDirections.Request()
-            // Do not replace the itinerary coordinate with a nearby text
-            // search result. That can produce a route that visibly terminates
-            // beside a pin, especially for accommodations and trailheads.
-            request.source = routingMapItem(for: origin)
-            request.destination = routingMapItem(for: destination)
-            request.transportType = transportType
-            request.requestsAlternateRoutes = false
-
-            let directions = MKDirections(request: request)
-            activeDirections = directions
-            defer {
-                if activeDirections === directions {
-                    activeDirections = nil
-                }
-            }
-
-            guard let route = try? await directions.calculate().routes.first else { return nil }
+            let originPoint = RoutePoint(latitude: origin.latitude, longitude: origin.longitude)
+            let destinationPoint = RoutePoint(latitude: destination.latitude, longitude: destination.longitude)
+            guard let route = try? await AppleMapService.directionsRoute(
+                origin: originPoint,
+                destination: destinationPoint,
+                transportType: transportType
+            ) else { return nil }
             var coordinates = [CLLocationCoordinate2D](
                 repeating: CLLocationCoordinate2D(),
                 count: route.polyline.pointCount

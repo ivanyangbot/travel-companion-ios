@@ -1,5 +1,6 @@
 import XCTest
 import CoreLocation
+import MapKit
 import SwiftData
 @testable import TravelCompanion
 
@@ -1493,6 +1494,20 @@ final class MapsTests: XCTestCase {
         XCTAssertEqual(RouteMode.driving.launchOptionsDirectionMode, "MKLaunchOptionsDirectionsModeDriving")
         XCTAssertEqual(RouteMode.walking.launchOptionsDirectionMode, "MKLaunchOptionsDirectionsModeWalking")
         XCTAssertEqual(RouteMode.transit.launchOptionsDirectionMode, "MKLaunchOptionsDirectionsModeTransit")
+    }
+
+    func testOnlyDefinitiveMapKitFailuresBecomeCannotEstimate() {
+        let throttled = NSError(
+            domain: MKError.errorDomain,
+            code: Int(MKError.Code.loadingThrottled.rawValue)
+        )
+        let noDirections = NSError(
+            domain: MKError.errorDomain,
+            code: Int(MKError.Code.directionsNotFound.rawValue)
+        )
+
+        XCTAssertTrue(AppleMapService.isTransientDirectionsError(throttled))
+        XCTAssertFalse(AppleMapService.isTransientDirectionsError(noDirections))
     }
 
     @MainActor

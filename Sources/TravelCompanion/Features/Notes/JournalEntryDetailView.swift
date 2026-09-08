@@ -81,6 +81,9 @@ struct JournalEntryDetailView: View {
                 initialIndex: presented.initialIndex,
                 onSaveDescription: { imageKey, description in
                     await onSaveDescription(imageKey, description)
+                },
+                onDismissAfterTransition: {
+                    dismissWithoutAnimation { presentedViewer = nil }
                 }
             )
         }
@@ -212,7 +215,8 @@ struct JournalEntryDetailView: View {
                     JournalPhotoThumbnail(
                         url: image.url.flatMap(URL.init(string:)),
                         cacheKey: image.key,
-                        maxPixelSize: 800
+                        maxPixelSize: 800,
+                        prefersHighDynamicRange: image.isHDR == true
                     )
                 } else {
                     JournalMediaView(media: image)

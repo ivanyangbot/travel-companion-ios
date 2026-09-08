@@ -1203,6 +1203,7 @@ final class SyncEngine: ObservableObject {
             let body = try await apiClient.encode(request)
             let expense = ExpenseSnapshot(
                 amountMinor: amountMinor,
+                isEstimate: request.isEstimate ?? false,
                 currency: currency,
                 settlementCurrency: settlementCurrency,
                 category: category,
@@ -1245,7 +1246,7 @@ final class SyncEngine: ObservableObject {
                           let category = request.category, let date = request.occurredOn else {
                         return String(localized: "error.expensePreflight")
                     }
-                    let expense = ExpenseSnapshot(amountMinor: amount, currency: currency, category: category, occurredOn: date)
+                    let expense = ExpenseSnapshot(amountMinor: amount, isEstimate: request.isEstimate ?? false, currency: currency, category: category, occurredOn: date)
                     current.expenses.append(ExpenseOptimisticMutation.applying(request, to: expense))
                 }
                 try saveLocalSnapshot(current)

@@ -1,9 +1,15 @@
 import SwiftUI
 
+enum ExpenseEditorMode {
+    case actual
+    case estimate
+}
+
 struct ExpenseEditorView: View {
     let trip: SharedTripSnapshot
     let existingExpense: ExpenseSnapshot?
     let members: [TripMemberSummary]
+    let mode: ExpenseEditorMode
     let onSave: (ExpenseRequest, UUID) async -> String?
 
     @Environment(\.dismiss) private var dismiss
@@ -27,10 +33,11 @@ struct ExpenseEditorView: View {
     @State private var saveKey = UUID()
     @State private var lastSaveBody: Data?
 
-    init(trip: SharedTripSnapshot, existingExpense: ExpenseSnapshot? = nil, members: [TripMemberSummary] = [], initialDate: Date? = nil, onSave: @escaping (ExpenseRequest, UUID) async -> String?) {
+    init(trip: SharedTripSnapshot, existingExpense: ExpenseSnapshot? = nil, members: [TripMemberSummary] = [], initialDate: Date? = nil, mode: ExpenseEditorMode = .actual, onSave: @escaping (ExpenseRequest, UUID) async -> String?) {
         self.trip = trip
         self.existingExpense = existingExpense
         self.members = members
+        self.mode = existingExpense?.isEstimate == true ? .estimate : mode
         self.onSave = onSave
         let currency = existingExpense?.currency ?? trip.currency ?? "CNY"
         _currency = State(initialValue: currency)
@@ -43,7 +50,7 @@ struct ExpenseEditorView: View {
         _note = State(initialValue: existingExpense?.note ?? "")
         _cardIDs = State(initialValue: existingExpense?.cardIDs ?? [])
         // 手动记一笔默认已支付（沿用旧行为）；仅未支付的单子保留预计支付时间。
-        _isPaid = State(initialValue: existingExpense.map { $0.isPaid() } ?? true)
+        _isPaid = State(initialValue: existingExpense.map { $0.isPaid() } ?? mode == .actual)
         _paidAtDate = State(initialValue: existingExpense?.paidAt ?? .now)
         _hasExpectedPaidAt = State(initialValue: existingExpense?.paidAt != nil)
     }
@@ -51,7 +58,7 @@ struct ExpenseEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("expenseeditor.actualSection") {
+                Section(amountSectionKey) {
                     TextField("expenseeditor.amountPlaceholder", text: $amountText)
                         .keyboardType(.decimalPad)
                     Picker("expenseeditor.currencyLabel", selection: $currency) {
@@ -71,18 +78,7 @@ struct ExpenseEditorView: View {
                     }
                 }
                 Section {
-                    Picker("expenseeditor.paymentStatus", selection: $isPaid) {
-                        Text("expenseeditor.paid").tag(true)
-                        Text("expenseeditor.unpaid").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    if isPaid {
-                        DatePicker(
-                            "expenseeditor.paidAt",
-                            selection: $paidAtDate,
-                            displayedComponents: [.date, .hourAndMinute]
-                        )
-                    } else {
+                    if mode == .estimate {
                         Toggle("expenseeditor.expectedPaidAtToggle", isOn: $hasExpectedPaidAt)
                         if hasExpectedPaidAt {
                             DatePicker(
@@ -91,15 +87,37 @@ struct ExpenseEditorView: View {
                                 displayedComponents: [.date, .hourAndMinute]
                             )
                         }
+                    } else {
+                        Picker("expenseeditor.paymentStatus", selection: $isPaid) {
+                            Text("expenseeditor.paid").tag(true)
+                            Text("expenseeditor.unpaid").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        if isPaid {
+                            DatePicker(
+                                "expenseeditor.paidAt",
+                                selection: $paidAtDate,
+                                displayedComponents: [.date, .hourAndMinute]
+                            )
+                        } else {
+                            Toggle("expenseeditor.expectedPaidAtToggle", isOn: $hasExpectedPaidAt)
+                            if hasExpectedPaidAt {
+                                DatePicker(
+                                    "expenseeditor.expectedPaidAt",
+                                    selection: $paidAtDate,
+                                    displayedComponents: [.date, .hourAndMinute]
+                                )
+                            }
+                        }
                     }
                 } header: {
-                    Text("expenseeditor.paymentSection")
+                    Text(paymentSectionKey)
                 } footer: {
-                    Text(isPaid ? "expenseeditor.paymentPaidHelp" : "expenseeditor.paymentUnpaidHelp")
+                    Text(paymentHelpKey)
                 }
                 Section {
                     DatePicker(
-                        "expenseeditor.spentAt",
+                        spentAtKey,
                         selection: $spentAt,
                         displayedComponents: [.date, .hourAndMinute]
                     )
@@ -128,9 +146,9 @@ struct ExpenseEditorView: View {
                         }
                     }
                 } header: {
-                    Text("expenseeditor.transactionDetails")
+                    Text(transactionDetailsKey)
                 } footer: {
-                    Text("expenseeditor.transactionDetailsHelp")
+                    Text(transactionDetailsHelpKey)
                 }
                 Section {
                     ForEach(cardIDs, id: \.self) { cardID in
@@ -193,7 +211,7 @@ struct ExpenseEditorView: View {
                 } header: {
                     Text("expenseeditor.linkSection")
                 } footer: {
-                    Text("expenseeditor.linkHelp")
+                    Text(linkHelpKey)
                 }
                 Section {
                     TextField("expenseeditor.notePlaceholder", text: $note, axis: .vertical)
@@ -201,11 +219,11 @@ struct ExpenseEditorView: View {
                 } header: {
                     Text("expenseeditor.noteSection")
                 } footer: {
-                    Text("expenseeditor.noteHelp")
+                    Text(noteHelpKey)
                 }
                 if let validationMessage { Text(validationMessage).foregroundStyle(.red) }
             }
-            .navigationTitle(existingExpense == nil ? "expenseeditor.addTitle" : "expenseeditor.editTitle")
+            .navigationTitle(Text(navigationTitleKey))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("common.cancel") { dismiss() }.disabled(isSaving) }
                 ToolbarItem(placement: .confirmationAction) {
@@ -242,6 +260,46 @@ struct ExpenseEditorView: View {
         trip.days.flatMap(\.cards).filter { $0.serverID != nil }.sorted { $0.title < $1.title }
     }
 
+    private var navigationTitleKey: LocalizedStringKey {
+        if mode == .estimate {
+            return existingExpense == nil ? "expenseestimate.addTitle" : "expenseestimate.editTitle"
+        }
+        return existingExpense == nil ? "expenseeditor.addTitle" : "expenseeditor.editTitle"
+    }
+
+    private var amountSectionKey: LocalizedStringKey {
+        mode == .estimate ? "expenseestimate.amountSection" : "expenseeditor.actualSection"
+    }
+
+    private var paymentSectionKey: LocalizedStringKey {
+        mode == .estimate ? "expenseestimate.paymentSection" : "expenseeditor.paymentSection"
+    }
+
+    private var paymentHelpKey: LocalizedStringKey {
+        if mode == .estimate { return "expenseestimate.paymentHelp" }
+        return isPaid ? "expenseeditor.paymentPaidHelp" : "expenseeditor.paymentUnpaidHelp"
+    }
+
+    private var spentAtKey: LocalizedStringKey {
+        mode == .estimate ? "expenseestimate.spentAt" : "expenseeditor.spentAt"
+    }
+
+    private var transactionDetailsKey: LocalizedStringKey {
+        mode == .estimate ? "expenseestimate.transactionDetails" : "expenseeditor.transactionDetails"
+    }
+
+    private var transactionDetailsHelpKey: LocalizedStringKey {
+        mode == .estimate ? "expenseestimate.transactionDetailsHelp" : "expenseeditor.transactionDetailsHelp"
+    }
+
+    private var linkHelpKey: LocalizedStringKey {
+        mode == .estimate ? "expenseestimate.linkHelp" : "expenseeditor.linkHelp"
+    }
+
+    private var noteHelpKey: LocalizedStringKey {
+        mode == .estimate ? "expenseestimate.noteHelp" : "expenseeditor.noteHelp"
+    }
+
     private func save() {
         guard trip.currency != nil, let amountMinor = ExpenseMoney.amountMinor(from: amountText, currency: currency) else {
             validationMessage = String(localized: "expenseeditor.errorInvalid")
@@ -251,7 +309,9 @@ struct ExpenseEditorView: View {
         let normalizedPurchaseChannel = purchaseChannel.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedConsumer = consumerUserID.flatMap { id in members.first { $0.userId == id } }
         // 已支出 → 实际支付时间；未支出 → 预计支付时间或留空（不设字段即 null）。
-        let resolvedPaidAt: Date? = isPaid ? paidAtDate : (hasExpectedPaidAt ? paidAtDate : nil)
+        let resolvedPaidAt: Date? = mode == .estimate
+            ? (hasExpectedPaidAt ? paidAtDate : nil)
+            : (isPaid ? paidAtDate : (hasExpectedPaidAt ? paidAtDate : nil))
         var clears: Set<String> = []
         if existingExpense != nil && normalizedNote.isEmpty { clears.insert("note") }
         if existingExpense != nil && normalizedPurchaseChannel.isEmpty { clears.insert("purchaseChannel") }
@@ -264,6 +324,7 @@ struct ExpenseEditorView: View {
         if existingExpense?.paidAt != nil && resolvedPaidAt == nil { clears.insert("paidAt") }
         let request = ExpenseRequest(
             amountMinor: amountMinor,
+            isEstimate: mode == .estimate,
             currency: currency,
             category: category,
             occurredOn: Self.dayFormatter.string(from: spentAt),
@@ -312,131 +373,6 @@ struct ExpenseEditorView: View {
         return formatter
     }()
 
-}
-
-struct ExpenseEstimateEditorView: View {
-    let trip: SharedTripSnapshot
-    let onSave: (TravelCardSnapshot, Int64, String) async -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedCardID: UUID?
-    @State private var amountText: String
-    @State private var currency: String
-    @State private var validationMessage: String?
-    @State private var isSaving = false
-
-    init(
-        trip: SharedTripSnapshot,
-        onSave: @escaping (TravelCardSnapshot, Int64, String) async -> Void
-    ) {
-        self.trip = trip
-        self.onSave = onSave
-        let first = Self.eligibleCards(in: trip).first
-        let initialCurrency = first?.priceCurrency ?? trip.currency ?? "CNY"
-        _selectedCardID = State(initialValue: first?.id)
-        _currency = State(initialValue: initialCurrency)
-        _amountText = State(initialValue: first?.priceMinor.map {
-            ExpenseMoney.inputString($0, currency: initialCurrency)
-        } ?? "")
-    }
-
-    private var cards: [TravelCardSnapshot] { Self.eligibleCards(in: trip) }
-
-    private var selectedCard: TravelCardSnapshot? {
-        selectedCardID.flatMap { id in cards.first { $0.id == id } }
-    }
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if cards.isEmpty {
-                    ContentUnavailableView(
-                        "expenseestimate.noCardsTitle",
-                        systemImage: "tag.slash",
-                        description: Text("expenseestimate.noCardsDescription")
-                    )
-                } else {
-                    Form {
-                        Section("expenseestimate.cardSection") {
-                            Picker("expenseeditor.chooseCard", selection: $selectedCardID) {
-                                ForEach(cards) { card in
-                                    Label(card.title, systemImage: card.kind.systemImage)
-                                        .tag(Optional(card.id))
-                                }
-                            }
-                        }
-
-                        Section("cardeditor.estimatedPrice") {
-                            TextField("expenseeditor.amountPlaceholder", text: $amountText)
-                                .keyboardType(.decimalPad)
-                            Picker("expenseeditor.currencyLabel", selection: $currency) {
-                                ForEach(ExpenseCurrency.supported, id: \.self) { code in
-                                    Text(code).tag(code)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .navigationTitle("expenseestimate.addTitle")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("common.cancel") { dismiss() }
-                        .disabled(isSaving)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button { save() } label: {
-                        if isSaving { ProgressView() } else { Text("common.save") }
-                    }
-                    .disabled(selectedCard == nil || isSaving)
-                }
-            }
-            .disabled(isSaving)
-            .interactiveDismissDisabled(isSaving)
-            .alert("agent.cannotCompleteTitle", isPresented: Binding(
-                get: { validationMessage != nil },
-                set: { if !$0 { validationMessage = nil } }
-            )) {
-                Button("common.done") { validationMessage = nil }
-            } message: {
-                Text(validationMessage ?? "")
-            }
-            .onChange(of: selectedCardID) { _, _ in
-                guard let card = selectedCard else { return }
-                let selectedCurrency = card.priceCurrency ?? trip.currency ?? "CNY"
-                currency = selectedCurrency
-                amountText = card.priceMinor.map {
-                    ExpenseMoney.inputString($0, currency: selectedCurrency)
-                } ?? ""
-            }
-        }
-    }
-
-    private func save() {
-        guard let card = selectedCard,
-              let amount = ExpenseMoney.amountMinor(from: amountText, currency: currency),
-              amount > 0 else {
-            validationMessage = String(localized: "expenseeditor.errorInvalid")
-            return
-        }
-        isSaving = true
-        Task {
-            await onSave(card, amount, currency)
-            dismiss()
-        }
-    }
-
-    private static func eligibleCards(in trip: SharedTripSnapshot) -> [TravelCardSnapshot] {
-        let linkedCardIDs = Set(trip.expenses.flatMap(\.cardIDs))
-        return trip.days.flatMap(\.cards).filter { card in
-            guard card.actualPriceMinor == nil else { return false }
-            guard let serverID = card.serverID else { return true }
-            return !linkedCardIDs.contains(serverID)
-        }
-        .sorted { lhs, rhs in
-            lhs.startAt == rhs.startAt ? lhs.title < rhs.title : lhs.startAt < rhs.startAt
-        }
-    }
 }
 
 private struct ExpenseCardLinkPicker: View {

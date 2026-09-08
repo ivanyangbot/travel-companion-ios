@@ -331,6 +331,7 @@ enum JournalDisplayMode {
 private struct MapViewerContext: Identifiable {
     let id: String
     let pins: [JournalPhotoPin]
+    let sourceFrame: CGRect?
 }
 
 private struct JournalPhotoItem: Identifiable {
@@ -399,10 +400,11 @@ struct NotesView: View {
                 PrimaryTabPalette.background.ignoresSafeArea()
 
                 if displayMode == .map {
-                    JournalPhotoMapScreen(pins: photoPins) { selectedPins in
+                    JournalPhotoMapScreen(pins: photoPins) { selectedPins, sourceFrame in
                         mapViewer = MapViewerContext(
                             id: selectedPins.first?.id ?? UUID().uuidString,
-                            pins: selectedPins
+                            pins: selectedPins,
+                            sourceFrame: sourceFrame
                         )
                     }
                     .ignoresSafeArea()
@@ -465,7 +467,7 @@ struct NotesView: View {
                             description: pin.description,
                             capturedAt: pin.capturedAt,
                             media: pin.image,
-                            sourceFrame: photoSourceFrames[pin.id]
+                            sourceFrame: context.sourceFrame
                         )
                     },
                     initialIndex: 0,
@@ -481,6 +483,9 @@ struct NotesView: View {
                             latitude: pin.latitude,
                             longitude: pin.longitude
                         )
+                    },
+                    onDismissAfterTransition: {
+                        dismissWithoutAnimation { mapViewer = nil }
                     }
                 )
             }
@@ -488,7 +493,10 @@ struct NotesView: View {
                 JournalPhotoViewer(
                     photos: context.photos,
                     initialIndex: context.initialIndex,
-                    onSaveDescription: nil
+                    onSaveDescription: nil,
+                    onDismissAfterTransition: {
+                        dismissWithoutAnimation { listViewer = nil }
+                    }
                 )
             }
             .sheet(item: $photoEditor) { context in
@@ -561,8 +569,10 @@ struct NotesView: View {
                                 journalPhoto(indexedPhoto.element)
                             }
                         }
+                        .frame(maxWidth: .infinity)
                     }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 128)
             }
@@ -764,7 +774,8 @@ struct NotesView: View {
             JournalPhotoThumbnail(
                 url: item.image.url.flatMap(URL.init(string:)),
                 cacheKey: item.image.key,
-                maxPixelSize: 1000
+                maxPixelSize: 1000,
+                prefersHighDynamicRange: item.image.isHDR == true
             )
                 .frame(height: waterfallImageHeight(for: item.image))
                 .frame(maxWidth: .infinity)
@@ -977,6 +988,14 @@ struct NotesView: View {
                     maxPixelSize: 320,
                     cacheKey: image.key
                 )
+                if image.kind == "livePhoto",
+                   let paired = image.pairedVideo,
+                   let pairedURL = paired.url.flatMap(URL.init(string:)) {
+                    await JournalPhotoLoader.shared.persistRemoteResource(
+                        from: pairedURL,
+                        key: paired.key
+                    )
+                }
             }
         }
     }

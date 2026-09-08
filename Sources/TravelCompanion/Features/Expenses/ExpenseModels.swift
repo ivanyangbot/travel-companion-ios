@@ -125,6 +125,7 @@ enum ExpenseOptimisticMutation {
     static func applying(_ request: ExpenseRequest, to expense: ExpenseSnapshot) -> ExpenseSnapshot {
         var updated = expense
         if let value = request.amountMinor { updated.amountMinor = value; updated.settlementAmountMinor = nil }
+        if let value = request.isEstimate { updated.isEstimate = value }
         if let value = request.currency { updated.currency = value; updated.settlementAmountMinor = nil }
         if let value = request.category { updated.category = value }
         if let value = request.paidBy { updated.paidBy = value }
@@ -171,7 +172,7 @@ enum ExpenseSettlementCalculator {
         var owedA: Int64 = 0
         var owedB: Int64 = 0
         var overflowed = false
-        for expense in expenses where expense.isPaid(at: .now) {
+        for expense in expenses where !expense.isEstimate && expense.isPaid(at: .now) {
             guard let settled = expense.amountForSettlement else { continue }
             total = safeAdd(total, settled, overflowed: &overflowed)
             byCategory[expense.category] = safeAdd(byCategory[expense.category, default: 0], settled, overflowed: &overflowed)
@@ -217,6 +218,7 @@ extension ExpenseSnapshot {
     /// 已支出/未支出由支付发生时间判定：paidAt 已过即已支出；为空（尚未
     /// 约定支付时间）或在未来（到店付）均为未支出。跨过支付时刻后自动翻转。
     func isPaid(at reference: Date = .now) -> Bool {
+        guard !isEstimate else { return false }
         guard let paidAt else { return false }
         return paidAt <= reference
     }

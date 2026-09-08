@@ -514,7 +514,7 @@ final class ItineraryLocalTimeTests: XCTestCase {
         XCTAssertEqual(leg?.destination.id, nextHotel.id)
     }
 
-    func testDayStartLegSupportsMultiNightHotelAndRejectsMissingPreviousDay() {
+    func testDayStartLegSupportsMultiNightHotelWithoutSeparatePreviousDayRow() {
         let hotel = TravelCardSnapshot(
             dayID: 1,
             kind: .hotel,
@@ -537,10 +537,20 @@ final class ItineraryLocalTimeTests: XCTestCase {
             )?.hotel.id,
             hotel.id
         )
-        XCTAssertNil(
+        XCTAssertEqual(
             ItineraryListPresentation.dayStartHotelLeg(
                 for: target, in: [first, target], timeZone: utc
-            )
+            )?.hotel.id,
+            hotel.id
+        )
+        let emptyTarget = TripDaySnapshot(date: "2026-09-06", position: 2)
+        XCTAssertEqual(
+            ItineraryListPresentation.previousNightHotel(
+                for: emptyTarget,
+                in: [first, emptyTarget],
+                timeZone: utc
+            )?.id,
+            hotel.id
         )
     }
 

@@ -9,27 +9,33 @@ struct ExpenseSummaryView: View {
     let onSelectConsumer: (ExpenseListFilter.ConsumerOption, ExpenseListFilter.PaymentStatus) -> Void
 
     private var expenses: [ExpenseSnapshot] { trip.expenses }
+    private var actualExpenses: [ExpenseSnapshot] { expenses.filter { !$0.isEstimate } }
+    private var estimateExpenses: [ExpenseSnapshot] { expenses.filter(\.isEstimate) }
     private var cards: [TravelCardSnapshot] { trip.days.flatMap(\.cards) }
 
     /// 已支出合计：只统计支付发生时间已过的账（card-linked 与卡外支出）。
     private var paidTotal: Int64 {
-        expenses.filter { $0.isPaid() }.compactMap(\.amountForSettlement).reduce(0, +)
+        actualExpenses.filter { $0.isPaid() }.compactMap(\.amountForSettlement).reduce(0, +)
     }
 
     /// 待支付合计：到店付等尚未支付的账，单独展示不混入已支出。
     private var unpaidTotal: Int64 {
-        expenses.filter { !$0.isPaid() }.compactMap(\.amountForSettlement).reduce(0, +)
+        actualExpenses.filter { !$0.isPaid() }.compactMap(\.amountForSettlement).reduce(0, +)
     }
 
     /// Cards whose estimate still counts: those with no linked actual expense.
     private var estimatedTotal: Int64 {
+        // A full-detail forecast supersedes the old price-only card estimate;
+        // an actual expense suppresses it as before.
         let linked = Set(expenses.flatMap(\.cardIDs))
-        return cards.reduce(Int64(0)) { acc, card in
+        let detailedForecasts = estimateExpenses.compactMap(\.amountForSettlement).reduce(0, +)
+        let legacyCardForecasts = cards.reduce(Int64(0)) { acc, card in
             guard let serverID = card.serverID, !linked.contains(serverID),
                   card.priceCurrency == nil || card.priceCurrency == currency,
                   let minor = card.actualPriceMinor ?? card.priceMinor else { return acc }
             return acc + minor
         }
+        return detailedForecasts + legacyCardForecasts
     }
 
     /// Full-trip total: every card contributes either its actual expense (if
@@ -57,7 +63,7 @@ struct ExpenseSummaryView: View {
             totals[key] = (0, 0)
         }
 
-        for expense in expenses {
+        for expense in actualExpenses {
             guard let amount = expense.amountForSettlement else { continue }
             let key = ExpenseListFilter.ConsumerOption.key(of: expense, members: members)
             let name: String

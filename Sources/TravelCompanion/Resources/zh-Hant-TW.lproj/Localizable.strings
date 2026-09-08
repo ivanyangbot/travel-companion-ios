@@ -1297,3 +1297,14 @@
 "expensesummary.includesEstimates" = "實際帳目 + 待記預估";
 "expensesummary.estimateShort" = "預估";
 "expensesummary.distribution" = "支出分布";
+
+"expenseestimate.amountSection" = "預計價";
+"expenseestimate.editTitle" = "編輯預估價";
+"expenseestimate.paymentSection" = "預計支付";
+"expenseestimate.paymentHelp" = "可填寫預計支付時間；到達該時間後仍保持為預估記錄。";
+"expenseestimate.spentAt" = "預計消費時間";
+"expenseestimate.transactionDetails" = "預計消費資訊";
+"expenseestimate.transactionDetailsHelp" = "填寫預計通路、付款方式與消費人。";
+"expenseestimate.linkHelp" = "連結這筆預估價對應的行程項目。";
+"expenseestimate.noteHelp" = "填寫這筆預估價的說明或計算依據。";
+"expenseestimate.badge" = "預估";

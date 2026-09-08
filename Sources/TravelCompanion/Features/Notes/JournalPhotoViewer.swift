@@ -1,5 +1,12 @@
 import SwiftUI
 
+@MainActor
+func dismissWithoutAnimation(_ updatePresentationState: () -> Void) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction, updatePresentationState)
+}
+
 /// 瀑布流/详情网格把当前屏幕中的照片位置传给全屏查看器，关闭时据此飞回原位。
 struct JournalPhotoSourceFramePreferenceKey: PreferenceKey {
     static let defaultValue: [String: CGRect] = [:]
@@ -13,6 +20,8 @@ enum JournalPhotoDismissalPhysics {
     static let fullProgressDistance: CGFloat = 240
     static let releaseDistance: CGFloat = 110
     static let predictedReleaseDistance: CGFloat = 210
+    static let directionLockDistance: CGFloat = 12
+    static let pagingDirectionRatio: CGFloat = 1.2
 
     static func distance(_ translation: CGSize) -> CGFloat {
         hypot(translation.width, translation.height)
@@ -24,6 +33,12 @@ enum JournalPhotoDismissalPhysics {
 
     static func shouldDismiss(translation: CGSize, predicted: CGSize) -> Bool {
         distance(translation) >= releaseDistance || distance(predicted) >= predictedReleaseDistance
+    }
+
+    static func isHorizontalPaging(_ translation: CGSize, hasMultiplePhotos: Bool) -> Bool {
+        hasMultiplePhotos
+            && abs(translation.width) >= directionLockDistance
+            && abs(translation.width) > abs(translation.height) * pagingDirectionRatio
     }
 
     static func scale(progress: CGFloat, viewportWidth: CGFloat, sourceWidth: CGFloat?) -> CGFloat {
@@ -40,6 +55,12 @@ enum JournalPhotoDismissalPhysics {
 /// 全屏手书照片查看器：捏合缩放、拖拽平移、双击缩放、多图左右翻页、底部描述查看与编辑。
 /// 详情页照片网格（多图翻页）与地图照片 pin 弹窗（单图）共用。
 struct JournalPhotoViewer: View {
+    private enum DragIntent: Equatable {
+        case undecided
+        case paging
+        case dismissing
+    }
+
     struct Photo: Identifiable {
         let id: String
         let url: URL?
@@ -70,6 +91,8 @@ struct JournalPhotoViewer: View {
     /// 非nil 时描述条可进入编辑并保存（imageKey 随当前页走，翻页后保存的是
     /// 正在看的那张）；nil 表示只读（无描述编辑入口）。
     let onSaveDescription: ((_ imageKey: String, _ description: String) async -> Void)?
+    /// 自定义飞回动画结束后由宿主直接移除 cover，避免系统再执行一次向下退场。
+    let onDismissAfterTransition: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var currentIndex: Int
@@ -82,16 +105,19 @@ struct JournalPhotoViewer: View {
     @State private var dismissProgress: CGFloat = 0
     @State private var isCompletingDismiss = false
     @State private var isCurrentPhotoZoomed = false
+    @State private var dragIntent: DragIntent = .undecided
     @FocusState private var descriptionFieldFocused: Bool
 
     init(
         photos: [Photo],
         initialIndex: Int = 0,
-        onSaveDescription: ((_ imageKey: String, _ description: String) async -> Void)? = nil
+        onSaveDescription: ((_ imageKey: String, _ description: String) async -> Void)? = nil,
+        onDismissAfterTransition: (() -> Void)? = nil
     ) {
         self.photos = photos
         self.initialIndex = initialIndex
         self.onSaveDescription = onSaveDescription
+        self.onDismissAfterTransition = onDismissAfterTransition
         _currentIndex = State(initialValue: min(max(0, initialIndex), max(0, photos.count - 1)))
     }
 
@@ -135,7 +161,7 @@ struct JournalPhotoViewer: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .scrollDisabled(dismissProgress > 0)
+            .scrollDisabled(dragIntent == .dismissing)
             .onChange(of: currentIndex) { _ in
                 isEditingDescription = false
                 descriptionFieldFocused = false
@@ -194,11 +220,21 @@ struct JournalPhotoViewer: View {
         DragGesture(minimumDistance: 6, coordinateSpace: .global)
             .onChanged { value in
                 guard !isCurrentPhotoZoomed, !isEditingDescription, !isCompletingDismiss else { return }
+                if dragIntent == .undecided,
+                   JournalPhotoDismissalPhysics.distance(value.translation) >= JournalPhotoDismissalPhysics.directionLockDistance {
+                    dragIntent = JournalPhotoDismissalPhysics.isHorizontalPaging(
+                        value.translation,
+                        hasMultiplePhotos: photos.count > 1
+                    ) ? .paging : .dismissing
+                }
+                guard dragIntent == .dismissing else { return }
                 dismissTranslation = value.translation
                 dismissProgress = JournalPhotoDismissalPhysics.progress(value.translation)
             }
             .onEnded { value in
                 guard !isCurrentPhotoZoomed, !isEditingDescription, !isCompletingDismiss else { return }
+                defer { dragIntent = .undecided }
+                guard dragIntent == .dismissing else { return }
                 if JournalPhotoDismissalPhysics.shouldDismiss(
                     translation: value.translation,
                     predicted: value.predictedEndTranslation
@@ -236,7 +272,13 @@ struct JournalPhotoViewer: View {
         }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(280))
-            dismiss()
+            if let onDismissAfterTransition {
+                onDismissAfterTransition()
+            } else {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { dismiss() }
+            }
         }
     }
 
@@ -373,11 +415,21 @@ private struct JournalZoomablePhoto: View {
         return (photoURL, videoURL)
     }
 
+    /// HDR 必须把本地原始 HEIC 直接交给 UIImageView。若先生成 CGImage
+    /// 缩略图，系统相册写入的增益图会丢失，之后再请求高动态范围也只能显示 SDR。
+    private var localOriginalPhotoURL: URL? {
+        guard let media = photo.media else { return nil }
+        return JournalPhotoLoader.shared.localResourceURL(
+            originalURL: photo.url,
+            cacheKey: media.key,
+            preferredFileName: media.fileName
+        )
+    }
+
     var body: some View {
         Group {
             if let resources = localLivePhotoResources {
                 JournalLivePhotoView(photoURL: resources.photo, videoURL: resources.video)
-                    .aspectRatio(photoAspectRatio ?? 3 / 4, contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .scaleEffect(scale)
                     .offset(offset)
@@ -386,6 +438,23 @@ private struct JournalZoomablePhoto: View {
                     .onTapGesture(count: 2, perform: toggleZoom)
                     .overlay(alignment: .topLeading) {
                         Label("journal.liveBadge", systemImage: "livephoto")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.55), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(12)
+                    }
+            } else if photo.media?.isHDR == true, let originalURL = localOriginalPhotoURL {
+                JournalHDRPhotoView(url: originalURL)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .gesture(zoomGesture)
+                    .gesture(panGesture, including: scale > 1 ? .all : .none)
+                    .onTapGesture(count: 2, perform: toggleZoom)
+                    .overlay(alignment: .topLeading) {
+                        Text("HDR")
                             .font(.caption2.bold())
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
@@ -422,11 +491,6 @@ private struct JournalZoomablePhoto: View {
             )
         }
         .onDisappear { isZoomed = false }
-    }
-
-    private var photoAspectRatio: CGFloat? {
-        guard let image, image.size.height > 0 else { return nil }
-        return image.size.width / image.size.height
     }
 
     private var zoomGesture: some Gesture {

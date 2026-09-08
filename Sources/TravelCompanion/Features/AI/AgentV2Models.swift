@@ -99,6 +99,7 @@ struct AgentV2TurnRequest: Codable, Sendable {
     struct ExpenseSnapshotItem: Codable, Sendable, Equatable {
         let id: Int
         let amountMinor: Int64
+        var isEstimate: Bool? = nil
         let currency: String
         let category: String
         let occurredOn: String

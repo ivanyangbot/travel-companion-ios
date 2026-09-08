@@ -13,21 +13,31 @@ struct FlightAirportLocationResolution: Equatable, Sendable {
     let destinationLocation: FlightAirportLocationSnapshot?
 }
 
-/// Route rows appear together and can otherwise start several MapKit requests
-/// in the same instant. Reserve staggered start times to avoid MapKit's
-/// loading-throttled response while keeping every estimate on the device.
+/// Route rows and the home map can otherwise run several MKDirections requests
+/// concurrently. MapKit intermittently rejects that burst even though opening
+/// the identical coordinates in Maps succeeds a moment later. Keep one active
+/// calculation at a time across both surfaces.
 private actor MapDirectionsRequestGate {
     static let shared = MapDirectionsRequestGate()
 
-    private var nextStart = Date.distantPast
+    private var isCalculating = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    func waitForTurn() async throws {
-        let now = Date()
-        let scheduled = max(now, nextStart)
-        nextStart = scheduled.addingTimeInterval(0.5)
-        let delay = scheduled.timeIntervalSince(now)
-        if delay > 0 {
-            try await Task.sleep(for: .seconds(delay))
+    func acquire() async {
+        if !isCalculating {
+            isCalculating = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            isCalculating = false
+        } else {
+            waiters.removeFirst().resume()
         }
     }
 }
@@ -489,7 +499,7 @@ enum AppleMapService {
 
     static func estimateRoute(origin: RoutePoint, destination: RoutePoint, mode: RouteMode) async throws -> RouteEstimate {
         var lastError: Error = ServiceError.noRoute
-        for attempt in 1 ... 2 {
+        for attempt in 1 ... 3 {
             do {
                 return try await estimateRouteOnDevice(origin: origin, destination: destination, mode: mode)
             } catch is CancellationError {
@@ -500,8 +510,8 @@ enum AppleMapService {
                 logger.warning(
                     "MapKit route estimate attempt \(attempt) failed; domain=\(nsError.domain, privacy: .public) code=\(nsError.code): \(nsError.localizedDescription, privacy: .public)"
                 )
-                if attempt == 1 {
-                    try await Task.sleep(for: .milliseconds(750))
+                if attempt < 3 {
+                    try await Task.sleep(for: attempt == 1 ? .milliseconds(750) : .seconds(2))
                 }
             }
         }
@@ -513,13 +523,11 @@ enum AppleMapService {
         destination: RoutePoint,
         mode: RouteMode
     ) async throws -> RouteEstimate {
-        try await MapDirectionsRequestGate.shared.waitForTurn()
-        let request = MKDirections.Request()
-        request.source = mapItem(for: origin)
-        request.destination = mapItem(for: destination)
-        request.transportType = mode.transportType
-        let response = try await MKDirections(request: request).calculate()
-        guard let route = response.routes.first else { throw ServiceError.noRoute }
+        let route = try await directionsRoute(
+            origin: origin,
+            destination: destination,
+            transportType: mode.transportType
+        )
         return RouteEstimate(
             distanceMeters: Int(route.distance.rounded()),
             durationSeconds: Int(route.expectedTravelTime.rounded()),
@@ -527,6 +535,41 @@ enum AppleMapService {
             updatedAt: .now,
             source: String(localized: "route.sourceAppleMaps")
         )
+    }
+
+    /// Shared on-device directions entry point for list estimates and map
+    /// geometry. Serializing here prevents the two UI surfaces from throttling
+    /// one another.
+    static func directionsRoute(
+        origin: RoutePoint,
+        destination: RoutePoint,
+        transportType: MKDirectionsTransportType
+    ) async throws -> MKRoute {
+        await MapDirectionsRequestGate.shared.acquire()
+        defer {
+            Task { await MapDirectionsRequestGate.shared.release() }
+        }
+        try Task.checkCancellation()
+        let request = MKDirections.Request()
+        request.source = mapItem(for: origin)
+        request.destination = mapItem(for: destination)
+        request.transportType = transportType
+        request.requestsAlternateRoutes = false
+        let response = try await MKDirections(request: request).calculate()
+        guard let route = response.routes.first else { throw ServiceError.noRoute }
+        return route
+    }
+
+    /// MapKit explicitly distinguishes an absent route from service pressure
+    /// and transport errors. Only the former should become a user-visible
+    /// "cannot estimate" result.
+    static func isTransientDirectionsError(_ error: Error) -> Bool {
+        let value = error as NSError
+        if value.domain == MKError.errorDomain {
+            return value.code != Int(MKError.Code.directionsNotFound.rawValue)
+                && value.code != Int(MKError.Code.placemarkNotFound.rawValue)
+        }
+        return value.domain == NSURLErrorDomain
     }
 
     static func mapItem(for point: RoutePoint, name: String? = nil) -> MKMapItem {

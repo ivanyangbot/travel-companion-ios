@@ -111,6 +111,7 @@ struct AgentV2TurnRequestFactory {
                 return AgentV2TurnRequest.ExpenseSnapshotItem(
                     id: id,
                     amountMinor: expense.amountMinor,
+                    isEstimate: expense.isEstimate,
                     currency: expense.currency,
                     category: expense.category.rawValue,
                     occurredOn: expense.occurredOn,

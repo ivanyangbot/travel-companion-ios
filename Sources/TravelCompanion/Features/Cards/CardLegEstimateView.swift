@@ -443,7 +443,7 @@ struct CardLegEstimateView: View {
         }
     }
 
-    private func fetch() async {
+    private func fetch(allowDelayedTransientRetry: Bool = true) async {
         let requestID = UUID()
         estimateRequestID = requestID
         let requestedMode = mode
@@ -471,6 +471,21 @@ struct CardLegEstimateView: View {
             store.clearEstimateFailure(routeKey: routeKey, for: legKey)
         } catch {
             guard estimateRequestID == requestID, !Task.isCancelled else { return }
+            if allowDelayedTransientRetry,
+               AppleMapService.isTransientDirectionsError(error) {
+                // A Maps service/throttling failure is not evidence that the
+                // route does not exist. Keep the row in its estimating state
+                // and retry once after the active request burst has drained.
+                fetchFailed = false
+                do {
+                    try await Task.sleep(for: .seconds(3))
+                } catch {
+                    return
+                }
+                guard estimateRequestID == requestID, !Task.isCancelled else { return }
+                await fetch(allowDelayedTransientRetry: false)
+                return
+            }
             estimate = cache.cached(origin: originPoint, destination: destinationPoint, mode: mode, includeExpired: true)
             fetchFailed = estimate == nil
             if fetchFailed {

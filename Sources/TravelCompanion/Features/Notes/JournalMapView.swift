@@ -41,7 +41,7 @@ struct JournalPhotoPin: Identifiable, Hashable, Sendable {
 struct JournalPhotoMapScreen: View {
     let pins: [JournalPhotoPin]
     /// 点击的 pin（单张）或聚合组（多张，查看器内翻页）。
-    let onPhotosSelected: ([JournalPhotoPin]) -> Void
+    let onPhotosSelected: ([JournalPhotoPin], CGRect?) -> Void
 
     var body: some View {
         ZStack {
@@ -61,7 +61,7 @@ struct JournalPhotoMapScreen: View {
 
 struct JournalMapCanvas: UIViewRepresentable {
     let pins: [JournalPhotoPin]
-    let onPhotosSelected: ([JournalPhotoPin]) -> Void
+    let onPhotosSelected: ([JournalPhotoPin], CGRect?) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -106,13 +106,13 @@ struct JournalMapCanvas: UIViewRepresentable {
         private var displayedPins: [JournalPhotoPin] = []
         /// 锚点 pin id → 组内成员（含锚点自身）；仅锚点的 annotation view 可见。
         private var clusterMembers: [String: [JournalPhotoPin]] = [:]
-        private var onPhotosSelected: (([JournalPhotoPin]) -> Void)?
+        private var onPhotosSelected: (([JournalPhotoPin], CGRect?) -> Void)?
         private var hasFinishedLoadingMap = false
 
         func updateContent(
             on mapView: MLNMapView,
             pins: [JournalPhotoPin],
-            onPhotosSelected: @escaping ([JournalPhotoPin]) -> Void
+            onPhotosSelected: @escaping ([JournalPhotoPin], CGRect?) -> Void
         ) {
             self.onPhotosSelected = onPhotosSelected
             guard pins != displayedPins else { return }
@@ -251,15 +251,17 @@ struct JournalMapCanvas: UIViewRepresentable {
             }
             mapView.deselectAnnotation(annotation, animated: false)
             let members = clusterMembers[pin.id] ?? [pin]
+            let sourceView = mapView.view(for: annotation)
+            let sourceFrame = sourceView?.convert(sourceView?.bounds ?? .zero, to: nil)
             guard members.count > 1 else {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                onPhotosSelected?(members)
+                onPhotosSelected?(members, sourceFrame)
                 return
             }
             // 聚合组：同点或已放到街道级 → 组内翻页；否则放大一级让重排散开。
             if Self.isSameLocation(members) || mapView.zoomLevel >= Self.expandZoomLimit {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                onPhotosSelected?(members)
+                onPhotosSelected?(members, sourceFrame)
             } else {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 let center = CLLocationCoordinate2D(

@@ -1295,3 +1295,14 @@
 "expensesummary.includesEstimates" = "Recorded + estimated expenses";
 "expensesummary.estimateShort" = "Estimated";
 "expensesummary.distribution" = "Expense breakdown";
+
+"expenseestimate.amountSection" = "Estimated Price";
+"expenseestimate.editTitle" = "Edit Estimate";
+"expenseestimate.paymentSection" = "Expected payment";
+"expenseestimate.paymentHelp" = "Optionally set when you expect to pay. This remains an estimate even after that time.";
+"expenseestimate.spentAt" = "Expected spending time";
+"expenseestimate.transactionDetails" = "Expected transaction details";
+"expenseestimate.transactionDetailsHelp" = "Fill in the expected channel, payment method, and traveler.";
+"expenseestimate.linkHelp" = "Link itinerary items covered by this estimate.";
+"expenseestimate.noteHelp" = "Add details or assumptions for this estimate.";
+"expenseestimate.badge" = "Estimate";

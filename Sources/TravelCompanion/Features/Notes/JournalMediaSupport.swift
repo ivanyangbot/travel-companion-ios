@@ -459,13 +459,15 @@ private struct LivePhotoRepresentable: UIViewRepresentable {
         view.contentMode = .scaleAspectFit
         view.clipsToBounds = false
         view.backgroundColor = .clear
+        view.isMuted = false
         return view
     }
 
     func updateUIView(_ view: PHLivePhotoView, context: Context) {
         guard view.livePhoto !== livePhoto else { return }
         view.livePhoto = livePhoto
-        view.startPlayback(with: .hint)
+        // 使用 PhotosUI 原生完整播放；视图自身仍保留系统长按播放手势。
+        view.startPlayback(with: .full)
     }
 
     static func dismantleUIView(_ view: PHLivePhotoView, coordinator: ()) {
@@ -487,24 +489,43 @@ final class JournalPhotoLoader: @unchecked Sendable {
         cache.countLimit = 240
     }
 
-    func thumbnail(for url: URL, maxPixelSize: CGFloat, cacheKey: String? = nil) async -> UIImage? {
-        await image(for: url, maxPixelSize: maxPixelSize, cacheKey: cacheKey, allowsNetwork: true)
+    func thumbnail(
+        for url: URL,
+        maxPixelSize: CGFloat,
+        cacheKey: String? = nil,
+        prefersHighDynamicRange: Bool = false
+    ) async -> UIImage? {
+        await image(
+            for: url,
+            maxPixelSize: maxPixelSize,
+            cacheKey: cacheKey,
+            allowsNetwork: true,
+            prefersHighDynamicRange: prefersHighDynamicRange
+        )
     }
 
     /// 全屏查看只允许命中内存、Application Support 磁盘缓存或本地文件。
     /// 即使传入的是服务端 URL，也不会在用户点击照片时发起网络请求。
     func localThumbnail(for url: URL, maxPixelSize: CGFloat, cacheKey: String? = nil) async -> UIImage? {
-        await image(for: url, maxPixelSize: maxPixelSize, cacheKey: cacheKey, allowsNetwork: false)
+        await image(
+            for: url,
+            maxPixelSize: maxPixelSize,
+            cacheKey: cacheKey,
+            allowsNetwork: false,
+            prefersHighDynamicRange: false
+        )
     }
 
     private func image(
         for url: URL,
         maxPixelSize: CGFloat,
         cacheKey: String?,
-        allowsNetwork: Bool
+        allowsNetwork: Bool,
+        prefersHighDynamicRange: Bool
     ) async -> UIImage? {
         let persistentKey = cacheKey ?? url.absoluteString
-        let memoryKey = "\(persistentKey)#\(Int(maxPixelSize))" as NSString
+        let rangeKey = prefersHighDynamicRange ? "hdr" : "sdr"
+        let memoryKey = "\(persistentKey)#\(Int(maxPixelSize))#\(rangeKey)" as NSString
         if let cached = cache.object(forKey: memoryKey) { return cached }
 
         let data: Data
@@ -523,7 +544,10 @@ final class JournalPhotoLoader: @unchecked Sendable {
         } else {
             return nil
         }
-        guard let image = Self.downsampledImage(from: data, maxPixelSize: maxPixelSize) else { return nil }
+        let image = prefersHighDynamicRange
+            ? Self.highDynamicRangeImage(from: data, maxPixelSize: maxPixelSize)
+            : Self.downsampledImage(from: data, maxPixelSize: maxPixelSize)
+        guard let image else { return nil }
         cache.setObject(image, forKey: memoryKey)
         return image
     }
@@ -536,6 +560,20 @@ final class JournalPhotoLoader: @unchecked Sendable {
     /// 导入临时文件后，预览仍只依赖 Application Support 中的本地资源。
     func persistLocalResource(at url: URL, key: String) {
         diskCache.storeFile(at: url, for: key)
+    }
+
+    /// 同步阶段预取 Live Photo 配对视频；查看阶段不会调用此方法。
+    func persistRemoteResource(from url: URL, key: String) async {
+        if localResourceURL(originalURL: url, cacheKey: key) != nil { return }
+        guard !url.isFileURL,
+              let (downloaded, response) = try? await URLSession.shared.download(from: url),
+              let http = response as? HTTPURLResponse,
+              (200 ..< 300).contains(http.statusCode)
+        else { return }
+        defer { try? FileManager.default.removeItem(at: downloaded) }
+        let size = (try? downloaded.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size > 0, size <= JournalAttachment.maximumResourceBytes else { return }
+        diskCache.storeFile(at: downloaded, for: key)
     }
 
     func localResourceURL(originalURL: URL?, cacheKey: String, preferredFileName: String? = nil) -> URL? {
@@ -561,6 +599,48 @@ final class JournalPhotoLoader: @unchecked Sendable {
         ] as CFDictionary
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions) else { return nil }
         return UIImage(cgImage: cgImage)
+    }
+
+    static func highDynamicRangeImage(from data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        var configuration = UIImageReader.Configuration()
+        configuration.prefersHighDynamicRange = true
+        configuration.preparesImagesForDisplay = true
+        configuration.preferredThumbnailSize = CGSize(width: maxPixelSize, height: maxPixelSize)
+        return UIImageReader(configuration: configuration).image(data: data)
+    }
+}
+
+/// 保留 HEIC 的增益图与扩展动态范围信息，避免经 CGImage 降采样后变成 SDR。
+struct JournalHDRPhotoView: UIViewRepresentable {
+    let url: URL
+
+    final class Coordinator {
+        var displayedURL: URL?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView()
+        view.contentMode = .scaleAspectFit
+        view.clipsToBounds = false
+        view.backgroundColor = .clear
+        view.preferredImageDynamicRange = .high
+        return view
+    }
+
+    func updateUIView(_ view: UIImageView, context: Context) {
+        view.preferredImageDynamicRange = .high
+        guard context.coordinator.displayedURL != url else { return }
+        var configuration = UIImageReader.Configuration()
+        configuration.prefersHighDynamicRange = true
+        configuration.preparesImagesForDisplay = true
+        view.image = UIImageReader(configuration: configuration).image(contentsOf: url)
+        context.coordinator.displayedURL = url
+    }
+
+    static func dismantleUIView(_ view: UIImageView, coordinator: Coordinator) {
+        view.image = nil
     }
 }
 
@@ -645,11 +725,17 @@ struct JournalPhotoThumbnail: View {
     let url: URL?
     var cacheKey: String? = nil
     var maxPixelSize: CGFloat = 600
+    var prefersHighDynamicRange = false
 
     var body: some View {
         Group {
             if let url {
-                JournalPhotoThumbnailCore(url: url, cacheKey: cacheKey, maxPixelSize: maxPixelSize)
+                JournalPhotoThumbnailCore(
+                    url: url,
+                    cacheKey: cacheKey,
+                    maxPixelSize: maxPixelSize,
+                    prefersHighDynamicRange: prefersHighDynamicRange
+                )
             } else {
                 Rectangle().fill(.quaternary)
             }
@@ -661,6 +747,7 @@ private struct JournalPhotoThumbnailCore: View {
     let url: URL
     let cacheKey: String?
     let maxPixelSize: CGFloat
+    let prefersHighDynamicRange: Bool
     @State private var image: UIImage?
 
     var body: some View {
@@ -674,8 +761,13 @@ private struct JournalPhotoThumbnailCore: View {
                 Rectangle().fill(PrimaryTabPalette.elevatedSurface)
             }
         }
-        .task(id: url) {
-            image = await JournalPhotoLoader.shared.thumbnail(for: url, maxPixelSize: maxPixelSize, cacheKey: cacheKey)
+        .task(id: "\(url.absoluteString)#\(prefersHighDynamicRange)") {
+            image = await JournalPhotoLoader.shared.thumbnail(
+                for: url,
+                maxPixelSize: maxPixelSize,
+                cacheKey: cacheKey,
+                prefersHighDynamicRange: prefersHighDynamicRange
+            )
         }
     }
 }

@@ -357,6 +357,7 @@ struct CardRequest: Encodable, Sendable {
 
 struct ExpenseRequest: Encodable, Sendable {
     var amountMinor: Int64?
+    var isEstimate: Bool?
     var currency: String?
     var category: ExpenseCategory?
     var paidBy: ExpensePaidBy?
@@ -372,8 +373,9 @@ struct ExpenseRequest: Encodable, Sendable {
     var cardIDs: [Int]?
     var fieldsToClear: Set<String>
 
-    init(amountMinor: Int64? = nil, currency: String? = nil, category: ExpenseCategory? = nil, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String? = nil, spentAt: Date? = nil, paidAt: Date? = nil, purchaseChannel: String? = nil, paymentMethod: String? = nil, consumerUserID: Int? = nil, consumerName: String? = nil, note: String? = nil, cardIDs: [Int]? = nil, fieldsToClear: Set<String> = []) {
+    init(amountMinor: Int64? = nil, isEstimate: Bool? = nil, currency: String? = nil, category: ExpenseCategory? = nil, paidBy: ExpensePaidBy? = nil, splitMode: ExpenseSplitMode? = nil, occurredOn: String? = nil, spentAt: Date? = nil, paidAt: Date? = nil, purchaseChannel: String? = nil, paymentMethod: String? = nil, consumerUserID: Int? = nil, consumerName: String? = nil, note: String? = nil, cardIDs: [Int]? = nil, fieldsToClear: Set<String> = []) {
         self.amountMinor = amountMinor
+        self.isEstimate = isEstimate
         self.currency = currency
         self.category = category
         self.paidBy = paidBy
@@ -390,11 +392,12 @@ struct ExpenseRequest: Encodable, Sendable {
         self.fieldsToClear = fieldsToClear
     }
 
-    enum CodingKeys: String, CodingKey { case amountMinor, currency, category, paidBy, splitMode, occurredOn, spentAt, paidAt, purchaseChannel, paymentMethod, consumerUserID = "consumerUserId", consumerName, note, cardIDs = "cardIds" }
+    enum CodingKeys: String, CodingKey { case amountMinor, isEstimate, currency, category, paidBy, splitMode, occurredOn, spentAt, paidAt, purchaseChannel, paymentMethod, consumerUserID = "consumerUserId", consumerName, note, cardIDs = "cardIds" }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(amountMinor, forKey: .amountMinor)
+        try container.encodeIfPresent(isEstimate, forKey: .isEstimate)
         try container.encodeIfPresent(currency, forKey: .currency)
         try container.encodeIfPresent(category, forKey: .category)
         try container.encodeIfPresent(paidBy, forKey: .paidBy)
