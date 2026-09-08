@@ -356,13 +356,22 @@ private struct JournalFileTile: View {
 struct JournalLivePhotoView: View {
     let photoURL: URL
     let videoURL: URL
+    var isActive = true
     @State private var livePhoto: PHLivePhoto?
     @State private var loadFailed = false
 
     var body: some View {
         Group {
             if let livePhoto {
-                LivePhotoRepresentable(livePhoto: livePhoto)
+                GeometryReader { viewport in
+                    let fitted = AVMakeRect(
+                        aspectRatio: livePhoto.size,
+                        insideRect: CGRect(origin: .zero, size: viewport.size)
+                    )
+                    LivePhotoRepresentable(livePhoto: livePhoto, isActive: isActive)
+                        .frame(width: fitted.width, height: fitted.height)
+                        .position(x: fitted.midX, y: fitted.midY)
+                }
             } else if loadFailed {
                 // A malformed or expired pair still opens safely as its still image.
                 JournalHDRImage(url: photoURL)
@@ -453,24 +462,46 @@ private final class JournalLivePhotoRequestGate: @unchecked Sendable {
 
 private struct LivePhotoRepresentable: UIViewRepresentable {
     let livePhoto: PHLivePhoto
+    let isActive: Bool
+
+    final class Coordinator {
+        var wasActive = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> PHLivePhotoView {
         let view = PHLivePhotoView()
         view.contentMode = .scaleAspectFit
-        view.clipsToBounds = false
+        view.clipsToBounds = true
         view.backgroundColor = .clear
         view.isMuted = false
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return view
     }
 
-    func updateUIView(_ view: PHLivePhotoView, context: Context) {
-        guard view.livePhoto !== livePhoto else { return }
-        view.livePhoto = livePhoto
-        // 使用 PhotosUI 原生完整播放；视图自身仍保留系统长按播放手势。
-        view.startPlayback(with: .full)
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: PHLivePhotoView, context: Context) -> CGSize? {
+        // PhotoKit's intrinsic size is in image pixels, not the SwiftUI page's points.
+        guard let width = proposal.width, let height = proposal.height,
+              width.isFinite, height.isFinite else { return nil }
+        return CGSize(width: width, height: height)
     }
 
-    static func dismantleUIView(_ view: PHLivePhotoView, coordinator: ()) {
+    func updateUIView(_ view: PHLivePhotoView, context: Context) {
+        let changed = view.livePhoto !== livePhoto
+        if changed { view.livePhoto = livePhoto }
+        view.contentMode = .scaleAspectFit
+        view.playbackGestureRecognizer.isEnabled = isActive
+        if isActive && (changed || !context.coordinator.wasActive) {
+            view.startPlayback(with: .full)
+        } else if !isActive {
+            view.stopPlayback()
+        }
+        context.coordinator.wasActive = isActive
+    }
+
+    static func dismantleUIView(_ view: PHLivePhotoView, coordinator: Coordinator) {
         view.stopPlayback()
         view.livePhoto = nil
     }
@@ -623,10 +654,18 @@ struct JournalHDRPhotoView: UIViewRepresentable {
     func makeUIView(context: Context) -> UIImageView {
         let view = UIImageView()
         view.contentMode = .scaleAspectFit
-        view.clipsToBounds = false
+        view.clipsToBounds = true
         view.backgroundColor = .clear
         view.preferredImageDynamicRange = .high
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return view
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIImageView, context: Context) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height,
+              width.isFinite, height.isFinite else { return nil }
+        return CGSize(width: width, height: height)
     }
 
     func updateUIView(_ view: UIImageView, context: Context) {
@@ -751,15 +790,19 @@ private struct JournalPhotoThumbnailCore: View {
     @State private var image: UIImage?
 
     var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .allowedDynamicRange(.high)
-                    .scaledToFill()
-            } else {
-                Rectangle().fill(PrimaryTabPalette.elevatedSurface)
+        GeometryReader { viewport in
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .allowedDynamicRange(.high)
+                        .scaledToFill()
+                } else {
+                    Rectangle().fill(PrimaryTabPalette.elevatedSurface)
+                }
             }
+            .frame(width: viewport.size.width, height: viewport.size.height)
+            .clipped()
         }
         .task(id: "\(url.absoluteString)#\(prefersHighDynamicRange)") {
             image = await JournalPhotoLoader.shared.thumbnail(

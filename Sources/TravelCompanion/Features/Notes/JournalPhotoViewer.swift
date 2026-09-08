@@ -52,15 +52,24 @@ enum JournalPhotoDismissalPhysics {
     }
 }
 
+/// A gesture chooses its owner once, even if the finger subsequently changes direction.
+enum JournalPhotoDragIntent: Equatable {
+    case undecided
+    case paging
+    case dismissing
+
+    func resolving(translation: CGSize, hasMultiplePhotos: Bool) -> Self {
+        guard self == .undecided,
+              JournalPhotoDismissalPhysics.distance(translation) >= JournalPhotoDismissalPhysics.directionLockDistance
+        else { return self }
+        return JournalPhotoDismissalPhysics.isHorizontalPaging(translation, hasMultiplePhotos: hasMultiplePhotos)
+            ? .paging : .dismissing
+    }
+}
+
 /// 全屏手书照片查看器：捏合缩放、拖拽平移、双击缩放、多图左右翻页、底部描述查看与编辑。
 /// 详情页照片网格（多图翻页）与地图照片 pin 弹窗（单图）共用。
 struct JournalPhotoViewer: View {
-    private enum DragIntent: Equatable {
-        case undecided
-        case paging
-        case dismissing
-    }
-
     struct Photo: Identifiable {
         let id: String
         let url: URL?
@@ -105,7 +114,9 @@ struct JournalPhotoViewer: View {
     @State private var dismissProgress: CGFloat = 0
     @State private var isCompletingDismiss = false
     @State private var isCurrentPhotoZoomed = false
-    @State private var dragIntent: DragIntent = .undecided
+    @State private var dragIntent: JournalPhotoDragIntent = .undecided
+    @State private var pagingOffset: CGFloat = 0
+    @State private var isSettlingPage = false
     @FocusState private var descriptionFieldFocused: Bool
 
     init(
@@ -134,13 +145,14 @@ struct JournalPhotoViewer: View {
                     .ignoresSafeArea()
                     .onTapGesture { dismiss() }
 
-                photoPager
+                photoPager(in: proxy.size)
                     .scaleEffect(interactiveScale(in: proxy.size))
                     .offset(dismissTranslation)
 
                 viewerChrome
                     .opacity(max(0, 1 - dismissProgress * 2.2))
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
             .contentShape(Rectangle())
             .simultaneousGesture(interactiveDismissGesture(in: proxy))
         }
@@ -151,26 +163,24 @@ struct JournalPhotoViewer: View {
         }
     }
 
-    @ViewBuilder
-    private var photoPager: some View {
-        if photos.count > 1 {
-            TabView(selection: $currentIndex) {
-                ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
-                    JournalZoomablePhoto(photo: photo, isZoomed: $isCurrentPhotoZoomed)
-                        .tag(index)
-                }
+    private func photoPager(in size: CGSize) -> some View {
+        // No independently scrolling TabView: this strip and dismissal share one drag owner.
+        ZStack {
+            ForEach(photos.indices.filter { abs($0 - currentIndex) <= 1 }, id: \.self) { index in
+                JournalZoomablePhoto(
+                    photo: photos[index],
+                    isZoomed: index == currentIndex ? $isCurrentPhotoZoomed : .constant(false),
+                    isActive: index == currentIndex && !isSettlingPage
+                )
+                .frame(width: size.width, height: size.height)
+                .clipped()
+                .offset(x: CGFloat(index - currentIndex) * size.width + pagingOffset)
+                .allowsHitTesting(index == currentIndex && !isSettlingPage)
+                .accessibilityHidden(index != currentIndex)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .scrollDisabled(dragIntent == .dismissing)
-            .onChange(of: currentIndex) { _ in
-                isEditingDescription = false
-                descriptionFieldFocused = false
-                isCurrentPhotoZoomed = false
-                restorePreview()
-            }
-        } else if let photo = currentPhoto {
-            JournalZoomablePhoto(photo: photo, isZoomed: $isCurrentPhotoZoomed)
         }
+        .frame(width: size.width, height: size.height)
+        .clipped()
     }
 
     private var viewerChrome: some View {
@@ -219,21 +229,25 @@ struct JournalPhotoViewer: View {
     private func interactiveDismissGesture(in proxy: GeometryProxy) -> some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .global)
             .onChanged { value in
-                guard !isCurrentPhotoZoomed, !isEditingDescription, !isCompletingDismiss else { return }
-                if dragIntent == .undecided,
-                   JournalPhotoDismissalPhysics.distance(value.translation) >= JournalPhotoDismissalPhysics.directionLockDistance {
-                    dragIntent = JournalPhotoDismissalPhysics.isHorizontalPaging(
-                        value.translation,
-                        hasMultiplePhotos: photos.count > 1
-                    ) ? .paging : .dismissing
+                guard !isCurrentPhotoZoomed, !isEditingDescription, !isCompletingDismiss, !isSettlingPage else { return }
+                dragIntent = dragIntent.resolving(translation: value.translation, hasMultiplePhotos: photos.count > 1)
+                if dragIntent == .paging {
+                    let atEdge = (currentIndex == 0 && value.translation.width > 0)
+                        || (currentIndex == photos.count - 1 && value.translation.width < 0)
+                    pagingOffset = value.translation.width * (atEdge ? 0.25 : 1)
+                    return
                 }
                 guard dragIntent == .dismissing else { return }
                 dismissTranslation = value.translation
                 dismissProgress = JournalPhotoDismissalPhysics.progress(value.translation)
             }
             .onEnded { value in
-                guard !isCurrentPhotoZoomed, !isEditingDescription, !isCompletingDismiss else { return }
                 defer { dragIntent = .undecided }
+                guard !isCurrentPhotoZoomed, !isEditingDescription, !isCompletingDismiss, !isSettlingPage else { return }
+                if dragIntent == .paging {
+                    settlePage(translation: value.translation.width, predicted: value.predictedEndTranslation.width, width: proxy.size.width)
+                    return
+                }
                 guard dragIntent == .dismissing else { return }
                 if JournalPhotoDismissalPhysics.shouldDismiss(
                     translation: value.translation,
@@ -244,6 +258,23 @@ struct JournalPhotoViewer: View {
                     restorePreview()
                 }
             }
+    }
+
+    private func settlePage(translation: CGFloat, predicted: CGFloat, width: CGFloat) {
+        let distance = abs(translation) > width * 0.25 ? translation : predicted
+        let direction = abs(distance) > width * 0.25 ? (distance < 0 ? 1 : -1) : 0
+        let target = min(max(0, currentIndex + direction), max(0, photos.count - 1))
+        isSettlingPage = true
+        withAnimation(.easeOut(duration: 0.22), completionCriteria: .removed) {
+            pagingOffset = -CGFloat(target - currentIndex) * width
+        } completion: {
+            dismissWithoutAnimation {
+                currentIndex = target
+                pagingOffset = 0
+                isSettlingPage = false
+                isCurrentPhotoZoomed = false
+            }
+        }
     }
 
     private func interactiveScale(in size: CGSize) -> CGFloat {
@@ -389,6 +420,7 @@ struct JournalPhotoViewer: View {
 private struct JournalZoomablePhoto: View {
     let photo: JournalPhotoViewer.Photo
     @Binding var isZoomed: Bool
+    let isActive: Bool
 
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1
@@ -427,58 +459,62 @@ private struct JournalZoomablePhoto: View {
     }
 
     var body: some View {
-        Group {
-            if let resources = localLivePhotoResources {
-                JournalLivePhotoView(photoURL: resources.photo, videoURL: resources.video)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .scaleEffect(scale)
-                    .offset(offset)
-                    .gesture(zoomGesture)
-                    .gesture(panGesture, including: scale > 1 ? .all : .none)
-                    .onTapGesture(count: 2, perform: toggleZoom)
-                    .overlay(alignment: .topLeading) {
-                        Label("journal.liveBadge", systemImage: "livephoto")
-                            .font(.caption2.bold())
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(.black.opacity(0.55), in: Capsule())
-                            .foregroundStyle(.white)
-                            .padding(12)
-                    }
-            } else if photo.media?.isHDR == true, let originalURL = localOriginalPhotoURL {
-                JournalHDRPhotoView(url: originalURL)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .scaleEffect(scale)
-                    .offset(offset)
-                    .gesture(zoomGesture)
-                    .gesture(panGesture, including: scale > 1 ? .all : .none)
-                    .onTapGesture(count: 2, perform: toggleZoom)
-                    .overlay(alignment: .topLeading) {
-                        Text("HDR")
-                            .font(.caption2.bold())
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(.black.opacity(0.55), in: Capsule())
-                            .foregroundStyle(.white)
-                            .padding(12)
-                    }
-            } else if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .allowedDynamicRange(.high)
-                    .scaledToFit()
-                    .scaleEffect(scale)
-                    .offset(offset)
-                    // 捏合与双击始终可用；拖拽仅在放大后启用，
-                    // 未放大时把滑动手势留给 TabView 翻页。
-                    .gesture(zoomGesture)
-                    .gesture(panGesture, including: scale > 1 ? .all : .none)
-                    .onTapGesture(count: 2, perform: toggleZoom)
-            } else {
-                ProgressView()
-                    .tint(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { viewport in
+            Group {
+                if let resources = localLivePhotoResources {
+                    JournalLivePhotoView(photoURL: resources.photo, videoURL: resources.video, isActive: isActive)
+                        .frame(width: viewport.size.width, height: viewport.size.height)
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        .gesture(zoomGesture)
+                        .gesture(panGesture, including: scale > 1 ? .all : .none)
+                        .onTapGesture(count: 2, perform: toggleZoom)
+                        .overlay(alignment: .topLeading) {
+                            Label("journal.liveBadge", systemImage: "livephoto")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 4)
+                                .background(.black.opacity(0.55), in: Capsule())
+                                .foregroundStyle(.white)
+                                .padding(12)
+                        }
+                } else if photo.media?.isHDR == true, let originalURL = localOriginalPhotoURL {
+                    JournalHDRPhotoView(url: originalURL)
+                        .frame(width: viewport.size.width, height: viewport.size.height)
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        .gesture(zoomGesture)
+                        .gesture(panGesture, including: scale > 1 ? .all : .none)
+                        .onTapGesture(count: 2, perform: toggleZoom)
+                        .overlay(alignment: .topLeading) {
+                            Text("HDR")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 4)
+                                .background(.black.opacity(0.55), in: Capsule())
+                                .foregroundStyle(.white)
+                                .padding(12)
+                        }
+                } else if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .allowedDynamicRange(.high)
+                        .scaledToFit()
+                        .frame(width: viewport.size.width, height: viewport.size.height)
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        // 捏合与双击始终可用；拖拽仅在放大后启用，
+                        // 未放大时由查看器的统一拖动入口决定翻页或关闭。
+                        .gesture(zoomGesture)
+                        .gesture(panGesture, including: scale > 1 ? .all : .none)
+                        .onTapGesture(count: 2, perform: toggleZoom)
+                } else {
+                    ProgressView()
+                        .tint(.white.opacity(0.7))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .frame(width: viewport.size.width, height: viewport.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: photo.url) {
@@ -490,7 +526,13 @@ private struct JournalZoomablePhoto: View {
                 cacheKey: photo.id
             )
         }
-        .onDisappear { isZoomed = false }
+        .onChange(of: isActive) { _, active in
+            if !active {
+                scale = 1
+                settledScale = 1
+                resetOffset()
+            }
+        }
     }
 
     private var zoomGesture: some Gesture {

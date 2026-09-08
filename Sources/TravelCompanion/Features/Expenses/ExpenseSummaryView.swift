@@ -141,7 +141,7 @@ struct ExpenseSummaryView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "chart.pie.fill")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(paidColor)
+                        .foregroundStyle(.white)
                     Text("expensesummary.title")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(ink)
@@ -348,20 +348,22 @@ struct ExpenseSummaryView: View {
                 selectedCategory = category
             }
         } label: {
-            HStack(alignment: .top, spacing: 7) {
-                Circle().fill(categoryColor(category)).frame(width: 5, height: 5).padding(.top, 5)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(category.title)
-                        .font(.caption)
-                        .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    Text(amountNumber(amount))
-                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(ink)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                }
-                Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(categoryColor(category))
+                    .frame(width: 5, height: 5)
+                Text(category.title)
+                    .font(.caption)
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(amountNumber(amount))
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.55)
+                    .layoutPriority(1)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)

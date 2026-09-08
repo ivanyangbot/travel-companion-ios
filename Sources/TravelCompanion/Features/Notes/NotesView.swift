@@ -362,6 +362,7 @@ struct NotesView: View {
     @State private var showsGroupEditor = false
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var latestReloadID = UUID()
     @State private var displayMode: JournalDisplayMode = .list
     @State private var mapViewer: MapViewerContext?
     @State private var listViewer: JournalListViewerContext?
@@ -561,23 +562,27 @@ struct NotesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, 112)
         } else {
-            ScrollView {
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(0..<2, id: \.self) { column in
-                        LazyVStack(spacing: 10) {
-                            ForEach(Array(visiblePhotos.enumerated()).filter { $0.offset % 2 == column }, id: \.element.id) { indexedPhoto in
-                                journalPhoto(indexedPhoto.element)
+            GeometryReader { viewport in
+                let columnWidth = max(0, (viewport.size.width - 24 - 10) / 2)
+                ScrollView {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(0..<2, id: \.self) { column in
+                            LazyVStack(spacing: 10) {
+                                ForEach(Array(visiblePhotos.enumerated()).filter { $0.offset % 2 == column }, id: \.element.id) { indexedPhoto in
+                                    journalPhoto(indexedPhoto.element, width: columnWidth)
+                                }
                             }
+                            .frame(width: columnWidth)
                         }
-                        .frame(maxWidth: .infinity)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 128)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 128)
+                .frame(width: viewport.size.width, height: viewport.size.height)
+                .clipped()
+                .scrollIndicators(.hidden)
+                .refreshable { await reload() }
             }
-            .scrollIndicators(.hidden)
-            .refreshable { await reload() }
         }
     }
 
@@ -760,8 +765,10 @@ struct NotesView: View {
     }
 
     private func presentErrorUnlessOffline(_ error: Error) {
+        guard !Task.isCancelled, !(error is CancellationError),
+              journalSync.networkAccess != .offline else { return }
         let offlineCodes: Set<URLError.Code> = [
-            .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost,
+            .cancelled, .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost,
         ]
         if let urlError = error as? URLError, offlineCodes.contains(urlError.code) {
             return
@@ -769,7 +776,7 @@ struct NotesView: View {
         errorMessage = error.localizedDescription
     }
 
-    private func journalPhoto(_ item: JournalPhotoItem) -> some View {
+    private func journalPhoto(_ item: JournalPhotoItem, width: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             JournalPhotoThumbnail(
                 url: item.image.url.flatMap(URL.init(string:)),
@@ -777,8 +784,7 @@ struct NotesView: View {
                 maxPixelSize: 1000,
                 prefersHighDynamicRange: item.image.isHDR == true
             )
-                .frame(height: waterfallImageHeight(for: item.image))
-                .frame(maxWidth: .infinity)
+                .frame(width: width, height: waterfallImageHeight(for: item.image))
                 .clipped()
             if let description = photoDescription(item.image) {
                 LinearGradient(
@@ -793,6 +799,7 @@ struct NotesView: View {
                     .padding(10)
             }
         }
+        .frame(width: width, height: waterfallImageHeight(for: item.image))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -926,6 +933,9 @@ struct NotesView: View {
     }
 
     private func reload() async {
+        guard !Task.isCancelled else { return }
+        let reloadID = UUID()
+        latestReloadID = reloadID
         guard let tripID = remoteTripID else {
             isLoading = false
             snapshot = localStore.snapshot
@@ -944,20 +954,21 @@ struct NotesView: View {
         }
         isLoading = cached == nil && snapshot.entries.isEmpty
         defer {
-            if remoteTripID == tripID { isLoading = false }
+            if latestReloadID == reloadID { isLoading = false }
         }
         do {
             let remote = try await api.fetchJournal(tripID: tripID)
             // 用户可能在请求途中切换行程；旧响应绝不能覆盖当前行程的手书。
-            guard remoteTripID == tripID else { return }
+            guard !Task.isCancelled, latestReloadID == reloadID, remoteTripID == tripID else { return }
             try? snapshotCache.store(remote, for: tripID)
             snapshot = merge(remote: remote, local: localStore.snapshot)
+            errorMessage = nil
             prefetchRemotePhotos(in: remote)
             if let selectedGroupID, !snapshot.groups.contains(where: { $0.id == selectedGroupID }) {
                 self.selectedGroupID = nil
             }
         } catch {
-            guard remoteTripID == tripID else { return }
+            guard latestReloadID == reloadID, remoteTripID == tripID else { return }
             presentErrorUnlessOffline(error)
         }
     }

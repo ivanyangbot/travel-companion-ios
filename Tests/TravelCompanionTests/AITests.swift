@@ -519,6 +519,30 @@ final class AITests: XCTestCase {
         ))
     }
 
+    func testJournalDismissDragCannotBecomePagingAfterChangingDirection() {
+        var intent = JournalPhotoDragIntent.undecided
+        for translation in [CGSize(width: 2, height: 16), CGSize(width: 180, height: 24), .zero] {
+            intent = intent.resolving(translation: translation, hasMultiplePhotos: true)
+            XCTAssertEqual(intent, .dismissing)
+        }
+    }
+
+    func testJournalPagingDragCannotBecomeDismissalAfterChangingDirection() {
+        var intent = JournalPhotoDragIntent.undecided
+        for translation in [CGSize(width: -16, height: 2), CGSize(width: -20, height: 180), .zero] {
+            intent = intent.resolving(translation: translation, hasMultiplePhotos: true)
+            XCTAssertEqual(intent, .paging)
+        }
+        XCTAssertEqual(
+            JournalPhotoDragIntent.undecided.resolving(translation: CGSize(width: 3, height: 2), hasMultiplePhotos: true),
+            .undecided
+        )
+        XCTAssertEqual(
+            JournalPhotoDragIntent.undecided.resolving(translation: CGSize(width: 180, height: 2), hasMultiplePhotos: false),
+            .dismissing
+        )
+    }
+
     func testJournalPhotoLoaderPersistsLivePhotoResourceLocally() throws {
         let key = "journal-local-resource-test-\(UUID().uuidString)"
         let source = FileManager.default.temporaryDirectory
