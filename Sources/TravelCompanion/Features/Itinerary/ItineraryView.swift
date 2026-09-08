@@ -35,8 +35,8 @@ struct ItineraryView: View {
     @State private var selectedListDate: String?
     @State private var programmaticScrollTarget: UUID?
     @State private var visibleCardOrderByDay: [UUID: [UUID]] = [:]
-    @State private var revealedListCardID: UUID?
-    @State private var listCardSwipeGestureCardID: UUID?
+    @State private var revealedListCardID: String?
+    @State private var listCardSwipeGestureCardID: String?
     @State private var listCardSwipeTranslation: CGFloat = 0
     @State private var longPressedListCardID: UUID?
     @State private var suppressedListCardTapID: UUID?
@@ -313,6 +313,7 @@ struct ItineraryView: View {
             .sheet(item: $activeCardEditor) { target in
                 CardEditorView(
                     day: target.day,
+                    availableDays: syncEngine.trip?.sortedDaysInDateRange,
                     existingCard: target.card,
                     currency: syncEngine.trip?.currency,
                     initialURL: target.initialURL,
@@ -814,7 +815,18 @@ struct ItineraryView: View {
         projectedOccurrences: [ItineraryListPresentation.ProjectedCardOccurrence],
         timeZoneByCardID: [UUID: TimeZone]
     ) -> some View {
-        let cards = orderedListCards(for: day)
+        let cards = orderedListCards(for: day).filter { card in
+            guard card.kind == .hotel,
+                  (ItineraryListPresentation.hotelNightCount(
+                    for: card,
+                    timeZone: timeZoneByCardID[card.id] ?? .autoupdatingCurrent
+                  ) ?? 0) > 1 else { return true }
+            return ItineraryListPresentation.hotelOccupiesNight(
+                card,
+                on: day,
+                timeZone: timeZoneByCardID[card.id] ?? .autoupdatingCurrent
+            )
+        }
         // Multi-day projections (an overnight flight, a hotel night) merge
         // into the day's own chronological list instead of trailing after it.
         let listItems = ItineraryListPresentation.mergedDayListItems(
@@ -890,11 +902,22 @@ struct ItineraryView: View {
                         }
 
                         if let visit = item.hotelVisit {
-                            itineraryHotelCardContent(
-                                item.card, isActive: false,
-                                progressLabel: String(localized: visit.purpose == "checkIn" ? "hotelcard.checkIn" : "hotelcard.return"),
+                            itinerarySwipeableCard(
+                                item.card,
+                                index: ItineraryListPresentation.activityDisplayIndex(
+                                    at: itemIndex,
+                                    in: listItems
+                                ),
+                                day: day,
+                                days: days,
+                                currentOrNextCardID: nil,
                                 timeZone: timeZoneByCardID[item.card.id] ?? ItineraryLocalTime.deviceTimeZone,
-                                isPreviousDayContinuation: visit.purpose == "return"
+                                progressLabel: String(localized: visit.purpose == "checkIn" ? "hotelcard.checkIn" : "hotelcard.return"),
+                                isPreviousDayContinuation: visit.purpose == "return",
+                                interactionID: item.id,
+                                editingDay: days.first(where: { sourceDay in
+                                    sourceDay.cards.contains(where: { $0.id == item.card.id })
+                                })
                             )
                         } else if item.ownIndex != nil {
                             VStack(alignment: .leading, spacing: 6) {
@@ -934,7 +957,11 @@ struct ItineraryView: View {
                                 progressLabel: item.card.kind == .flight
                                     ? String(localized: "itinerary.flightFromPreviousDay")
                                     : itineraryCardProgressLabel(item.progress),
-                                isPreviousDayContinuation: item.isHotelNight
+                                isPreviousDayContinuation: item.isHotelNight,
+                                interactionID: item.id,
+                                editingDay: days.first(where: { sourceDay in
+                                    sourceDay.cards.contains(where: { $0.id == item.card.id })
+                                })
                             )
                             .accessibilityHint(
                                 item.isHotelNight
@@ -1041,14 +1068,17 @@ struct ItineraryView: View {
         currentOrNextCardID: UUID?,
         timeZone: TimeZone,
         progressLabel: String? = nil,
-        isPreviousDayContinuation: Bool = false
+        isPreviousDayContinuation: Bool = false,
+        interactionID: String? = nil,
+        editingDay: TripDaySnapshot? = nil
     ) -> some View {
-        let swipeOffset = listCardSwipeOffset(for: card.id)
+        let swipeID = interactionID ?? card.id.uuidString
+        let swipeOffset = listCardSwipeOffset(for: swipeID)
         let revealedWidth = -swipeOffset
         let actionVisibility = ItineraryCardSwipeInteraction.actionVisibility(
             revealedWidth: revealedWidth
         )
-        let actionsAreOpen = revealedListCardID == card.id && listCardSwipeGestureCardID == nil
+        let actionsAreOpen = revealedListCardID == swipeID && listCardSwipeGestureCardID == nil
 
         return ZStack(alignment: .trailing) {
             Button {
@@ -1140,7 +1170,7 @@ struct ItineraryView: View {
 
             Button {
                 closeListCardActions()
-                activeCardEditor = .edit(day, card)
+                activeCardEditor = .edit(editingDay ?? day, card)
             } label: {
                 Image("icon-edit-outline")
                     .resizable()
@@ -1206,25 +1236,26 @@ struct ItineraryView: View {
         .gesture(
             ItineraryHorizontalPanGesture(
                 isEnabled: draggedListCard == nil && longPressedListCardID != card.id,
-                actionsAlreadyRevealed: revealedListCardID == card.id,
+                actionsAlreadyRevealed: revealedListCardID == swipeID,
                 onChanged: { translation in
-                    handleListCardSwipeChanged(card, translation: translation)
+                    handleListCardSwipeChanged(card, swipeID: swipeID, translation: translation)
                 },
                 onEnded: { translation, predictedTranslation in
                     handleListCardSwipeEnded(
                         card,
+                        swipeID: swipeID,
                         translation: translation,
                         predictedTranslation: predictedTranslation
                     )
                 },
                 onCancelled: {
-                    handleListCardSwipeCancelled(card)
+                    handleListCardSwipeCancelled(card, swipeID: swipeID)
                 }
             )
         )
         .accessibilityAction(named: Text("common.edit")) {
             closeListCardActions()
-            activeCardEditor = .edit(day, card)
+            activeCardEditor = .edit(editingDay ?? day, card)
         }
         .accessibilityAction(named: Text("itinerary.swipeAskA11y")) {
             openAgent(for: card, in: day)
@@ -2000,21 +2031,26 @@ struct ItineraryView: View {
         )
     }
 
-    private func handleListCardSwipeChanged(_ card: TravelCardSnapshot, translation: CGFloat) {
+    private func handleListCardSwipeChanged(
+        _ card: TravelCardSnapshot,
+        swipeID: String,
+        translation: CGFloat
+    ) {
         guard draggedListCard == nil, longPressedListCardID != card.id else { return }
         suppressListCardTap(card.id)
         if listCardSwipeGestureCardID == nil {
-            listCardSwipeGestureCardID = card.id
-            if revealedListCardID != card.id {
+            listCardSwipeGestureCardID = swipeID
+            if revealedListCardID != swipeID {
                 revealedListCardID = nil
             }
         }
-        guard listCardSwipeGestureCardID == card.id else { return }
+        guard listCardSwipeGestureCardID == swipeID else { return }
         listCardSwipeTranslation = translation
     }
 
     private func handleListCardSwipeEnded(
         _ card: TravelCardSnapshot,
+        swipeID: String,
         translation: CGFloat,
         predictedTranslation: CGFloat
     ) {
@@ -2022,9 +2058,9 @@ struct ItineraryView: View {
             resetListCardSwipeGesture()
             releaseListCardTapSuppression(card.id)
         }
-        guard listCardSwipeGestureCardID == card.id else { return }
+        guard listCardSwipeGestureCardID == swipeID else { return }
 
-        let baseOffset = revealedListCardID == card.id
+        let baseOffset = revealedListCardID == swipeID
             ? -ItineraryCardSwipeInteraction.actionsWidth
             : 0
         let currentOffset = ItineraryCardSwipeInteraction.clampedOffset(
@@ -2040,21 +2076,21 @@ struct ItineraryView: View {
             revealedListCardID = ItineraryCardSwipeInteraction.shouldRevealActions(
                 currentOffset: currentOffset,
                 projectedOffset: projectedOffset
-            ) ? card.id : nil
+            ) ? swipeID : nil
         }
     }
 
-    private func handleListCardSwipeCancelled(_ card: TravelCardSnapshot) {
-        guard listCardSwipeGestureCardID == card.id else { return }
+    private func handleListCardSwipeCancelled(_ card: TravelCardSnapshot, swipeID: String) {
+        guard listCardSwipeGestureCardID == swipeID else { return }
         resetListCardSwipeGesture()
         releaseListCardTapSuppression(card.id)
     }
 
-    private func listCardSwipeOffset(for cardID: UUID) -> CGFloat {
-        let baseOffset = revealedListCardID == cardID
+    private func listCardSwipeOffset(for swipeID: String) -> CGFloat {
+        let baseOffset = revealedListCardID == swipeID
             ? -ItineraryCardSwipeInteraction.actionsWidth
             : 0
-        guard listCardSwipeGestureCardID == cardID else { return baseOffset }
+        guard listCardSwipeGestureCardID == swipeID else { return baseOffset }
         return ItineraryCardSwipeInteraction.clampedOffset(
             baseOffset: baseOffset,
             translation: listCardSwipeTranslation
@@ -4474,7 +4510,12 @@ enum ItineraryListPresentation {
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> String {
         let projectedCards = projectedMultiDayCards(for: day, in: days, timeZone: timeZone).map(\.card)
-        return daySummary(for: orderedCards(day.cards) + projectedCards)
+        let ownCards = orderedCards(day.cards).filter { card in
+            guard card.kind == .hotel,
+                  (hotelNightCount(for: card, timeZone: timeZone) ?? 0) > 1 else { return true }
+            return hotelOccupiesNight(card, on: day, timeZone: timeZone)
+        }
+        return daySummary(for: ownCards + projectedCards)
     }
 
     private static func daySummary(for cards: [TravelCardSnapshot]) -> String {
@@ -4527,13 +4568,13 @@ enum ItineraryListPresentation {
 
     static func hotelNightProgress(
         for card: TravelCardSnapshot,
-        sourceDay: TripDaySnapshot,
+        sourceDay _: TripDaySnapshot,
         targetDay: TripDaySnapshot,
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> HotelNightProgress? {
         guard card.kind == .hotel,
               let checkoutAt = card.endAt,
-              let sourceDate = parseDayKey(sourceDay.date),
+              let sourceDate = utcDayKey(for: card.startAt, in: timeZone),
               let targetDate = parseDayKey(targetDay.date),
               let checkoutDate = utcDayKey(for: checkoutAt, in: timeZone),
               sourceDate <= targetDate,
@@ -4554,6 +4595,22 @@ enum ItineraryListPresentation {
             nightIndex: elapsedNights + 1,
             totalNights: totalNights
         )
+    }
+
+    /// Whether the target calendar day owns one of the hotel's nights. The
+    /// card's timestamps are authoritative because imported cards can be
+    /// attached to the checkout day instead of the check-in day.
+    static func hotelOccupiesNight(
+        _ card: TravelCardSnapshot,
+        on targetDay: TripDaySnapshot,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> Bool {
+        guard card.kind == .hotel,
+              let checkoutAt = card.endAt,
+              let checkInDate = utcDayKey(for: card.startAt, in: timeZone),
+              let checkoutDate = utcDayKey(for: checkoutAt, in: timeZone),
+              let targetDate = parseDayKey(targetDay.date) else { return false }
+        return checkInDate <= targetDate && targetDate < checkoutDate
     }
 
     static func projectedHotelNights(
@@ -4711,7 +4768,7 @@ enum ItineraryListPresentation {
                     ) else { continue }
 
                     switch progress {
-                    case .hotelNight(let value) where value.nightIndex > 1:
+                    case .hotelNight:
                         byDay[targetDay.id, default: []].append(
                             ProjectedCardOccurrence(
                                 card: card,
@@ -4805,12 +4862,12 @@ enum ItineraryListPresentation {
             orderedCards(sourceDay.cards).compactMap { card -> TravelCardSnapshot? in
                 guard card.kind == .hotel,
                       legOriginPoint(for: card) != nil,
-                      let sourceStart = localDayStart(sourceDay.date, timeZone: timeZone),
-                      sourceStart <= previousStart else { return nil }
+                      let checkInStart = utcDayKey(for: card.startAt, in: timeZone),
+                      checkInStart <= previousStart else { return nil }
                 if let checkout = card.endAt {
                     return checkout > targetStart ? card : nil
                 }
-                return sourceStart == previousStart ? card : nil
+                return checkInStart == previousStart ? card : nil
             }
         }
         .max { left, right in

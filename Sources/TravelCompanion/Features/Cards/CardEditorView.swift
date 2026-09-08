@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CardEditorView: View {
     let day: TripDaySnapshot
+    let availableDays: [TripDaySnapshot]
     let existingCard: TravelCardSnapshot?
     let currency: String?
     let onSave: (CardRequest) -> Void
@@ -38,8 +39,9 @@ struct CardEditorView: View {
     @State private var importError: String?
     @State private var didAutoImport = false
 
-    init(day: TripDaySnapshot, existingCard: TravelCardSnapshot? = nil, currency: String? = nil, initialURL: String? = nil, onImportLink: @escaping (String) async throws -> LinkImportResult, onSave: @escaping (CardRequest) -> Void) {
+    init(day: TripDaySnapshot, availableDays: [TripDaySnapshot]? = nil, existingCard: TravelCardSnapshot? = nil, currency: String? = nil, initialURL: String? = nil, onImportLink: @escaping (String) async throws -> LinkImportResult, onSave: @escaping (CardRequest) -> Void) {
         self.day = day
+        self.availableDays = availableDays ?? [day]
         self.existingCard = existingCard
         self.currency = currency
         self.onImportLink = onImportLink
@@ -337,8 +339,9 @@ struct CardEditorView: View {
             }
             return nil
         }()
+        let selectedDay = Self.day(containing: startAt, among: availableDays) ?? day
         let request = CardRequest(
-            dayId: day.serverID,
+            dayId: selectedDay.serverID,
             kind: kind,
             title: cleanedTitle,
             startAt: formatter.string(from: startAt),
@@ -360,7 +363,9 @@ struct CardEditorView: View {
             tips: cleanedTips.isEmpty ? nil : cleanedTips,
             images: imagesValue,
             notes: emptyToNil(notes),
-            position: existingCard?.position ?? day.cards.count,
+            position: existingCard != nil && selectedDay.id == day.id
+                ? existingCard?.position
+                : selectedDay.cards.count,
             fieldsToClear: clearFields
         )
         onSave(request)
@@ -468,6 +473,21 @@ struct CardEditorView: View {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.date(from: day.date) ?? .now
+    }
+
+    /// Match the calendar day shown by DatePicker. This keeps `dayId` aligned
+    /// when the user changes the date while editing an existing card.
+    static func day(
+        containing date: Date,
+        among days: [TripDaySnapshot],
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> TripDaySnapshot? {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year,
+              let month = components.month,
+              let day = components.day else { return nil }
+        let dayKey = String(format: "%04d-%02d-%02d", year, month, day)
+        return days.first(where: { $0.date == dayKey })
     }
 
     private enum PlaceMode: String, Hashable {

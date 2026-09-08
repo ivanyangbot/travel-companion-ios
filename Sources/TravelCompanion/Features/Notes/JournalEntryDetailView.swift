@@ -24,10 +24,6 @@ struct JournalEntryDetailView: View {
         let initialIndex: Int
     }
 
-    private var availableAttachmentSlots: Int {
-        max(0, 9 - entry.images.count)
-    }
-
     /// 可进入查看器的照片（静态图与实况照片的主图）。
     private var viewablePhotos: [JournalPhotoViewer.Photo] {
         entry.images
@@ -127,32 +123,26 @@ struct JournalEntryDetailView: View {
 
     private var photoSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if !entry.images.isEmpty || availableAttachmentSlots > 0 {
-                HStack(spacing: 8) {
-                    Text("journal.photoSection")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                    if !entry.images.isEmpty {
-                        Text(String(entry.images.count))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    }
-                    Spacer()
-                    if availableAttachmentSlots > 0 {
-                        addPhotoButton
-                    }
+            HStack(spacing: 8) {
+                Text("journal.photoSection")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                if !entry.images.isEmpty {
+                    Text(String(entry.images.count))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(PrimaryTabPalette.secondaryText)
                 }
+                Spacer()
+                addPhotoButton
             }
-            if !entry.images.isEmpty || availableAttachmentSlots > 0 {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                    ForEach(entry.images) { image in
-                        photoCell(image)
-                    }
-                    if isImporting {
-                        importingCell
-                    } else if entry.images.isEmpty && availableAttachmentSlots > 0 {
-                        emptyAddTile
-                    }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(entry.images) { image in
+                    photoCell(image)
+                }
+                if isImporting {
+                    importingCell
+                } else if entry.images.isEmpty {
+                    emptyAddTile
                 }
             }
         }
@@ -161,8 +151,8 @@ struct JournalEntryDetailView: View {
     private var addPhotoButton: some View {
         PhotosPicker(
             selection: $pickerItems,
-            maxSelectionCount: availableAttachmentSlots,
-            matching: .images,
+            maxSelectionCount: nil,
+            matching: .any(of: [.images, .videos]),
             preferredItemEncoding: .current,
             photoLibrary: .shared()
         ) {
@@ -181,8 +171,8 @@ struct JournalEntryDetailView: View {
     private var emptyAddTile: some View {
         PhotosPicker(
             selection: $pickerItems,
-            maxSelectionCount: availableAttachmentSlots,
-            matching: .images,
+            maxSelectionCount: nil,
+            matching: .any(of: [.images, .videos]),
             preferredItemEncoding: .current,
             photoLibrary: .shared()
         ) {
@@ -294,7 +284,7 @@ struct JournalEntryDetailView: View {
         }
         var attachments: [JournalAttachment] = []
         do {
-            for item in values.prefix(availableAttachmentSlots) {
+            for item in values {
                 attachments.append(try await JournalAttachment.load(from: item))
             }
         } catch {

@@ -1103,10 +1103,14 @@ final class SyncEngine: ObservableObject {
     }
 
     func addCard(to day: TripDaySnapshot, request: CardRequest) async {
-        guard var current = trip,
-              let index = current.days.firstIndex(where: { $0.id == day.id }) else { return }
-        guard localOnly || day.serverID != nil else { return }
-        let dayID = day.serverID ?? Self.takeLocalResourceID()
+        guard var current = trip else { return }
+        let index = request.dayId.flatMap { requestedDayID in
+            current.days.firstIndex(where: { $0.serverID == requestedDayID })
+        } ?? current.days.firstIndex(where: { $0.id == day.id })
+        guard let index else { return }
+        let destinationDay = current.days[index]
+        guard localOnly || destinationDay.serverID != nil else { return }
+        let dayID = destinationDay.serverID ?? Self.takeLocalResourceID()
         let baseVersion = current.version
         do {
             let card = TravelCardSnapshot(
@@ -1139,7 +1143,7 @@ final class SyncEngine: ObservableObject {
                 tips: request.tips,
                 images: request.images,
                 notes: request.notes,
-                position: request.position ?? (current.days.first(where: { $0.id == day.id })?.cards.count ?? 0)
+                position: request.position ?? destinationDay.cards.count
             )
             current.days[index].cards.append(card)
             current.updatedAt = .now
@@ -1708,7 +1712,16 @@ final class SyncEngine: ObservableObject {
         updated.notes = request.notes ?? (request.fieldsToClear.contains("notes") ? nil : updated.notes)
         if let position = request.position { updated.position = position }
         updated.updatedAt = .now
-        snapshot.days[dayIndex].cards[cardIndex] = updated
+        if let requestedDayID = request.dayId,
+           let destinationIndex = snapshot.days.firstIndex(where: { $0.serverID == requestedDayID }),
+           destinationIndex != dayIndex {
+            snapshot.days[dayIndex].cards.remove(at: cardIndex)
+            updated.dayID = requestedDayID
+            updated.position = snapshot.days[destinationIndex].cards.count
+            snapshot.days[destinationIndex].cards.append(updated)
+        } else {
+            snapshot.days[dayIndex].cards[cardIndex] = updated
+        }
     }
 
     private func queueConfirmedAIDraftCardsIfReady() async throws {

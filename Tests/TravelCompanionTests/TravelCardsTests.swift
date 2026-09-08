@@ -614,6 +614,100 @@ final class TravelCardsTests: XCTestCase {
         )
     }
 
+    func testHotelStoredOnCheckoutDayProjectsBackToAllThreeNights() throws {
+        let formatter = ISO8601DateFormatter()
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let hotel = TravelCardSnapshot(
+            dayID: 4,
+            kind: .hotel,
+            title: "CAESAR号船宿",
+            startAt: try XCTUnwrap(formatter.date(from: "2026-09-26T17:00:00Z")),
+            endAt: try XCTUnwrap(formatter.date(from: "2026-09-29T21:00:00Z")),
+            stayDurationMinutes: 5_700,
+            hotelVisits: [
+                HotelVisit(
+                    date: "2026-09-26",
+                    arrivalTime: "17:00",
+                    departureTime: nil,
+                    purpose: "checkIn"
+                )
+            ],
+            position: 0
+        )
+        let firstNight = TripDaySnapshot(date: "2026-09-26", position: 0)
+        let secondNight = TripDaySnapshot(date: "2026-09-27", position: 1)
+        let thirdNight = TripDaySnapshot(date: "2026-09-28", position: 2)
+        let checkoutDay = TripDaySnapshot(date: "2026-09-29", position: 3, cards: [hotel])
+        let days = [firstNight, secondNight, thirdNight, checkoutDay]
+
+        let progress = [firstNight, secondNight, thirdNight].compactMap { day in
+            ItineraryListPresentation.projectedMultiDayCards(
+                for: day,
+                in: days,
+                timeZone: timeZone
+            ).first?.progress
+        }
+
+        XCTAssertEqual(progress, [
+            .hotelNight(.init(nightIndex: 1, totalNights: 3)),
+            .hotelNight(.init(nightIndex: 2, totalNights: 3)),
+            .hotelNight(.init(nightIndex: 3, totalNights: 3))
+        ])
+        let firstNightItems = ItineraryListPresentation.mergedDayListItems(
+            ownCards: [],
+            projectedOccurrences: ItineraryListPresentation.projectedMultiDayCards(
+                for: firstNight,
+                in: days,
+                timeZone: timeZone
+            ),
+            day: firstNight,
+            timeZone: timeZone
+        )
+        XCTAssertEqual(firstNightItems.count, 1)
+        XCTAssertEqual(firstNightItems.first?.hotelVisit?.purpose, "checkIn")
+        XCTAssertFalse(
+            ItineraryListPresentation.hotelOccupiesNight(
+                hotel,
+                on: checkoutDay,
+                timeZone: timeZone
+            )
+        )
+        XCTAssertTrue(
+            ItineraryListPresentation.projectedMultiDayCards(
+                for: checkoutDay,
+                in: days,
+                timeZone: timeZone
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.daySummary(
+                for: firstNight,
+                in: days,
+                timeZone: timeZone
+            ),
+            "CAESAR号船"
+        )
+    }
+
+    func testCardEditorChoosesDayFromEditedStartDate() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        let editedStart = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-09-25T16:00:00Z")
+        )
+        let checkInDay = TripDaySnapshot(serverID: 26, date: "2026-09-26", position: 0)
+        let checkoutDay = TripDaySnapshot(serverID: 29, date: "2026-09-29", position: 1)
+
+        XCTAssertEqual(
+            CardEditorView.day(
+                containing: editedStart,
+                among: [checkInDay, checkoutDay],
+                calendar: calendar
+            )?.serverID,
+            26
+        )
+    }
+
     func testMergedDayListPlacesOvernightFlightBeforeLaterDeparture() throws {
         let formatter = ISO8601DateFormatter()
         let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))

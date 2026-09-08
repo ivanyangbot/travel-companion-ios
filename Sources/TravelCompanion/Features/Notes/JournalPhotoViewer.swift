@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 瀑布流/详情网格把当前屏幕中的照片位置传给全屏查看器，关闭时据此飞回原位。
 struct JournalPhotoSourceFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [String: CGRect] = [:]
+    static let defaultValue: [String: CGRect] = [:]
 
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })

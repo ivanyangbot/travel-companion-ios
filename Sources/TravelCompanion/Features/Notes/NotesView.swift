@@ -507,9 +507,9 @@ struct NotesView: View {
             .photosPicker(
                 isPresented: $showsQuickPhotoPicker,
                 selection: $quickPhotoSelection,
-                maxSelectionCount: 9,
+                maxSelectionCount: nil,
                 selectionBehavior: .ordered,
-                matching: .images,
+                matching: .any(of: [.images, .videos]),
                 preferredItemEncoding: .current
             )
             .onChange(of: quickPhotoSelection) { _, values in
@@ -869,7 +869,7 @@ struct NotesView: View {
         }
         do {
             var attachments: [JournalAttachment] = []
-            for item in values.prefix(9) {
+            for item in values {
                 attachments.append(try await JournalAttachment.load(from: item))
             }
             guard !attachments.isEmpty else { return }
