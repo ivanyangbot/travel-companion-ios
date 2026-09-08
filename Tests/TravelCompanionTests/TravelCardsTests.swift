@@ -1359,6 +1359,10 @@ final class TravelCardsTests: XCTestCase {
 
         XCTAssertEqual(items.map(\.card.title), ["Yellow Bridge", "Crystal Bay", "Banjar Nyuh", "Aloft"])
         XCTAssertEqual(activityIndexes, [0, 1, 2])
+        XCTAssertEqual(
+            ItineraryListPresentation.activityDisplayIndex(for: crystalBay.id, in: items),
+            1
+        )
     }
 
     func testCardRequestEncodesAndClearsHotelRoomType() throws {

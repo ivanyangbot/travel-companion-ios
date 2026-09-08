@@ -491,7 +491,31 @@ struct ItineraryView: View {
            let day = days.first(where: { $0.id == draggedListCard.dayID }),
            let card = day.cards.first(where: { $0.id == draggedListCard.cardID }),
            let startFrame = draggedListCardStartFrame {
-            let index = orderedListCards(for: day).firstIndex(where: { $0.id == card.id }) ?? 0
+            let ownCards = orderedListCards(for: day).filter { candidate in
+                guard candidate.kind == .hotel,
+                      (ItineraryListPresentation.hotelNightCount(
+                        for: candidate,
+                        timeZone: timeZoneByCardID[candidate.id] ?? .autoupdatingCurrent
+                      ) ?? 0) > 1 else { return true }
+                return ItineraryListPresentation.hotelOccupiesNight(
+                    candidate,
+                    on: day,
+                    timeZone: timeZoneByCardID[candidate.id] ?? .autoupdatingCurrent
+                )
+            }
+            let listItems = ItineraryListPresentation.mergedDayListItems(
+                ownCards: ownCards,
+                projectedOccurrences: ItineraryListPresentation.projectedMultiDayCards(
+                    for: day,
+                    in: days
+                ),
+                day: day,
+                timeZoneByCardID: timeZoneByCardID
+            )
+            let index = ItineraryListPresentation.activityDisplayIndex(
+                for: card.id,
+                in: listItems
+            )
             itineraryCompactCardContent(
                 card,
                 index: index,
@@ -4973,6 +4997,17 @@ enum ItineraryListPresentation {
         return items.prefix(itemIndex).reduce(into: 0) { count, item in
             if item.card.kind == .activity { count += 1 }
         }
+    }
+
+    /// Resolve the number from the same merged timeline that rendered the
+    /// source card. Drag overlays must not use the persisted array position,
+    /// because hotel visits and projected stays do not consume activity numbers.
+    static func activityDisplayIndex(for cardID: UUID, in items: [DayListItem]) -> Int {
+        let itemIndex = items.firstIndex(where: {
+            $0.card.id == cardID && $0.ownIndex != nil
+        }) ?? items.firstIndex(where: { $0.card.id == cardID })
+        guard let itemIndex else { return 0 }
+        return activityDisplayIndex(at: itemIndex, in: items)
     }
 
     static func localDayStart(
