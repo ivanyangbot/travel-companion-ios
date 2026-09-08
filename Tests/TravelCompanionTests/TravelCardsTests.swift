@@ -41,6 +41,41 @@ final class TravelCardsTests: XCTestCase {
         )
     }
 
+    func testItineraryListKeepsLinkedEstimateOutOfActualPrice() {
+        let actual = ExpenseSnapshot(
+            amountMinor: 50_000,
+            currency: "CNY",
+            category: .lodging,
+            occurredOn: "2026-10-01",
+            cardIDs: [42]
+        )
+        let estimate = ExpenseSnapshot(
+            amountMinor: 150_000,
+            isEstimate: true,
+            currency: "CNY",
+            category: .lodging,
+            occurredOn: "2026-10-01",
+            cardIDs: [42]
+        )
+
+        XCTAssertEqual(
+            ItineraryListPresentation.linkedActualExpenseTotal(
+                cardID: 42,
+                expenses: [actual, estimate],
+                preferredCurrency: "CNY"
+            ),
+            .init(amountMinor: 50_000, currency: "CNY")
+        )
+        XCTAssertEqual(
+            ItineraryListPresentation.linkedEstimateExpenseTotal(
+                cardID: 42,
+                expenses: [actual, estimate],
+                preferredCurrency: "CNY"
+            ),
+            .init(amountMinor: 150_000, currency: "CNY")
+        )
+    }
+
     func testFlightRouteTitleOnlyKeepsDepartureAndDestination() {
         XCTAssertEqual(
             AgentFlightDisplay.routeTitle(

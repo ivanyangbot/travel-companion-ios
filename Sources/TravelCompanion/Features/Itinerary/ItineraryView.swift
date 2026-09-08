@@ -2037,6 +2037,13 @@ struct ItineraryView: View {
         ) {
             return actual
         }
+        if let estimate = linkedEstimateExpenseTotal(for: card),
+           let formatted = CardPrice.formatRoundedMajor(
+               minor: estimate.amountMinor,
+               currency: estimate.currency
+           ) {
+            return formatted
+        }
         return CardPrice.formatRoundedMajor(minor: card.priceMinor, currency: card.priceCurrency ?? tripCurrency)
             ?? CardPrice.formatRoundedMajor(minor: card.ticketPriceMinor, currency: card.priceCurrency ?? tripCurrency)
     }
@@ -2049,6 +2056,16 @@ struct ItineraryView: View {
         for card: TravelCardSnapshot
     ) -> ItineraryListPresentation.LinkedActualExpenseTotal? {
         ItineraryListPresentation.linkedActualExpenseTotal(
+            cardID: card.serverID,
+            expenses: syncEngine.trip?.expenses ?? [],
+            preferredCurrency: syncEngine.trip?.currency ?? card.priceCurrency
+        )
+    }
+
+    private func linkedEstimateExpenseTotal(
+        for card: TravelCardSnapshot
+    ) -> ItineraryListPresentation.LinkedActualExpenseTotal? {
+        ItineraryListPresentation.linkedEstimateExpenseTotal(
             cardID: card.serverID,
             expenses: syncEngine.trip?.expenses ?? [],
             preferredCurrency: syncEngine.trip?.currency ?? card.priceCurrency
@@ -3028,7 +3045,7 @@ struct ItineraryView: View {
     /// 当日实际价支出：按 occurredOn == day.date 过滤，绑定到行程当日页。
     @ViewBuilder
     private func dayExpensesSection(trip: SharedTripSnapshot, day: TripDaySnapshot) -> some View {
-        let expenses = trip.expenses.filter { $0.occurredOn == day.date }.sorted { $0.updatedAt > $1.updatedAt }
+        let expenses = trip.expenses.filter { !$0.isEstimate && $0.occurredOn == day.date }.sorted { $0.updatedAt > $1.updatedAt }
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("itinerary.dayExpensesSection").font(.subheadline.weight(.semibold))
@@ -4305,9 +4322,38 @@ enum ItineraryListPresentation {
         expenses: [ExpenseSnapshot],
         preferredCurrency: String?
     ) -> LinkedActualExpenseTotal? {
+        linkedExpenseTotal(
+            cardID: cardID,
+            expenses: expenses,
+            preferredCurrency: preferredCurrency,
+            matching: { !$0.isEstimate }
+        )
+    }
+
+    /// Full-detail estimates use the same link model as actual expenses but
+    /// remain estimates in the itinerary price label.
+    static func linkedEstimateExpenseTotal(
+        cardID: Int?,
+        expenses: [ExpenseSnapshot],
+        preferredCurrency: String?
+    ) -> LinkedActualExpenseTotal? {
+        linkedExpenseTotal(
+            cardID: cardID,
+            expenses: expenses,
+            preferredCurrency: preferredCurrency,
+            matching: { $0.isEstimate }
+        )
+    }
+
+    private static func linkedExpenseTotal(
+        cardID: Int?,
+        expenses: [ExpenseSnapshot],
+        preferredCurrency: String?,
+        matching: (ExpenseSnapshot) -> Bool
+    ) -> LinkedActualExpenseTotal? {
         guard let cardID else { return nil }
         let linked = expenses.compactMap { expense -> (amount: Int64, currency: String)? in
-            guard expense.cardIDs.contains(cardID),
+            guard matching(expense), expense.cardIDs.contains(cardID),
                   let amount = expense.amountForSettlement
             else { return nil }
             return (amount, expense.settlementCurrency ?? expense.currency)
