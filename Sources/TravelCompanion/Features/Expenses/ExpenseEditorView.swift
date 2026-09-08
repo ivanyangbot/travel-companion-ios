@@ -50,7 +50,7 @@ struct ExpenseEditorView: View {
         _note = State(initialValue: existingExpense?.note ?? "")
         _cardIDs = State(initialValue: existingExpense?.cardIDs ?? [])
         // 手动记一笔默认已支付（沿用旧行为）；仅未支付的单子保留预计支付时间。
-        _isPaid = State(initialValue: existingExpense.map { $0.isPaid() } ?? mode == .actual)
+        _isPaid = State(initialValue: existingExpense.map { $0.isPaid() } ?? (mode == .actual))
         _paidAtDate = State(initialValue: existingExpense?.paidAt ?? .now)
         _hasExpectedPaidAt = State(initialValue: existingExpense?.paidAt != nil)
     }
