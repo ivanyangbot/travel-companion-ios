@@ -252,7 +252,8 @@ struct JournalMapCanvas: UIViewRepresentable {
             mapView.deselectAnnotation(annotation, animated: false)
             let members = clusterMembers[pin.id] ?? [pin]
             let sourceView = mapView.view(for: annotation)
-            let sourceFrame = sourceView?.convert(sourceView?.bounds ?? .zero, to: nil)
+            let sourceFrame = (sourceView as? JournalPhotoAnnotationView)?.photoTransitionFrame
+                ?? sourceView?.convert(sourceView?.bounds ?? .zero, to: nil)
             guard members.count > 1 else {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 onPhotosSelected?(members, sourceFrame)
@@ -302,6 +303,7 @@ final class JournalPhotoAnnotationView: MLNAnnotationView {
     private let photoBack2 = UIView()
     private let photoBacking = UIView()
     private let imageView = UIImageView()
+    var photoTransitionFrame: CGRect { imageView.convert(imageView.bounds, to: nil) }
     private let countBadge = UILabel()
     private var loadTask: Task<Void, Never>?
     private var memberCount = 1

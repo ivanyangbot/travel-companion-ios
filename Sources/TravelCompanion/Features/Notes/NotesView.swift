@@ -468,7 +468,8 @@ struct NotesView: View {
                             description: pin.description,
                             capturedAt: pin.capturedAt,
                             media: pin.image,
-                            sourceFrame: context.sourceFrame
+                            sourceFrame: context.sourceFrame,
+                            sourceCornerRadius: 9.5
                         )
                     },
                     initialIndex: 0,

@@ -35,7 +35,8 @@ struct JournalEntryDetailView: View {
                     description: image.description,
                     capturedAt: image.capturedAt,
                     media: image,
-                    sourceFrame: photoSourceFrames[image.key]
+                    sourceFrame: photoSourceFrames[image.key],
+                    sourceCornerRadius: 16
                 )
             }
     }

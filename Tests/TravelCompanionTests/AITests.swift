@@ -527,6 +527,38 @@ final class AITests: XCTestCase {
         }
     }
 
+    func testJournalPortraitPreviewMorphsIntoWaterfallCropWithoutStretching() {
+        let original = CGSize(width: 1206, height: 2622)
+        let viewport = CGSize(width: 390, height: 844)
+        let target = CGSize(width: 178, height: 224)
+        let start = JournalPhotoMorphGeometry.sizes(image: original, viewport: viewport, target: target, progress: 0)
+        XCTAssertEqual(start.crop.height, viewport.height, accuracy: 0.001)
+        XCTAssertEqual(start.crop.width / start.crop.height, original.width / original.height, accuracy: 0.001)
+
+        for progress: CGFloat in [0.25, 0.5, 0.75, 0.999, 1] {
+            let frame = JournalPhotoMorphGeometry.sizes(image: original, viewport: viewport, target: target, progress: progress)
+            XCTAssertEqual(frame.image.width / frame.image.height, original.width / original.height, accuracy: 0.001)
+            XCTAssertGreaterThanOrEqual(frame.image.width + 0.001, frame.crop.width)
+            XCTAssertGreaterThanOrEqual(frame.image.height + 0.001, frame.crop.height)
+        }
+        let end = JournalPhotoMorphGeometry.sizes(image: original, viewport: viewport, target: target, progress: 1)
+        XCTAssertEqual(end.crop.width, target.width, accuracy: 0.001)
+        XCTAssertEqual(end.crop.height, target.height, accuracy: 0.001)
+        let beforeEnd = JournalPhotoMorphGeometry.sizes(image: original, viewport: viewport, target: target, progress: 0.999)
+        XCTAssertLessThan(abs(beforeEnd.crop.height - end.crop.height), 1)
+    }
+
+    func testJournalLandscapeMorphReturnsToUncroppedPreviewAndReachesSmallMapPin() {
+        let original = CGSize(width: 4032, height: 3024)
+        let viewport = CGSize(width: 390, height: 844)
+        let target = CGSize(width: 43, height: 43)
+        let end = JournalPhotoMorphGeometry.sizes(image: original, viewport: viewport, target: target, progress: 1)
+        XCTAssertEqual(end.crop, target)
+        let restored = JournalPhotoMorphGeometry.sizes(image: original, viewport: viewport, target: target, progress: 0)
+        XCTAssertEqual(restored.crop, CGSize(width: 390, height: 292.5))
+        XCTAssertEqual(restored.image, restored.crop)
+    }
+
     func testJournalPagingDragCannotBecomeDismissalAfterChangingDirection() {
         var intent = JournalPhotoDragIntent.undecided
         for translation in [CGSize(width: -16, height: 2), CGSize(width: -20, height: 180), .zero] {
