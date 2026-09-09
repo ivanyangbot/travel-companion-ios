@@ -92,9 +92,10 @@ private struct JournalPhotoMorph: AnimatableModifier {
     let viewport: CGSize
     let targetSize: CGSize?
     let targetCornerRadius: CGFloat
-    var progress: CGFloat
+    // Animatable reads and writes this value outside MainActor; it is per-copy value state.
+    nonisolated var progress: CGFloat
 
-    var animatableData: CGFloat {
+    nonisolated var animatableData: CGFloat {
         get { progress }
         set { progress = newValue }
     }
