@@ -840,9 +840,10 @@ struct AgentHomeView: View {
                 .frame(height: workbenchGlobeAreaHeight)
         } else {
             welcomeGlobeCanvas
-                // 键盘唤起时整体压扁（宽高比变宽），把下方的标题完整让出到
-                // 键盘/输入框之上；收起键盘后恢复正方形地球。
-                .aspectRatio(isComposerFocused ? 2.4 : 1, contentMode: .fit)
+                // 首页底部还要容纳两个入口卡片。地球区略微收短，避免在
+                // 较矮屏幕/较大动态字体下把欢迎标题挤进卡片；键盘唤起时
+                // 继续压扁，为输入框让出更多空间。
+                .aspectRatio(isComposerFocused ? 2.4 : 1.12, contentMode: .fit)
         }
     }
 

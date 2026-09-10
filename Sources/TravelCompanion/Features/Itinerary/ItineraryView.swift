@@ -273,7 +273,6 @@ struct ItineraryView: View {
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
             .background(Color.black.ignoresSafeArea())
-            .safeAreaInset(edge: .bottom) { syncStatus }
             .sheet(item: $activeDaySheet) { sheet in
                 let editingDay = sheet.day
                 DayEditor(existingDay: editingDay, existingDates: Set(syncEngine.trip?.days.map(\.date) ?? [])) { date in
@@ -3171,30 +3170,6 @@ struct ItineraryView: View {
         }
     }
 
-    @ViewBuilder
-    private var syncStatus: some View {
-        if let statusText {
-            Text(statusText)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 16)
-                .glassEffect(in: Capsule())
-        }
-    }
-
-    private var statusText: String? {
-        switch syncEngine.status {
-        case .loading: return String(localized: "itinerary.statusLoading")
-        case .synced: return nil
-        case .syncing: return nil
-        case .pending(let count): return String(format: String(localized: "itinerary.statusPending"), count)
-        case .conflict: return String(localized: "itinerary.statusConflict")
-        case .localOnly: return appleSignIn.isAuthenticated ? nil : String(localized: "itinerary.statusLocal")
-        case .offline(let message), .failed(let message): return message
-        }
-    }
 }
 
 private enum JourneyPalette {
