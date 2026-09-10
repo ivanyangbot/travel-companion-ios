@@ -1266,6 +1266,8 @@
 "expense.filter.category" = "Category";
 "expense.filter.all" = "All";
 "expense.filter.clear" = "Reset";
+"expense.sort.time" = "Time";
+"expense.sort.amount" = "Amount";
 "expense.sort.timeDesc" = "Time ↓";
 "expense.sort.timeAsc" = "Time ↑";
 "expense.sort.amountDesc" = "Amount ↓";

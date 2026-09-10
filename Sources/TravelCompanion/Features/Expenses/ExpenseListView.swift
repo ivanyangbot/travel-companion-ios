@@ -13,6 +13,7 @@ struct ExpenseListView: View {
     @State private var listFilter = ExpenseListFilter()
     @State private var linkedCardDetail: TravelCardSnapshot?
     @State private var linkedFlightDetail: TravelCardSnapshot?
+    @State private var showsOnlyEstimates = false
     @AppStorage("ledger.showsEstimatedExpenseDetails") private var showsEstimatedDetails = false
 
     var body: some View {
@@ -208,12 +209,38 @@ struct ExpenseListView: View {
                     currency: currency,
                     members: members,
                     selectedConsumerID: listFilter.consumer?.id,
-                    selectedPaymentStatus: listFilter.paymentStatus
-                ) { consumer, status in
-                    withAnimation(.snappy(duration: 0.22)) {
-                        listFilter.toggleConsumer(consumer, paymentStatus: status)
+                    selectedPaymentStatus: listFilter.paymentStatus,
+                    selectedCategory: listFilter.category,
+                    showsOnlyEstimates: showsOnlyEstimates,
+                    onSelectConsumer: { consumer, status in
+                        withAnimation(.snappy(duration: 0.22)) {
+                            listFilter.toggleConsumer(consumer, paymentStatus: status)
+                            showsOnlyEstimates = false
+                            showsEstimatedDetails = false
+                        }
+                    },
+                    onSelectPaymentStatus: { status in
+                        withAnimation(.snappy(duration: 0.22)) {
+                            listFilter.togglePaymentStatus(status)
+                            showsOnlyEstimates = false
+                            showsEstimatedDetails = false
+                        }
+                    },
+                    onSelectEstimates: {
+                        withAnimation(.snappy(duration: 0.22)) {
+                            showsOnlyEstimates.toggle()
+                            showsEstimatedDetails = showsOnlyEstimates
+                            if showsOnlyEstimates { listFilter.clearFilters() }
+                        }
+                    },
+                    onSelectCategory: { category in
+                        withAnimation(.snappy(duration: 0.22)) {
+                            listFilter.toggleCategory(category)
+                            showsOnlyEstimates = false
+                            showsEstimatedDetails = false
+                        }
                     }
-                }
+                )
                 .expenseLedgerListRow(top: 4)
 
                 HStack {
@@ -224,6 +251,12 @@ struct ExpenseListView: View {
                     Text(String(format: String(localized: "expense.filteredCountFormat"), visibleExpenses(in: trip).count, actualExpenses(in: trip).count))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
+                    if hasActiveFilters {
+                        Button("expense.filter.clear") { clearFilters() }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(PrimaryTabPalette.accent)
+                            .buttonStyle(.plain)
+                    }
                 }
                 .expenseLedgerListRow(top: 10, bottom: 4)
 
@@ -302,6 +335,7 @@ struct ExpenseListView: View {
     }
 
     private func visibleExpenses(in trip: SharedTripSnapshot) -> [ExpenseSnapshot] {
+        guard !showsOnlyEstimates else { return [] }
         listFilter.apply(to: actualExpenses(in: trip), members: members)
     }
 
@@ -322,10 +356,14 @@ struct ExpenseListView: View {
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
             Menu {
-                Button("expense.filter.all") { listFilter.consumer = nil }
+                Button("expense.filter.all") {
+                    listFilter.consumer = nil
+                    showsOnlyEstimates = false
+                }
                 ForEach(consumerOptions) { option in
                     Button {
                         listFilter.consumer = option
+                        showsOnlyEstimates = false
                     } label: {
                         if listFilter.consumer == option {
                             Label(option.name, systemImage: "checkmark")
@@ -342,9 +380,18 @@ struct ExpenseListView: View {
             }
 
             Menu {
-                Button("expense.filter.all") { listFilter.paymentStatus = .all }
-                Button("expense.filter.paid") { listFilter.paymentStatus = .paid }
-                Button("expense.filter.unpaid") { listFilter.paymentStatus = .unpaid }
+                Button("expense.filter.all") {
+                    listFilter.paymentStatus = .all
+                    showsOnlyEstimates = false
+                }
+                Button("expense.filter.paid") {
+                    listFilter.paymentStatus = .paid
+                    showsOnlyEstimates = false
+                }
+                Button("expense.filter.unpaid") {
+                    listFilter.paymentStatus = .unpaid
+                    showsOnlyEstimates = false
+                }
             } label: {
                 filterChipLabel(
                     title: paymentFilterTitle,
@@ -353,10 +400,14 @@ struct ExpenseListView: View {
             }
 
             Menu {
-                Button("expense.filter.all") { listFilter.category = nil }
+                Button("expense.filter.all") {
+                    listFilter.category = nil
+                    showsOnlyEstimates = false
+                }
                 ForEach(ExpenseCategory.allCases) { category in
                     Button {
                         listFilter.category = category
+                        showsOnlyEstimates = false
                     } label: {
                         if listFilter.category == category {
                             Label(category.title, systemImage: "checkmark")
@@ -373,7 +424,14 @@ struct ExpenseListView: View {
             }
 
             Button {
-                withAnimation(.snappy(duration: 0.2)) { showsEstimatedDetails.toggle() }
+                withAnimation(.snappy(duration: 0.2)) {
+                    if showsOnlyEstimates {
+                        showsOnlyEstimates = false
+                        showsEstimatedDetails = false
+                    } else {
+                        showsEstimatedDetails.toggle()
+                    }
+                }
             } label: {
                 toggleFilterChipLabel(
                     title: String(localized: "expensesummary.estimateShort"),
@@ -387,43 +445,32 @@ struct ExpenseListView: View {
                     : String(localized: "expense.showEstimates")
             ))
 
-            Menu {
-                ForEach(ExpenseListFilter.SortOrder.allCases) { order in
-                    Button {
-                        listFilter.sortOrder = order
-                    } label: {
-                        if listFilter.sortOrder == order {
-                            Label(sortTitle(order), systemImage: "checkmark")
-                        } else {
-                            Text(sortTitle(order))
-                        }
-                    }
-                }
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { listFilter.toggleTimeSort() }
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(sortTitle(listFilter.sortOrder))
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(PrimaryTabPalette.secondaryText)
-                .padding(.horizontal, 10)
-                .frame(minHeight: 32)
-                .background(PrimaryTabPalette.surface, in: Capsule())
+                sortChipLabel(field: .time)
             }
+            .buttonStyle(.plain)
 
-            if listFilter.isActive || showsEstimatedDetails {
-                Button("expense.filter.clear") {
-                    listFilter.consumer = nil
-                    listFilter.paymentStatus = .all
-                    listFilter.category = nil
-                    showsEstimatedDetails = false
-                }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(PrimaryTabPalette.accent)
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { listFilter.toggleAmountSort() }
+            } label: {
+                sortChipLabel(field: .amount)
             }
+            .buttonStyle(.plain)
             }
+        }
+    }
+
+    private var hasActiveFilters: Bool {
+        listFilter.isActive || showsEstimatedDetails || showsOnlyEstimates
+    }
+
+    private func clearFilters() {
+        withAnimation(.snappy(duration: 0.2)) {
+            listFilter.clearFilters()
+            showsEstimatedDetails = false
+            showsOnlyEstimates = false
         }
     }
 
@@ -437,11 +484,38 @@ struct ExpenseListView: View {
 
     private func sortTitle(_ order: ExpenseListFilter.SortOrder) -> String {
         switch order {
+        case .none: ""
         case .timeDesc: String(localized: "expense.sort.timeDesc")
         case .timeAsc: String(localized: "expense.sort.timeAsc")
         case .amountDesc: String(localized: "expense.sort.amountDesc")
         case .amountAsc: String(localized: "expense.sort.amountAsc")
         }
+    }
+
+    private enum SortField { case time, amount }
+
+    private func sortChipLabel(field: SortField) -> some View {
+        let order = listFilter.sortOrder
+        let active = switch field {
+        case .time: order == .timeDesc || order == .timeAsc
+        case .amount: order == .amountDesc || order == .amountAsc
+        }
+        let title: String = switch field {
+        case .time: String(localized: "expense.sort.time")
+        case .amount: String(localized: "expense.sort.amount")
+        }
+        return HStack(spacing: 4) {
+            Image(systemName: active ? (order == .timeAsc || order == .amountAsc ? "arrow.up" : "arrow.down") : "arrow.up.arrow.down")
+                .font(.system(size: 10, weight: .semibold))
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(active ? .black : PrimaryTabPalette.secondaryText)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 32)
+        .background(active ? PrimaryTabPalette.accent.opacity(0.85) : PrimaryTabPalette.surface, in: Capsule())
+        .accessibilityLabel(Text(active ? sortTitle(order) : title))
     }
 
     private func filterChipLabel(title: String, active: Bool) -> some View {

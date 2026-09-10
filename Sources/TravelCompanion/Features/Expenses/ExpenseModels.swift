@@ -235,7 +235,7 @@ struct ExpenseListFilter: Equatable, Sendable {
     }
 
     enum SortOrder: String, CaseIterable, Sendable, Identifiable {
-        case timeDesc, timeAsc, amountDesc, amountAsc
+        case none, timeDesc, timeAsc, amountDesc, amountAsc
         var id: String { rawValue }
     }
 
@@ -249,7 +249,7 @@ struct ExpenseListFilter: Equatable, Sendable {
     var consumer: ConsumerOption?
     var paymentStatus: PaymentStatus = .all
     var category: ExpenseCategory?
-    var sortOrder: SortOrder = .timeDesc
+    var sortOrder: SortOrder = .none
 
     var isActive: Bool {
         consumer != nil || paymentStatus != .all || category != nil
@@ -267,6 +267,43 @@ struct ExpenseListFilter: Equatable, Sendable {
         category = nil
     }
 
+    /// 概览卡中的支付状态与消费人保持同一“再次点击取消”语义。
+    mutating func togglePaymentStatus(_ status: PaymentStatus) {
+        paymentStatus = paymentStatus == status ? .all : status
+        consumer = nil
+        category = nil
+    }
+
+    /// “实际分类”列表直接驱动明细筛选，再次点击同一分类取消。
+    mutating func toggleCategory(_ value: ExpenseCategory) {
+        category = category == value ? nil : value
+        consumer = nil
+        paymentStatus = .all
+    }
+
+    mutating func clearFilters() {
+        consumer = nil
+        paymentStatus = .all
+        category = nil
+    }
+
+    /// 两个独立排序按钮各自按倒序 → 正序 → 清除循环。
+    mutating func toggleTimeSort() {
+        switch sortOrder {
+        case .timeDesc: sortOrder = .timeAsc
+        case .timeAsc: sortOrder = .none
+        default: sortOrder = .timeDesc
+        }
+    }
+
+    mutating func toggleAmountSort() {
+        switch sortOrder {
+        case .amountDesc: sortOrder = .amountAsc
+        case .amountAsc: sortOrder = .none
+        default: sortOrder = .amountDesc
+        }
+    }
+
     func apply(to expenses: [ExpenseSnapshot], members: [TripMemberSummary] = []) -> [ExpenseSnapshot] {
         let filtered = expenses.filter { expense in
             if let consumer,
@@ -280,6 +317,8 @@ struct ExpenseListFilter: Equatable, Sendable {
             return true
         }
         switch sortOrder {
+        case .none:
+            return filtered
         case .timeDesc:
             return filtered.sorted { ($0.occurredOn, $0.updatedAt) > ($1.occurredOn, $1.updatedAt) }
         case .timeAsc:

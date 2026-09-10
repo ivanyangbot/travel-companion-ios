@@ -288,6 +288,43 @@ final class ExpensesTests: XCTestCase {
         XCTAssertEqual(filter.paymentStatus, .all)
     }
 
+    func testSummaryStatusAndCategoryFiltersToggleOffWhenTappedAgain() {
+        var filter = ExpenseListFilter()
+
+        filter.togglePaymentStatus(.paid)
+        XCTAssertEqual(filter.paymentStatus, .paid)
+        filter.togglePaymentStatus(.paid)
+        XCTAssertEqual(filter.paymentStatus, .all)
+
+        filter.toggleCategory(.food)
+        XCTAssertEqual(filter.category, .food)
+        filter.toggleCategory(.food)
+        XCTAssertNil(filter.category)
+    }
+
+    func testIndependentSortButtonsCycleDescendingAscendingAndClear() {
+        var filter = ExpenseListFilter()
+        XCTAssertEqual(filter.sortOrder, .none)
+
+        filter.toggleTimeSort()
+        XCTAssertEqual(filter.sortOrder, .timeDesc)
+        filter.toggleTimeSort()
+        XCTAssertEqual(filter.sortOrder, .timeAsc)
+        filter.toggleTimeSort()
+        XCTAssertEqual(filter.sortOrder, .none)
+
+        filter.toggleAmountSort()
+        XCTAssertEqual(filter.sortOrder, .amountDesc)
+        filter.toggleAmountSort()
+        XCTAssertEqual(filter.sortOrder, .amountAsc)
+        filter.toggleAmountSort()
+        XCTAssertEqual(filter.sortOrder, .none)
+
+        filter.toggleTimeSort()
+        filter.toggleAmountSort()
+        XCTAssertEqual(filter.sortOrder, .amountDesc)
+    }
+
     func testLegacyConsumerNameMergesWithMatchingMemberIdentity() {
         var expense = ExpenseSnapshot(
             amountMinor: 300,

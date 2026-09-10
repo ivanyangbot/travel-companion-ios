@@ -1266,6 +1266,8 @@
 "expense.filter.category" = "类别";
 "expense.filter.all" = "全部";
 "expense.filter.clear" = "清除";
+"expense.sort.time" = "时间";
+"expense.sort.amount" = "金额";
 "expense.sort.timeDesc" = "时间↓";
 "expense.sort.timeAsc" = "时间↑";
 "expense.sort.amountDesc" = "金额↓";

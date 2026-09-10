@@ -6,7 +6,12 @@ struct ExpenseSummaryView: View {
     let members: [TripMemberSummary]
     let selectedConsumerID: String?
     let selectedPaymentStatus: ExpenseListFilter.PaymentStatus
+    let selectedCategory: ExpenseCategory?
+    let showsOnlyEstimates: Bool
     let onSelectConsumer: (ExpenseListFilter.ConsumerOption, ExpenseListFilter.PaymentStatus) -> Void
+    let onSelectPaymentStatus: (ExpenseListFilter.PaymentStatus) -> Void
+    let onSelectEstimates: () -> Void
+    let onSelectCategory: (ExpenseCategory) -> Void
 
     private var expenses: [ExpenseSnapshot] { trip.expenses }
     private var actualExpenses: [ExpenseSnapshot] { expenses.filter { !$0.isEstimate } }
@@ -44,7 +49,7 @@ struct ExpenseSummaryView: View {
     private var grandTotal: Int64 { paidTotal + unpaidTotal + estimatedTotal }
 
     private var byCategory: [ExpenseCategory: Int64] {
-        expenses.reduce(into: [ExpenseCategory: Int64]()) { result, expense in
+        actualExpenses.reduce(into: [ExpenseCategory: Int64]()) { result, expense in
             if let amount = expense.amountForSettlement { result[expense.category, default: 0] += amount }
         }
     }
@@ -103,7 +108,6 @@ struct ExpenseSummaryView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .largeTitle) private var totalFontSize = 44
     @State private var showsTravelers = false
-    @State private var selectedCategory: ExpenseCategory?
 
     private let paidColor = Color(red: 1, green: 0.46, blue: 0.20)
     private let pendingColor = Color(red: 0.95, green: 0.74, blue: 0.48)
@@ -191,9 +195,25 @@ struct ExpenseSummaryView: View {
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
                 : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
             layout {
-                statusMetric("expensesummary.paid", amount: paidTotal, color: paidColor)
-                statusMetric("expensesummary.unpaid", amount: unpaidTotal, color: pendingColor)
-                statusMetric("expensesummary.estimateShort", amount: estimatedTotal, color: estimateColor)
+                statusMetric(
+                    "expensesummary.paid",
+                    amount: paidTotal,
+                    color: paidColor,
+                    selected: selectedPaymentStatus == .paid
+                ) { onSelectPaymentStatus(.paid) }
+                statusMetric(
+                    "expensesummary.unpaid",
+                    amount: unpaidTotal,
+                    color: pendingColor,
+                    selected: selectedPaymentStatus == .unpaid
+                ) { onSelectPaymentStatus(.unpaid) }
+                statusMetric(
+                    "expensesummary.estimateShort",
+                    amount: estimatedTotal,
+                    color: estimateColor,
+                    selected: showsOnlyEstimates,
+                    action: onSelectEstimates
+                )
             }
         }
         .padding(18)
@@ -230,33 +250,45 @@ struct ExpenseSummaryView: View {
         }
     }
 
-    private func statusMetric(_ key: LocalizedStringKey, amount: Int64, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 5) {
-                Circle().fill(color).frame(width: 5, height: 5).accessibilityHidden(true)
-                Text(key).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
+    private func statusMetric(
+        _ key: LocalizedStringKey,
+        amount: Int64,
+        color: Color,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 5) {
+                    Circle().fill(color).frame(width: 5, height: 5).accessibilityHidden(true)
+                    Text(key).font(.caption).foregroundStyle(PrimaryTabPalette.secondaryText)
+                }
+                Text(amountNumber(amount))
+                    .font(.system(.callout, design: .rounded, weight: .semibold))
+                    .foregroundStyle(ink)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(fraction(amount, of: grandTotal), format: .percent.precision(.fractionLength(0)))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(PrimaryTabPalette.secondaryText)
             }
-            Text(amountNumber(amount))
-                .font(.system(.callout, design: .rounded, weight: .semibold))
-                .foregroundStyle(ink)
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Text(fraction(amount, of: grandTotal), format: .percent.precision(.fractionLength(0)))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(PrimaryTabPalette.secondaryText)
+            .padding(12)
+            .frame(minHeight: 86, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(color.opacity(selected ? 0.16 : 0), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .background(metricSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .strokeBorder(selected ? color.opacity(0.62) : .white.opacity(0.045), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
         }
-        .padding(12)
-        .frame(minHeight: 86, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(metricSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(.white.opacity(0.045), lineWidth: 1)
-        }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(key))
         .accessibilityValue(Text(ExpenseMoney.formatted(amount, currency: currency)))
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var insightsCard: some View {
@@ -345,7 +377,7 @@ struct ExpenseSummaryView: View {
         let amount = byCategory[category] ?? 0
         return Button {
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                selectedCategory = category
+                onSelectCategory(category)
             }
         } label: {
             HStack(spacing: 8) {
@@ -368,7 +400,7 @@ struct ExpenseSummaryView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(category == focusedCategory ? .white.opacity(0.045) : .clear,
+            .background(category == selectedCategory ? .white.opacity(0.045) : .clear,
                         in: RoundedRectangle(cornerRadius: 10))
             .contentShape(Rectangle())
         }
@@ -376,7 +408,7 @@ struct ExpenseSummaryView: View {
         .accessibilityLabel(Text(category.title))
         .accessibilityValue(Text(ExpenseMoney.formatted(amount, currency: currency) + ", " +
                                 fraction(amount, of: actualTotal).formatted(.percent.precision(.fractionLength(0)))))
-        .accessibilityAddTraits(category == focusedCategory ? .isSelected : [])
+        .accessibilityAddTraits(category == selectedCategory ? .isSelected : [])
     }
 
     private func consumerCard(_ item: ExpenseConsumerTotal) -> some View {
@@ -404,9 +436,6 @@ struct ExpenseSummaryView: View {
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.65)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(consumerSelected ? PrimaryTabPalette.accent : PrimaryTabPalette.secondaryText)
                 }
                 .contentShape(Rectangle())
             }

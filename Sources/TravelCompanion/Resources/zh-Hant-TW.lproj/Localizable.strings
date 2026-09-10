@@ -1268,6 +1268,8 @@
 "expense.filter.category" = "類別";
 "expense.filter.all" = "全部";
 "expense.filter.clear" = "清除";
+"expense.sort.time" = "時間";
+"expense.sort.amount" = "金額";
 "expense.sort.timeDesc" = "時間↓";
 "expense.sort.timeAsc" = "時間↑";
 "expense.sort.amountDesc" = "金額↓";
