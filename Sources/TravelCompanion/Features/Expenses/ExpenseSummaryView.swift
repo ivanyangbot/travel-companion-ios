@@ -174,7 +174,7 @@ struct ExpenseSummaryView: View {
                     Text("expensesummary.includesEstimates")
                         .font(.caption2)
                         .foregroundStyle(PrimaryTabPalette.secondaryText)
-                    Text(String(format: String(localized: "expensesummary.count"), expenses.count))
+                    Text(String(format: String(localized: "expensesummary.count"), actualExpenses.count))
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(ink.opacity(0.8))
                         .padding(.horizontal, 10)
