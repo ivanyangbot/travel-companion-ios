@@ -393,11 +393,15 @@ actor APIClient {
     }
 
     private static func error(for statusCode: Int, body: Data, decoder: JSONDecoder) -> Error {
+        let error: Error
         if var problem = try? decoder.decode(APIErrorEnvelope.self, from: body).error {
             problem.statusCode = statusCode
-            return problem
+            error = problem
+        } else {
+            error = APIResponseError(statusCode: statusCode)
         }
-        return APIResponseError(statusCode: statusCode)
+        reportExpiredAuthentication(error)
+        return error
     }
 
     func importFromLink(_ linkRequest: LinkImportRequest) async throws -> LinkImportResult {
@@ -678,10 +682,20 @@ actor APIClient {
             if let problem = try? decoder.decode(APIErrorEnvelope.self, from: data) {
                 var problem = problem.error
                 problem.statusCode = response.statusCode
+                Self.reportExpiredAuthentication(problem)
                 throw problem
             }
-            throw APIResponseError(statusCode: response.statusCode)
+            let error = APIResponseError(statusCode: response.statusCode)
+            Self.reportExpiredAuthentication(error)
+            throw error
         }
+    }
+
+    private static func reportExpiredAuthentication(_ error: Error) {
+        let isExpired = (error as? APIProblem)?.invalidatesAuthentication == true
+            || (error as? APIResponseError)?.statusCode == 401
+        guard isExpired else { return }
+        NotificationCenter.default.post(name: .appleSignInSessionExpired, object: nil)
     }
 
     private func requiredURL(_ components: URLComponents) throws -> URL {

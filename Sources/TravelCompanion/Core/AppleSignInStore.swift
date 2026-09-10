@@ -6,6 +6,9 @@ import Foundation
 /// direct reference. `userInfo` is empty; callers re-query the keychain.
 extension Notification.Name {
     static let appleSignInStateChanged = Notification.Name("AppleSignInStateChanged")
+    /// Emitted by APIClient after the server rejects the saved bearer token.
+    /// ContentView consumes it on the main actor and clears the stale session.
+    static let appleSignInSessionExpired = Notification.Name("AppleSignInSessionExpired")
 }
 
 @MainActor
@@ -73,6 +76,24 @@ final class AppleSignInStore: ObservableObject {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    /// A bearer token rejected by the server is no longer a valid signed-in
+    /// state. Clear it without asking for confirmation so every subsystem
+    /// immediately falls back to the fully functional local workspace.
+    func expireSession() {
+        guard isAuthenticated else { return }
+        errorMessage = nil
+        do {
+            try keychain.deleteAccessToken()
+        } catch {
+            // The UI must not continue presenting an invalid authenticated
+            // state even when Keychain cleanup itself fails.
+            errorMessage = error.localizedDescription
+        }
+        displayName = nil
+        isAuthenticated = false
+        NotificationCenter.default.post(name: .appleSignInStateChanged, object: nil)
     }
 
     /// Bridge from ``SignInWithAppleButton``'s `onCompletion` into the async

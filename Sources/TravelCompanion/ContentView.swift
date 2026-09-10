@@ -1,4 +1,5 @@
 import AuthenticationServices
+import Combine
 import SwiftUI
 import SwiftData
 import UIKit
@@ -181,6 +182,12 @@ struct ContentView: View {
                 isAuthenticated: syncEngine?.isUserAuthenticated == true,
                 tripID: tripID
             )
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .appleSignInSessionExpired)
+                .receive(on: RunLoop.main)
+        ) { _ in
+            appleSignIn.expireSession()
         }
     }
 

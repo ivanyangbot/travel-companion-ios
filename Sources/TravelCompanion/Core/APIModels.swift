@@ -446,6 +446,10 @@ struct APIProblem: Decodable, Error, LocalizedError {
         guard let statusCode else { return false }
         return (400 ... 499).contains(statusCode) && statusCode != 429
     }
+
+    var invalidatesAuthentication: Bool {
+        statusCode == 401 || code == "invalid_token"
+    }
 }
 
 struct APIErrorEnvelope: Decodable {

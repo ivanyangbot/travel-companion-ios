@@ -2598,6 +2598,26 @@ struct AgentHomeView: View {
         let client = APIClient()
         let agent = agent
         Task {
+            // Confirming itinerary cards is a local-first mutation. Signed-out
+            // users write to their local trip directly; signing in only adds
+            // cloud synchronization and is never required by this button.
+            if agent == .itinerary {
+                let localCommit = await commitLocalItineraryCandidates(
+                    draft: snapshot.draft,
+                    selected: snapshot.selected
+                )
+                let success = localCommit.success
+                guard success.addedCount > 0 || success.removedCount > 0 else {
+                    runState.error = String(localized: "agent.commitNothingSaved")
+                    runState.isCommitting = false
+                    return
+                }
+                store.completeCommit(committedCandidateIDs: localCommit.committedCandidateIDs)
+                await presentCommitSuccess(success)
+                runState.isCommitting = false
+                return
+            }
+
             var serverConfirmed = false
             do {
                 let encoder = JSONEncoder()
@@ -2649,12 +2669,7 @@ struct AgentHomeView: View {
                     agent: agent
                 )
                 if success.addedCount > 0 || success.removedCount > 0 {
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
-                        commitSuccess = success
-                    }
-                    UIAccessibility.post(notification: .announcement, argument: success.accessibilityText)
-                    try? await Task.sleep(for: .milliseconds(720))
+                    await presentCommitSuccess(success)
                 }
                 if !(result.retryCandidateIds ?? []).isEmpty {
                     runState.status = String(localized: "agent.commitRetryRetained")
@@ -2679,6 +2694,117 @@ struct AgentHomeView: View {
             }
             runState.isCommitting = false
         }
+    }
+
+    private func commitLocalItineraryCandidates(
+        draft: AgentV2Draft,
+        selected: [AgentV2Candidate]
+    ) async -> (success: AgentCommitSuccess, committedCandidateIDs: Set<UUID>) {
+        var committedCandidateIDs = Set<UUID>()
+        var removedCount = 0
+        var updatedCount = 0
+
+        // Existing-card removals are independent of candidate selection.
+        for change in draft.changes where change.operation == .remove {
+            guard let targetID = change.targetCardId,
+                  let card = syncEngine.trip?.days
+                    .flatMap(\.cards)
+                    .first(where: { $0.serverID == targetID }) else { continue }
+            await syncEngine.deleteCard(card)
+            removedCount += 1
+        }
+
+        for candidate in selected {
+            guard let kind = candidate.kind.cardKind,
+                  let day = syncEngine.trip?.days.first(where: { $0.date == candidate.date }) else { continue }
+            let change = draft.changes.last(where: { $0.candidateId == candidate.id })
+            let targetCard = change?.targetCardId.flatMap { targetID in
+                syncEngine.trip?.days.flatMap(\.cards).first(where: { $0.serverID == targetID })
+            }
+            // A replace whose original server card is no longer present must
+            // remain in the draft for repair; silently adding it would create
+            // a duplicate itinerary item.
+            if change?.operation == .replace,
+               change?.targetCardId != nil,
+               targetCard == nil { continue }
+            let clears: Set<String> = targetCard == nil ? [] : [
+                "endAt", "place", "bookingCode", "url", "description",
+                "fromAirport", "toAirport", "passengers", "ticketNumber",
+                "departureTerminal", "arrivalTerminal", "gate", "seat",
+                "cabinClass", "baggageAllowance", "priceMinor",
+                "actualPriceMinor", "ticketPriceMinor", "priceCurrency",
+                "stayDurationMinutes", "roomType", "tips", "images", "notes"
+            ]
+            let place = candidate.place.map {
+                PlaceRequest(
+                    name: $0.name,
+                    address: $0.address,
+                    latitude: $0.latitude,
+                    longitude: $0.longitude,
+                    placeId: $0.placeId,
+                    cityCode: $0.cityCode
+                )
+            }
+            let request = CardRequest(
+                dayId: day.serverID,
+                kind: kind,
+                title: candidate.title,
+                startAt: candidate.startAt,
+                endAt: candidate.endAt,
+                place: place,
+                bookingCode: candidate.bookingCode,
+                url: candidate.url,
+                description: candidate.description,
+                fromAirport: candidate.fromAirport,
+                toAirport: candidate.toAirport,
+                passengers: candidate.passengers,
+                ticketNumber: candidate.ticketNumber,
+                departureTerminal: candidate.departureTerminal,
+                arrivalTerminal: candidate.arrivalTerminal,
+                gate: candidate.gate,
+                seat: candidate.seat,
+                cabinClass: candidate.cabinClass,
+                baggageAllowance: candidate.baggageAllowance,
+                priceMinor: candidate.priceMinor,
+                actualPriceMinor: candidate.actualPriceMinor,
+                ticketPriceMinor: candidate.ticketPriceMinor,
+                priceCurrency: candidate.priceCurrency,
+                stayDurationMinutes: candidate.stayDurationMinutes,
+                roomType: candidate.roomType,
+                hotelVisits: candidate.hotelVisits,
+                tips: candidate.tips,
+                images: candidate.images,
+                notes: candidate.notes,
+                position: targetCard == nil ? day.cards.count : nil,
+                fieldsToClear: clears
+            )
+            if let targetCard {
+                await syncEngine.updateCard(targetCard, request: request)
+                updatedCount += 1
+            } else {
+                await syncEngine.addCard(to: day, request: request)
+            }
+            committedCandidateIDs.insert(candidate.id)
+        }
+
+        return (
+            AgentCommitSuccess(
+                addedCount: committedCandidateIDs.count,
+                removedCount: removedCount,
+                updatedCardCount: updatedCount,
+                agent: .itinerary
+            ),
+            committedCandidateIDs
+        )
+    }
+
+    private func presentCommitSuccess(_ success: AgentCommitSuccess) async {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
+            commitSuccess = success
+        }
+        UIAccessibility.post(notification: .announcement, argument: success.accessibilityText)
+        try? await Task.sleep(for: .milliseconds(720))
     }
 
     private func selectAllCandidates(_ candidates: [AgentV2Candidate], selected: Bool) {

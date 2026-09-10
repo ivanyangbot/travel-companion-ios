@@ -306,6 +306,34 @@ final class AITests: XCTestCase {
         XCTAssertEqual(APIClientProtocolStub.requests.map { $0.url?.path }, ["/v1/cards", "/v1/cards"])
     }
 
+    func testInvalidTokenResponseRequestsAutomaticSignOut() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ExpiredTokenURLProtocol.self]
+        let client = APIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test")),
+            session: URLSession(configuration: configuration),
+            tokenProvider: { "expired-token" }
+        )
+        let expired = expectation(description: "expired authentication notification")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .appleSignInSessionExpired,
+            object: nil,
+            queue: nil
+        ) { _ in
+            expired.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        do {
+            _ = try await client.fetchTrips()
+            XCTFail("Expected the expired token request to fail")
+        } catch let problem as APIProblem {
+            XCTAssertTrue(problem.invalidatesAuthentication)
+            XCTAssertEqual(problem.code, "invalid_token")
+        }
+        await fulfillment(of: [expired], timeout: 1)
+    }
+
     func testJournalRequestUsesItsExplicitTripID() async throws {
         APIClientProtocolStub.requests = []
         let configuration = URLSessionConfiguration.ephemeral
@@ -741,6 +769,28 @@ private final class APIClientProtocolStub: URLProtocol {
             body = "{\"meta\":{\"tripVersion\":8,\"operationId\":null,\"conflict\":false,\"serverUpdatedAt\":\"2026-10-01T00:00:00Z\"}}"
         }
         client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private final class ExpiredTokenURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 401,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(
+            self,
+            didLoad: Data(#"{"error":{"code":"invalid_token","message":"expired","requestId":"test","details":null}}"#.utf8)
+        )
         client?.urlProtocolDidFinishLoading(self)
     }
 
